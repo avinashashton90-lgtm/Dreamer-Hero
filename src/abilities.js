@@ -1,5 +1,6 @@
-// STUB — hero super abilities (e.g. super leap, dash, power punch for the boss fight).
-// Tunables go in CONFIG.abilities once implemented.
+// Hero super abilities. Unlocked by collecting gems (see gems.js / CONFIG.gems.abilities):
+// yellow → 'batarang', blue → 'smokeBomb', pink → 'flashMode'. The abilities themselves come
+// later; for now this only records what is unlocked (it persists through respawns).
 
 export class Abilities {
   constructor(hero) {
@@ -11,6 +12,10 @@ export class Abilities {
   }
   has(name) {
     return this.unlocked.has(name);
+  }
+  /** New game only. */
+  reset() {
+    this.unlocked.clear();
   }
   update(_dt, _input) {}
 }

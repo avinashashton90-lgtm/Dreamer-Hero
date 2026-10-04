@@ -19,6 +19,8 @@ export class FollowCamera {
     this.pitch = C.startPitch;
     this.focus = new THREE.Vector3();
     this.distance = C.distance; // current (collision-smoothed) distance
+    this.ride = 0; // 0 on foot … 1 mounted (smoothed)
+    this.speed = 0; // 0 … 1 fraction of the horse's top speed (smoothed)
     this.#dir = new THREE.Vector3();
   }
 
@@ -40,7 +42,20 @@ export class FollowCamera {
     this.#place(0);
   }
 
-  update(dt, target) {
+  /**
+   * @param {number} dt
+   * @param {THREE.Vector3} target  point to follow (hero feet, or rider's seat)
+   * @param {{mounted?: boolean, speed?: number}} [ride]  speed = 0..1 of top gallop speed
+   */
+  update(dt, target, ride = {}) {
+    const rk = 1 - Math.exp(-C.rideBlend * dt);
+    this.ride += ((ride.mounted ? 1 : 0) - this.ride) * rk;
+    this.speed += ((ride.mounted ? ride.speed ?? 0 : 0) - this.speed) * rk;
+    const fov = CONFIG.render.fov + C.speedFov * this.speed;
+    if (Math.abs(this.camera.fov - fov) > 0.01) {
+      this.camera.fov = fov;
+      this.camera.updateProjectionMatrix();
+    }
     const k = 1 - Math.exp(-C.followLerp * dt);
     this.focus.x += (target.x - this.focus.x) * k;
     this.focus.y += (target.y + C.height - this.focus.y) * k;
@@ -63,7 +78,10 @@ export class FollowCamera {
   #place(dt) {
     const zone = this.treeZoneFactor(this.focus.x);
     const pitch = this.pitch + zone * C.treeZonePitchBoost;
-    const maxDist = C.distance * (1 + zone * (C.treeZoneDistanceScale - 1));
+    const maxDist =
+      C.distance *
+      (1 + zone * (C.treeZoneDistanceScale - 1)) *
+      (1 + this.ride * (C.mountedDistanceScale - 1) + this.speed * C.speedDistanceScale);
     const cp = Math.cos(pitch);
     const dir = this.#dir.set(Math.sin(this.yaw) * cp, Math.sin(pitch), Math.cos(this.yaw) * cp);
 
@@ -117,7 +135,7 @@ export class FollowCamera {
     // only when the camera itself would end up inside one is it moved in front of it.
     for (let pass = 0; pass < 3; pass++) {
       let moved = false;
-      for (const l of this.world.foliage.items) {
+      for (const set of this.world.foliageSets) for (const l of set.items) {
         const dx = l.x - o.x;
         const dy = l.y - o.y;
         const dz = l.z - o.z;

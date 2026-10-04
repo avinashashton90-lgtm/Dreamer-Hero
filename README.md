@@ -11,7 +11,7 @@ npm install
 npm run dev        # http://localhost:5173 (also exposed on your LAN to test on a phone)
 npm run build      # production build in dist/
 npm run preview    # serve the build
-npm run test:route # headless check that the whole jump route is fair and completable
+npm run test:route # headless check: jump route fair + completable, and the full horse ride (all gems, cave)
 ```
 
 ## Controls
@@ -21,6 +21,7 @@ npm run test:route # headless check that the whole jump route is fair and comple
 | Move | Drag on the left half (virtual joystick) | WASD / arrow keys |
 | Look | Drag on the right half | Mouse drag |
 | Jump | JUMP button (works while moving + looking) | Space |
+| Mount / dismount the horse | Mount button (appears near the horse) | E |
 
 Portrait mode shows a "rotate your phone" message and pauses the game.
 
@@ -41,8 +42,10 @@ src/
   style.css     overlay/UI styles
   quests.js     objectives, objective arrow and beacon
   guides.js     landing ring and next-branch glow while jumping
-  horse.js      the horse on the sand bank (riding comes later)
-  gems.js abilities.js boss.js   (stubs for upcoming levels)
+  horse.js      the horse: mount/dismount, riding, dust, ride checkpoints
+  gems.js       collectible gems (yellow/blue/pink) and ability unlocks
+  abilities.js  unlocked abilities (the abilities themselves come later)
+  boss.js       (stub for the cave boss)
 ```
 
 Placeholder models are built in `loadXModel()` functions (`loadHeroModel`, `loadTerrainModel`, `loadHorseModel`, …) so real glTF assets can be swapped in later.

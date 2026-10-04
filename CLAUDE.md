@@ -24,40 +24,43 @@ An average, bored schoolboy falls asleep at his desk and dreams he is a **masked
 
 ## Rules
 - Game states: `intro`, `play`, `cutscene`, `gameover`, `ending` (see `src/state.js`). Only valid transitions are allowed.
-- Falling (touching the town streets or the swamp under the trees, or dropping below `CONFIG.world.killY`) → respawn at the last safe platform with a quick fade. Gameover is reserved for later (e.g. the boss); gameover → tap to retry.
+- Falling (touching the town streets or the swamp under the trees, or dropping below `CONFIG.world.killY`) → respawn at the last safe platform with a quick fade. **After the first mount**, any fall or death respawns the hero *on the horse* at the last ride checkpoint (`hero.onFall` → `Horse.respawnAtCheckpoint`). Gameover is reserved for later (e.g. the boss); gameover → tap to retry (keeps gems/unlocks/quests).
 - Jump assist (phone fairness): coyote time, jump buffering, ledge assist (snap up onto ledges just above the feet while falling) and edge grace (platform edges count a little past their border). All in `CONFIG.hero`.
 - Jump: ~1.94 high, ~6.0 units long on level ground, ~5.1 jumping up 1 (walk 7 × air boost 1.095, jump velocity 9.86, gravity 25 — unchanged so it isn't floaty).
 - Every gap on the route is generated within reach and uses ~35–56% of it; skipping a platform (jumping straight to the one after next) is impossible. Re-run `npm run test:route` after any jump, gap or layout change.
 - Controls (touch): left-half virtual joystick moves; right-half drag rotates camera; Jump button (multi-touch: move + look + jump at once).
-- Controls (keyboard fallback): WASD / arrows move, Space jumps, mouse drag rotates camera.
+- Controls (keyboard fallback): WASD / arrows move, Space jumps, E mounts/dismounts, mouse drag rotates camera.
+- Horse: a Mount button (above Jump) appears within 3 units of the horse and becomes Dismount while riding; 0.5 s mount/dismount transition. Mounted, the joystick steers (camera-relative): speed builds smoothly to 2.5× walk (17.5), turns are gradual (slower at full gallop) and it eases off in sharp turns. Follows terrain, gallop bob + leg swing scale with speed, small hop on Jump, dust puffs on sand and the dirt track. The camera pulls back and widens FOV with speed; drag-to-look still works.
+- Gems: 6 each of yellow / blue / pink along the ride (river → cave). Collect by walking or riding through. 5 of a colour unlocks an ability (yellow → Batarang, blue → Smoke Bomb, pink → Flash Mode) with an "Unlocked!" banner; recorded in `Abilities` (abilities themselves come later). Gems and unlocks persist through respawns; only a new game resets them.
 - Portrait orientation shows a "rotate your phone" overlay and pauses the game.
 
 ## Map (≈300×200, linear route along +X)
-Town rooftops (x≈-142…-72) → giant swamp trees with walkable branches (…≈-24) → sand bank with the horse → river (x≈0, meandering) → forest (8…84, trees keep clear of the wiggly ground path `pathZ(x)`) → cave arena (84…124, rock ring opening west) → desert (124…150, empty for now). Boundary hills on all edges.
+Town rooftops (x≈-142…-72) → giant swamp trees with walkable branches (…≈-24) → sand bank with the horse → river (x≈0, meandering, wadeable) → dense forest (8…84) with a winding dirt ride path `pathZ(x)` → cave arena (84…124, rock ring opening west, dark cave arch at the far side) → desert (124…150, empty for now). Boundary hills on all edges.
 - Layout is generated deterministically from `CONFIG.world.seed` in `world.js` (`generateLayout`). Terrain height is analytic: `world.heightAt(x,z)`.
 - Colliders in `world.js`: `boxes` (buildings: standable tops + walls), `beams` (horizontal branches: flat walkable top that tapers base→tip, solid sides), `cylinders` (trunks, rocks, forest trees). Hero uses `world.groundAt()` and `world.collide()`.
 - Tree-leaping zone: each route platform is a thick limb that grows sideways out of a bowed, root-flared trunk (an elbow) and then runs along the route, wide base facing the previous platform. Twigs angle outward off the path; leaf clusters (3 greens) stay ≥ `leafLiftMin` above the walkable top. Background giant trees frame the swamp. No floating platforms.
 - Tree-zone visibility: leaf clusters (separate transparent foliage material, per-instance `instanceFade`) that block the camera→hero line or sit within `CONFIG.foliage.fadeRadius` of the hero fade smoothly to ~15% (`World.updateFoliage`). Trunks/branches stay solid. Canopy over the path is kept small, pushed to the sides and above the jump apex; crowns lean away from the walking line.
 - Jump guide (`guides.js`): while airborne a ring marks the spot directly below the hero (yellow over a platform, red over the swamp/street); the next branch on the route gets a soft pulsing glow.
 - Camera: in the tree zone it pulls back 20% and looks further down (blended at the zone edges). It never renders from inside trunks, rocks, buildings or leaf clusters: snaps in front of solids, eases back out; leaves merely in the way fade instead.
-- Forest/edge trees: three species (conifer, broadleaf, birch) with varied size, stretch and tint, one InstancedMesh each.
+- Forest/edge trees: three species (conifer, broadleaf, birch) with varied size, stretch and tint; dense along both sides of the path (kept ≥ `pathHalfWidth` + size from it, measured perpendicular via `pathDistance`). Each species is two InstancedMeshes: solid trunks + fadeable crowns. All foliage (giant-tree leaves and forest crowns) lives in `world.foliageSets` and uses the same fade and camera collision.
+- Ride checkpoints (`CONFIG.checkpoints`): flag poles along the path; flag turns green when reached.
 - Repeated objects use `InstancedMesh` (buildings, roofs, giant-tree trunks/limbs/twigs/leaves, forest species, rocks, clouds). Building windows are drawn in-shader in world space.
-- Quests (`quests.js`): ordered objectives with a target + completion test, HUD text with distance, a floating arrow above the hero, and a light beacon at the target. Current: "Jump across the rooftops" → "Leap through the trees" → "Find the horse".
+- Quests (`quests.js`): ordered objectives with a target + completion test, HUD text with distance, a floating arrow above the hero, and a light beacon at the target. Current: "Jump across the rooftops" → "Leap through the trees" → "Mount the horse" (target follows the horse) → "Ride to the cave" (distance to the cave arch) → done.
 
 ## Architecture (one file per system, all in `/src`)
 | File | Responsibility |
 |---|---|
 | `config.js` | **All tunable numbers** + the `DIALOGUE` object (all text/dialogue). |
 | `state.js` | Game state machine (`intro/play/cutscene/gameover/ending`) with enter/exit listeners. |
-| `world.js` | Map layout, terrain (`heightAt`), sky, river, buildings, trees, cave rocks, colliders; `loadTerrainModel()`, `loadBuildingModels()`, `loadGiantTreeModels()`, `loadForestTreeModels()`, `loadRockModel()`. |
+| `world.js` | Map layout, winding path (`pathZ`, `pathDistance`), `surfaceAt`, foliage fade (`makeFadeMaterial`), terrain (`heightAt`), sky, river, buildings, trees, cave rocks, colliders; `loadTerrainModel()`, `loadBuildingModels()`, `loadGiantTreeModels()`, `loadForestTreeModels()`, `loadRockModel()`, `loadCaveArchModel()`. |
 | `hero.js` | Hero movement, gravity, jump assist, platform/wall collision, respawn at last safe spot, `loadHeroModel()`. |
 | `camera.js` | Third-person follow camera with yaw/pitch orbit, tree-zone distance/pitch, collision with trunks, rocks, buildings and leaves. |
-| `input.js` | Joystick, camera drag, jump button, keyboard & mouse; unified input state. |
-| `ui.js` | DOM overlays: quest panel, toast, respawn fade, controls hint, rotate-phone message, gameover/ending screens. |
+| `input.js` | Joystick, camera drag, Jump and Mount buttons, keyboard (WASD/Space/E) & mouse; unified input state. |
+| `ui.js` | DOM overlays: quest panel, gem counters, toast, unlock banner, respawn fade, controls hint, rotate-phone message, gameover/ending screens. |
 | `cutscene.js` | Slide-based cutscenes (intro, girl scene) with tap-to-advance + Skip. |
-| `horse.js` | Horse waiting on the sand bank (idle grazing) — `loadHorseModel()`. Riding not yet. |
-| `gems.js` | Collectible gems — `loadGemModel()`. *(stub)* |
-| `abilities.js` | Hero super abilities. *(stub)* |
+| `horse.js` | Horse + ride: mount/dismount, gallop physics & animation, dust, ride checkpoints and respawn-on-horse — `loadHorseModel()`, `loadDustModel()`, `loadCheckpointModel()`. |
+| `gems.js` | Gems along the ride: placement, spin/bob/halo, collect pop, counts, unlock events — `loadGemModel()`. |
+| `abilities.js` | Records unlocked abilities (batarang / smokeBomb / flashMode); the abilities themselves are still to build. |
 | `boss.js` | Cave monster boss — `loadBossModel()`. *(stub)* |
 | `guides.js` | Jump readability: landing ring under the airborne hero, glow on the next branch — `loadLandingRingModel()`, `loadHighlightModel()`. |
 | `quests.js` | Objectives, objective arrow + beacon — `loadArrowModel()`, `loadBeaconModel()`. |
@@ -75,8 +78,9 @@ Town rooftops (x≈-142…-72) → giant swamp trees with walkable branches (…
 - [x] Rooftops level
 - [x] Tree leaping
 - [x] Quest text + objective arrow (rooftops → trees → find the horse)
-- [ ] Horse & river (horse placed; mounting/riding not yet)
-- [ ] Forest ride + gems
+- [x] Horse & river: mount/dismount, riding, dust, checkpoints
+- [x] Forest ride + gems (3 colours, unlocks recorded; abilities themselves not built yet)
+- [ ] Abilities: Batarang, Smoke Bomb, Flash Mode
 - [ ] Cave + boss
 - [ ] Girl/witch cutscene
 - [ ] Desert ride
@@ -84,5 +88,5 @@ Town rooftops (x≈-142…-72) → giant swamp trees with walkable branches (…
 
 ## Commands
 - `npm install` · `npm run dev` (use `--host` to test on a phone on the LAN) · `npm run build` · `npm run preview`
-- `npm run test:route` — headless physics test: gap fairness vs. reach, every hop (early + coyote-late jumps), no platform skippable, full autopilot run, branch collision, and camera checks in the tree zone (never inside a trunk/leaf cluster, opaque leaves never block the hero).
+- `npm run test:route` — headless physics test: gap fairness vs. reach, every hop (early + coyote-late jumps), no platform skippable, full autopilot run, branch collision, camera checks in the tree zone (never inside a trunk/leaf cluster, opaque leaves never block the hero), and the ride: walk to the horse, mount, ride the path collecting all 18 gems to the cave (no falls, no stuck points, all 3 unlocks, all checkpoints, camera never inside trunks/crowns), dismount/remount, and a fall after riding respawning on the horse with gems kept.
 - Deploy: pushing to `main` runs `.github/workflows/deploy.yml` (npm ci + build → GitHub Pages).

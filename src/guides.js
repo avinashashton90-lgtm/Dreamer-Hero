@@ -88,7 +88,7 @@ export class JumpGuide {
   #updateRing(dt, hero) {
     const { x, z, y } = hero.position;
     const below = this.world.groundAt(x, z, y + 0.05);
-    const airborne = !hero.grounded && y - below.y > 0.3;
+    const airborne = !hero.riding && !hero.grounded && y - below.y > 0.3;
     this.ringAlpha += ((airborne ? 1 : 0) - this.ringAlpha) * (1 - Math.exp(-G.ringFadeSpeed * dt));
     this.ring.visible = this.ringAlpha > 0.01;
     if (!this.ring.visible) return;

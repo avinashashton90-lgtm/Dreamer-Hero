@@ -22,9 +22,15 @@ export const CONFIG = {
     fogFar: 240,
     edgeHillStart: 78,       // |z| where the boundary hills start rising
     edgeHillHeight: 16,
-    pathAmplitude: 7,        // the ground route (sand → cave) wiggles in z
-    pathFrequency: 0.035,
-    pathHalfWidth: 6,        // forest trees keep this far from the route
+    // Winding ground route (sand bank → river → forest → cave), z as a function of x:
+    // two sine waves, straightening out to z=0 as it reaches the cave opening.
+    pathAmplitude: 12,
+    pathFrequency: 0.05,
+    pathAmplitude2: 5,
+    pathFrequency2: 0.11,
+    pathStraightenX: [68, 86], // blend from winding to straight (z=0) between these x
+    pathHalfWidth: 5.5,      // forest trees keep at least this far from the path centre line
+    pathDirtWidth: 3.2,      // half width of the visible dirt track
     colors: {
       street: 0x4a4d57,
       swamp: 0x2d4a3e,
@@ -33,6 +39,7 @@ export const CONFIG = {
       grass: 0x63b553,
       rock: 0x8a8378,
       desert: 0xf0c27b,
+      dirt: 0x9c7a4f,
     },
   },
 
@@ -113,7 +120,9 @@ export const CONFIG = {
 
   // Forest and background trees: three species with per-instance size and tint.
   forest: {
-    count: 170,
+    count: 340,              // dense forest, mostly hugging the winding path
+    nearPathBand: 34,        // most trees sit within this distance of the path
+    farCount: 70,            // plus a scattering farther out
     trunkRadius: 0.35,       // collider radius at scale 1
     scaleMin: 0.8,
     scaleMax: 1.9,
@@ -131,6 +140,11 @@ export const CONFIG = {
     rockSizeMax: 4.2,
     openingHalfAngle: 0.45,  // radians; opening faces west toward the forest
     colliderScale: 0.8,
+    archPosition: [117, 0], // dark cave mouth at the far (east) side of the arena, facing west
+    archRadius: 4.4,
+    archTube: 1.2,
+    archColor: 0x4a4540,
+    reach: 9,                // "Ride to the cave" completes within this distance
   },
 
   sky: {
@@ -209,7 +223,12 @@ export const CONFIG = {
     collisionPadding: 0.4,
     minDistance: 0.6,           // only reached when the hero stands right against a trunk
     leafMinDistance: 1.8,       // leaf clusters closer than this to the hero fade instead of blocking
-    releaseLerp: 3,             // ease back out slowly once the view is clear (snaps in instantly)
+    releaseLerp: 3,
+    // Riding: pull back and widen the view with speed; back to normal when dismounted.
+    mountedDistanceScale: 1.2,
+    speedDistanceScale: 0.25, // extra distance at full gallop
+    speedFov: 10,             // extra degrees of FOV at full gallop
+    rideBlend: 3,             // how quickly ride/speed effects follow             // ease back out slowly once the view is clear (snaps in instantly)
   },
 
   input: {
@@ -228,12 +247,74 @@ export const CONFIG = {
     rotateCheckMs: 250,
     hintHideMs: 8000,      // controls hint fades after this long
     toastMs: 2200,
+    bannerMs: 2600,
   },
 
   horse: {
     position: [-12, 6],    // on the sand bank by the river (x, z)
     facing: Math.PI / 2,
+    radius: 0.9,           // collision radius
+    height: 2.6,
+    stepUp: 0.6,
+    mountRange: 3,         // Mount button appears within this distance
+    mountTime: 0.5,        // seconds for the mount / dismount transition
+    mountArc: 1.1,         // hop height of the rider during the transition
+    dismountSide: 1.7,     // rider lands this far to the horse's left
+    seatHeight: 1.45,      // rider's feet above the horse's hooves
+    riderSquash: 0.72,     // rider capsule height scale while seated (reads as sitting)
+    maxSpeed: 17.5,        // 2.5 × hero walk speed
+    acceleration: 9,       // units/s² toward the joystick speed
+    braking: 16,
+    turnRateSlow: 3.2,     // rad/s when slow...
+    turnRateFast: 1.7,     // ...and at full gallop (gradual turns)
+    hopVelocity: 6.5,      // small hop on jump
+    gravity: 25,
+    gallopStride: 0.42,    // leg cycles per unit travelled
+    bobHeight: 0.2,        // gallop bob at full speed
+    legSwing: 0.75,        // radians at full speed
+    shadowSize: 2.6,
+    dust: {
+      max: 48,
+      perSecond: 22,       // puffs per second at full speed
+      minSpeed: 3,
+      life: 0.75,
+      sizeMin: 0.5,
+      sizeMax: 1.4,
+      rise: 0.9,
+      color: 0xe8d6a8,
+      opacity: 0.55,
+    },
   },
+
+  // Ride checkpoints (x along the path; z follows the path). Falls/deaths after the first
+  // mount respawn the hero on the horse at the last checkpoint reached.
+  checkpoints: {
+    xs: [-12, 12, 34, 56, 78],
+    radius: 7,
+    poleHeight: 3.2,
+    flagColor: 0xd62828,
+    reachedColor: 0x3fd96b,
+  },
+
+  gems: {
+    colors: { yellow: 0xffd23f, blue: 0x3fa9ff, pink: 0xff5fc8 },
+    perColor: 6,           // placed per colour (5 needed to unlock)
+    needed: 5,
+    abilities: { yellow: 'batarang', blue: 'smokeBomb', pink: 'flashMode' },
+    startX: -8,            // first gem (sand bank) ...
+    endX: 98,              // ... last gem (inside the cave arena)
+    height: 1.4,           // above the ground (or water surface)
+    lateral: 2.2,          // gentle side-to-side weave around the path centre
+    lateralPeriod: 5,      // gems per weave
+    collectRadius: 1.9,
+    size: 0.45,
+    haloSize: 2.4,
+    spinSpeed: 2.2,
+    bobHeight: 0.22,
+    bobSpeed: 2.5,
+    popTime: 0.3,          // collect animation
+  },
+
 
   // Foliage fade: giant-tree leaf clusters between the camera and the hero, or close to
   // the hero, fade out smoothly so jumps stay visible.
@@ -264,7 +345,6 @@ export const CONFIG = {
     beaconColor: 0xffe680,
     beaconHeight: 30,
     beaconRadius: 0.8,
-    horseReach: 4,         // distance at which the horse counts as found
   },
 };
 
@@ -279,12 +359,19 @@ export const DIALOGUE = {
   quests: {
     rooftops: 'Jump across the rooftops',
     trees: 'Leap through the trees',
-    horse: 'Find the horse',
-    horseFound: 'You found the horse!',
+    mount: 'Mount the horse',
+    ride: 'Ride to the cave',
+    caveReached: 'You reached the cave!',
   },
+  mount: 'Mount',
+  dismount: 'Dismount',
+  checkpoint: 'Checkpoint!',
+  gemNames: { yellow: 'Yellow', blue: 'Blue', pink: 'Pink' },
+  abilityNames: { batarang: 'Batarang', smokeBomb: 'Smoke Bomb', flashMode: 'Flash Mode' },
+  unlocked: (ability) => `${ability} Unlocked!`,
   objectiveComplete: 'Objective complete!',
   distanceUnit: 'm',
-  controlsHint: 'Left: move · Right: look · Jump button  —  Keys: WASD / Space / mouse drag',
+  controlsHint: 'Left: move · Right: look · Jump / Mount buttons  —  Keys: WASD / Space / E / mouse drag',
 
   // Intro is told through pictures only. Add `caption: '...'` to a slide for one short comic line.
   intro: [

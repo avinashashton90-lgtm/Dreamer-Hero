@@ -7,8 +7,8 @@ const Q = CONFIG.quests;
 export const STAGES = Object.freeze([
   'rooftops',
   'trees',
-  'horse',
-  'forestRide',
+  'mount',
+  'ride',
   'cave',
   'girlCutscene',
   'desertRide',
@@ -55,11 +55,13 @@ export class Quests {
    * @param {THREE.Scene} scene
    * @param {import('./world.js').World} world
    * @param {import('./ui.js').UI} ui
+   * @param {import('./horse.js').Horse} horse
    */
-  constructor(scene, world, ui) {
+  constructor(scene, world, ui, horse) {
     this.scene = scene;
     this.world = world;
     this.ui = ui;
+    this.horse = horse;
     this.index = 0;
     this.time = 0;
     this.objectives = this.#buildObjectives();
@@ -98,8 +100,10 @@ export class Quests {
       return;
     }
 
-    const dx = obj.target.x - hero.position.x;
-    const dz = obj.target.z - hero.position.z;
+    const target = this.#target(obj);
+    this.beacon.position.copy(target);
+    const dx = target.x - hero.position.x;
+    const dz = target.z - hero.position.z;
     const dist = Math.hypot(dx, dz);
     this.ui.setQuest(obj.text, Math.round(dist));
 
@@ -120,15 +124,19 @@ export class Quests {
       this.ui.setQuest(null);
       return;
     }
-    this.beacon.position.copy(obj.target);
+    this.beacon.position.copy(this.#target(obj));
     this.ui.setQuest(obj.text, null);
+  }
+
+  /** Objective targets are points, or functions for moving targets (the horse). */
+  #target(obj) {
+    return typeof obj.target === 'function' ? obj.target() : obj.target;
   }
 
   #buildObjectives() {
     const { layout } = this.world;
     const lastRoof = layout.roofs[layout.roofs.length - 1];
     const lastBranch = layout.branches[layout.branches.length - 1];
-    const [hx, hz] = CONFIG.horse.position;
     const landing = lastBranch.x1 + 4;
     return [
       {
@@ -145,11 +153,17 @@ export class Quests {
         isDone: (h) => h.grounded && !h.platform && h.position.x >= layout.hazardEndX,
       },
       {
-        id: 'horse',
-        text: DIALOGUE.quests.horse,
-        doneText: DIALOGUE.quests.horseFound,
-        target: new THREE.Vector3(hx, this.world.heightAt(hx, hz), hz),
-        isDone: (h) => Math.hypot(h.position.x - hx, h.position.z - hz) < Q.horseReach,
+        id: 'mount',
+        text: DIALOGUE.quests.mount,
+        target: () => this.horse.position,
+        isDone: () => this.horse.mounted,
+      },
+      {
+        id: 'ride',
+        text: DIALOGUE.quests.ride,
+        doneText: DIALOGUE.quests.caveReached,
+        target: this.world.caveArch,
+        isDone: (h) => Math.hypot(h.position.x - this.world.caveArch.x, h.position.z - this.world.caveArch.z) < CONFIG.cave.reach,
       },
     ];
   }

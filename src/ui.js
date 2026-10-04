@@ -10,12 +10,26 @@ export class UI {
     this.hud.innerHTML = `
       <div class="quest" style="display:none"><span class="quest-text"></span><span class="quest-dist"></span></div>
       <div class="hud-hint">${DIALOGUE.controlsHint}</div>
-      <div class="toast"></div>`;
+      <div class="gems" style="display:none"></div>
+      <div class="toast"></div>
+      <div class="banner"></div>`;
     this.questEl = this.hud.querySelector('.quest');
     this.questText = this.hud.querySelector('.quest-text');
     this.questDist = this.hud.querySelector('.quest-dist');
     this.hintEl = this.hud.querySelector('.hud-hint');
     this.toastEl = this.hud.querySelector('.toast');
+    this.bannerEl = this.hud.querySelector('.banner');
+    this.bannerQueue = [];
+    this.gemsEl = this.hud.querySelector('.gems');
+    this.gemPills = {};
+    for (const [color, hex] of Object.entries(CONFIG.gems.colors)) {
+      const pill = document.createElement('div');
+      pill.className = 'gem-pill';
+      pill.style.color = `#${hex.toString(16).padStart(6, '0')}`;
+      pill.innerHTML = `<i style="background:currentColor"></i><span></span>`;
+      this.gemsEl.appendChild(pill);
+      this.gemPills[color] = pill;
+    }
 
     this.fade = this.#el('div', 'fade');
 
@@ -72,6 +86,42 @@ export class UI {
     this.toastEl.classList.add('show');
     clearTimeout(this.toastTimer);
     this.toastTimer = setTimeout(() => this.toastEl.classList.remove('show'), CONFIG.ui.toastMs);
+  }
+
+  /** Gem counters, e.g. "Yellow 3/5" (✓ once that colour's ability is unlocked). */
+  setGems(counts, needed) {
+    for (const [color, pill] of Object.entries(this.gemPills)) {
+      const n = counts[color] ?? 0;
+      const text = `${DIALOGUE.gemNames[color]} ${Math.min(n, needed)}/${needed}${n >= needed ? ' ✓' : ''}`;
+      const span = pill.lastElementChild;
+      if (span.textContent !== text) span.textContent = text;
+      pill.classList.toggle('done', n >= needed);
+    }
+  }
+
+  showGems(on) {
+    const display = on ? '' : 'none';
+    if (this.gemsEl.style.display !== display) this.gemsEl.style.display = display;
+  }
+
+  /** Big celebratory banner (e.g. "Batarang Unlocked!"); queued so none are missed. */
+  banner(text) {
+    this.bannerQueue.push(text);
+    if (this.bannerQueue.length === 1) this.#nextBanner();
+  }
+
+  #nextBanner() {
+    const text = this.bannerQueue[0];
+    if (text === undefined) return;
+    this.bannerEl.textContent = text;
+    this.bannerEl.classList.add('show');
+    setTimeout(() => {
+      this.bannerEl.classList.remove('show');
+      setTimeout(() => {
+        this.bannerQueue.shift();
+        this.#nextBanner();
+      }, 350);
+    }, CONFIG.ui.bannerMs);
   }
 
   /** Quick dip to black, used when the hero respawns after a fall. */

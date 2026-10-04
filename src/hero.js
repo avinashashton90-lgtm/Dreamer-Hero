@@ -67,6 +67,8 @@ export class Hero {
     this.jumpBuffered = 0;
     this.lastSafe = new THREE.Vector3();
     this.onRespawn = null; // callback(position)
+    this.onFall = null; // () => true if the fall was handled elsewhere (e.g. respawn on the horse)
+    this.riding = false; // while true the horse drives position (see Horse)
   }
 
   async init() {
@@ -78,10 +80,46 @@ export class Hero {
 
   /** Back to the start of the level (first rooftop). */
   reset() {
+    this.riding = false;
+    this.shadow.visible = true;
+    this.model.scale.set(1, 1, 1);
     const first = this.world.boxes[0];
     this.lastSafe.copy(first.safe);
     this.facing = Math.PI / 2; // face along the route (+X)
     this.#placeAt(this.lastSafe);
+  }
+
+  // --- Riding (the Horse drives these) ---
+
+  startRiding() {
+    this.riding = true;
+    this.velocity.set(0, 0, 0);
+    this.platform = null;
+    this.shadow.visible = false;
+    this.model.scale.set(1, CONFIG.horse.riderSquash, 1); // reads as seated
+  }
+
+  /** Places the rider (feet at `p`, facing `yaw`); also used during mount transitions. */
+  setRidingPose(p, yaw) {
+    this.position.copy(p);
+    this.facing = yaw;
+    this.model.position.copy(p);
+    this.model.rotation.y = yaw;
+  }
+
+  /** Back on foot at `p` (end of a dismount). */
+  stopRiding(p, yaw) {
+    this.riding = false;
+    this.shadow.visible = true;
+    this.model.scale.set(1, 1, 1);
+    this.facing = yaw;
+    this.lastSafe.copy(p);
+    this.#placeAt(p);
+  }
+
+  #fall() {
+    if (this.onFall?.()) return;
+    this.respawn();
   }
 
   /** Back to the last safe platform after a fall. */
@@ -159,10 +197,10 @@ export class Hero {
 
     if (this.grounded) {
       if (this.platform?.safe) this.lastSafe.copy(this.platform.safe);
-      else if (!this.platform && this.world.isHazard(this.position.x)) return this.respawn();
+      else if (!this.platform && this.world.isHazard(this.position.x)) return this.#fall();
       else if (!this.platform) this.lastSafe.copy(this.position);
     }
-    if (this.position.y < CONFIG.world.killY) return this.respawn();
+    if (this.position.y < CONFIG.world.killY) return this.#fall();
 
     this.#sync();
   }

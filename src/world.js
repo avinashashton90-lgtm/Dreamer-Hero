@@ -26,9 +26,21 @@ function makeRng(seed) {
   return next;
 }
 
-/** Z of the ground route (sand bank → forest → cave) at a given X. */
+/** Z of the winding ground route (sand bank → river → forest → cave) at a given X. */
 export function pathZ(x) {
-  return W.pathAmplitude * Math.sin(x * W.pathFrequency);
+  const wave = W.pathAmplitude * Math.sin(x * W.pathFrequency) + W.pathAmplitude2 * Math.sin(x * W.pathFrequency2 + 1.3);
+  return wave * (1 - smoothstep(x, W.pathStraightenX[0], W.pathStraightenX[1]));
+}
+
+/** dz/dx of the path (numerical). */
+export function pathSlope(x) {
+  return (pathZ(x + 0.5) - pathZ(x - 0.5)) / 1;
+}
+
+/** Approximate perpendicular distance from (x,z) to the path centre line. */
+export function pathDistance(x, z) {
+  const sl = pathSlope(x);
+  return Math.abs(z - pathZ(x)) / Math.sqrt(1 + sl * sl);
 }
 
 export function riverCenterX(z) {
@@ -171,6 +183,11 @@ export async function loadTerrainModel(heightAt, layout) {
     else if (x < Z.caveStart) c.copy(C.grass);
     else if (x < Z.desertStart) c.copy(C.rock);
     else c.copy(C.desert);
+    // Visible dirt track along the ride path (sand bank → cave).
+    if (x > layout.hazardEndX + 1 && x < Z.caveStart + 3) {
+      const d = pathDistance(x, z);
+      if (d < W.pathDirtWidth + 1) c.lerp(C.dirt, 1 - smoothstep(d, W.pathDirtWidth - 1, W.pathDirtWidth + 1));
+    }
     if (y < Z.riverBedY + 0.6 && x >= layout.hazardEndX) c.copy(C.riverBed);
     if (y > 3 && x < Z.desertStart) c.lerp(C.rock, smoothstep(y, 3, 12)); // boundary hills
     c.offsetHSL(0, 0, Math.sin(x * 1.7 + z * 2.3) * 0.015);
@@ -248,6 +265,31 @@ export async function loadBuildingModels(buildings) {
 
 // --- Trees -------------------------------------------------------------------
 
+/**
+ * Lambert material with a per-instance opacity (`instanceFade` attribute, 0..1) — used for
+ * foliage that fades out of the camera's way, and for dust puffs.
+ */
+export function makeFadeMaterial(params = {}) {
+  const mat = new THREE.MeshLambertMaterial({ color: 0xffffff, transparent: true, ...params });
+  mat.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute float instanceFade;\nvarying float vFade;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvFade = instanceFade;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying float vFade;')
+      .replace('#include <color_fragment>', '#include <color_fragment>\ndiffuseColor.a *= vFade;');
+  };
+  return mat;
+}
+
+/** Adds an all-ones `instanceFade` attribute for `count` instances; returns it. */
+export function addFadeAttribute(geometry, count) {
+  const attr = new THREE.InstancedBufferAttribute(new Float32Array(count).fill(1), 1);
+  attr.setUsage(THREE.DynamicDrawUsage);
+  geometry.setAttribute('instanceFade', attr);
+  return attr;
+}
+
 /** Converts to non-indexed and fills a vertex colour attribute (fn(x,y,z) → THREE.Color). */
 function paint(geo, color) {
   const g = geo.index ? geo.toNonIndexed() : geo;
@@ -309,15 +351,7 @@ const barkPaint = (x, y, z, c) =>
 export async function loadGiantTreeModels(plan) {
   const barkMat = new THREE.MeshLambertMaterial({ vertexColors: true });
   // Foliage gets its own transparent material with a per-instance fade (see World.updateFoliage).
-  const leafMat = new THREE.MeshLambertMaterial({ color: 0xffffff, flatShading: true, transparent: true });
-  leafMat.onBeforeCompile = (shader) => {
-    shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute float instanceFade;\nvarying float vFade;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvFade = instanceFade;');
-    shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying float vFade;')
-      .replace('#include <color_fragment>', '#include <color_fragment>\ndiffuseColor.a *= vFade;');
-  };
+  const leafMat = makeFadeMaterial({ flatShading: true });
   const geos = {
     limb: paint(new THREE.CylinderGeometry(T.tipHalfWidth / T.baseHalfWidth, 1, 1, 10, 1).translate(0, 0.5, 0), barkPaint),
     elbow: paint(new THREE.CylinderGeometry(0.85, 1, 1, 10, 1).translate(0, 0.5, 0), barkPaint),
@@ -356,9 +390,7 @@ export async function loadGiantTreeModels(plan) {
   group.add(knots);
 
   const leafGeo = new THREE.IcosahedronGeometry(1, 1);
-  const fade = new THREE.InstancedBufferAttribute(new Float32Array(plan.leaves.length).fill(1), 1);
-  fade.setUsage(THREE.DynamicDrawUsage);
-  leafGeo.setAttribute('instanceFade', fade);
+  addFadeAttribute(leafGeo, plan.leaves.length);
   const leaves = new THREE.InstancedMesh(leafGeo, leafMat, plan.leaves.length);
   leaves.renderOrder = 10; // after other transparent things, so faded leaves never hide them
   const col = new THREE.Color();
@@ -417,12 +449,51 @@ export async function loadForestTreeModels(counts) {
       height: 6.4,
     },
   ];
-  const material = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
-  return species.map((sp, i) => ({
-    mesh: new THREE.InstancedMesh(mergeGeometries(sp.parts), material, Math.max(1, counts[i])),
-    trunkRadius: sp.trunkRadius,
-    height: sp.height,
-  }));
+  // Trunks stay solid; crowns use the fade material so they can get out of the camera's way.
+  const trunkMat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
+  const crownMat = makeFadeMaterial({ vertexColors: true, flatShading: true });
+  return species.map((sp, i) => {
+    const n = Math.max(1, counts[i]);
+    const crownGeo = mergeGeometries(sp.parts.slice(1));
+    crownGeo.computeBoundingSphere();
+    addFadeAttribute(crownGeo, n);
+    const crown = new THREE.InstancedMesh(crownGeo, crownMat, n);
+    crown.renderOrder = 10;
+    return {
+      trunks: new THREE.InstancedMesh(sp.parts[0], trunkMat, n),
+      crowns: crown,
+      crownSphere: crownGeo.boundingSphere, // local bounds, for fade + camera collision
+      trunkRadius: sp.trunkRadius,
+      height: sp.height,
+    };
+  });
+}
+
+/** Placeholder cave mouth: a dark half-round opening framed by a rough stone arch, facing -X. */
+export async function loadCaveArchModel() {
+  const group = new THREE.Group();
+  const stone = new THREE.MeshLambertMaterial({ color: CV.archColor, flatShading: true });
+  const arch = new THREE.Mesh(new THREE.TorusGeometry(CV.archRadius, CV.archTube, 6, 14, Math.PI), stone);
+  arch.rotation.y = Math.PI / 2;
+  const dark = new THREE.MeshBasicMaterial({ color: 0x050407 });
+  const mouth = new THREE.Mesh(new THREE.CircleGeometry(CV.archRadius - CV.archTube * 0.2, 20, 0, Math.PI), dark);
+  mouth.rotation.y = -Math.PI / 2;
+  mouth.position.x = 0.25;
+  // Half-round tunnel behind the mouth (axis along X), so nothing pokes out past the arch.
+  const tunnel = new THREE.Mesh(
+    new THREE.CylinderGeometry(CV.archRadius * 0.95, CV.archRadius * 0.95, 3, 16, 1, false, 0, Math.PI).rotateZ(Math.PI / 2).translate(1.7, 0, 0),
+    new THREE.MeshBasicMaterial({ color: 0x050407, side: THREE.DoubleSide }),
+  );
+  group.add(arch, mouth, tunnel);
+  // A few fallen stones at the foot of the arch.
+  const rubbleGeo = new THREE.DodecahedronGeometry(0.7, 0);
+  for (const [x, z, k] of [[-0.8, -CV.archRadius - 1.2, 1.2], [-1.2, CV.archRadius + 1.4, 0.9], [-1.6, CV.archRadius + 0.2, 0.6]]) {
+    const r = new THREE.Mesh(rubbleGeo, stone);
+    r.position.set(x, 0.35 * k, z);
+    r.scale.setScalar(k);
+    group.add(r);
+  }
+  return group;
 }
 
 /** Placeholder boulders, instanced. */
@@ -527,6 +598,8 @@ export class World {
     this.boxes = [];
     this.beams = [];
     this.cylinders = [];
+    // Fadeable foliage: [{ mesh (InstancedMesh with instanceFade), items: [{x,y,z,r}] }].
+    this.foliageSets = [];
     this.time = 0;
   }
 
@@ -566,7 +639,10 @@ export class World {
    * jumps stay readable. Cheap: one segment/sphere test per nearby cluster.
    */
   updateFoliage(dt, cameraPos, focus) {
-    const { mesh, items } = this.foliage;
+    for (const set of this.foliageSets) this.#fadeSet(set, dt, cameraPos, focus);
+  }
+
+  #fadeSet({ mesh, items }, dt, cameraPos, focus) {
     const attr = mesh.geometry.attributes.instanceFade;
     const fade = attr.array;
     const k = 1 - Math.exp(-FOL.fadeSpeed * dt);
@@ -619,6 +695,15 @@ export class World {
   }
 
   // --- Queries used by the hero ---
+
+  /** Ground type at (x,z): 'swamp' | 'water' | 'sand' | 'dirt' | 'grass' | 'rock'. */
+  surfaceAt(x, z) {
+    if (x < this.layout.hazardEndX) return 'swamp';
+    if (this.heightAt(x, z) < Z.waterY) return 'water';
+    if (x < Z.caveStart && x > Z.forestStart && pathDistance(x, z) < W.pathDirtWidth) return 'dirt';
+    if (x < Z.forestStart || x >= Z.desertStart) return 'sand';
+    return x < Z.caveStart ? 'grass' : 'rock';
+  }
 
   /** True where touching the terrain means a fall (town streets, swamp under the trees). */
   isHazard(x) {
@@ -858,36 +943,46 @@ export class World {
     const trees = await loadGiantTreeModels(plan);
     this.scene.add(trees);
     // Cluster bounds for the foliage fade and camera collision (index = instance index).
-    this.foliage = {
+    this.foliageSets.push({
       mesh: trees.userData.leaves,
       items: plan.leaves.map((l) => ({ x: l.p.x, y: l.p.y, z: l.p.z, r: Math.max(l.scale.x, l.scale.y, l.scale.z) })),
-    };
+    });
   }
 
-  /** Forest and edge trees: three species, varied size, shape and tint. */
+  /** Dense forest hugging the winding path, plus edge trees: three species, varied size and tint. */
   async #buildForest(rnd) {
     const halfD = W.depth / 2 - 4;
     const picks = [];
     const weights = F.speciesWeights;
+    const [cx, cz] = CV.center;
     const pickSpecies = () => {
       let r = rnd() * weights.reduce((a, b) => a + b, 0);
       for (let i = 0; i < weights.length; i++) if ((r -= weights[i]) <= 0) return i;
       return 0;
     };
-    const clearOfRoute = (x, z, k) =>
-      Math.abs(z - pathZ(x)) > W.pathHalfWidth + 1.6 * k &&
+    const clear = (x, z, k) =>
+      pathDistance(x, z) > W.pathHalfWidth + 1.6 * k &&
       Math.abs(x - riverCenterX(z)) > Z.riverHalfWidth + 2 &&
-      Math.hypot(x - CONFIG.horse.position[0], z - CONFIG.horse.position[1]) > 8;
+      Math.hypot(x - CONFIG.horse.position[0], z - CONFIG.horse.position[1]) > 8 &&
+      Math.hypot(x - cx, z - cz) > CV.radius + 4 &&
+      !picks.some((p) => Math.abs(p.x - x) < 1.8 && Math.abs(p.z - z) < 1.8);
     const tryPlace = (x, z) => {
       const k = rnd.range(F.scaleMin, F.scaleMax);
-      if (clearOfRoute(x, z, k)) picks.push({ x, z, k, species: pickSpecies() });
+      if (clear(x, z, k)) picks.push({ x, z, k, species: pickSpecies() });
     };
 
+    // Dense band along both sides of the path...
     for (let tries = 0; picks.length < F.count && tries < F.count * 20; tries++) {
+      const x = rnd.range(Z.forestStart + 2, Z.caveStart - 2);
+      tryPlace(x, pathZ(x) + (rnd() < 0.5 ? -1 : 1) * rnd.range(W.pathHalfWidth, F.nearPathBand));
+    }
+    // ...a scattering farther out...
+    const withFar = picks.length + F.farCount;
+    for (let tries = 0; picks.length < withFar && tries < F.farCount * 20; tries++) {
       tryPlace(rnd.range(Z.forestStart + 2, Z.caveStart - 3), rnd.range(-halfD, halfD));
     }
-    // Trees along the sand bank and desert edges frame the map.
-    const total = F.count + F.edgeCount;
+    // ...and trees along the sand bank and desert edges to frame the map.
+    const total = picks.length + F.edgeCount;
     for (let tries = 0; picks.length < total && tries < F.edgeCount * 20; tries++) {
       const x = rnd.range(this.layout.hazardEndX + 4, W.width / 2 - 6);
       if (x > Z.caveStart - 2 && x < Z.desertStart + 2) continue;
@@ -897,10 +992,12 @@ export class World {
     const counts = [0, 1, 2].map((i) => picks.filter((p) => p.species === i).length);
     const species = await loadForestTreeModels(counts);
     const used = [0, 0, 0];
+    const items = [[], [], []];
     const m = new THREE.Matrix4();
     const q = new THREE.Quaternion();
     const s = new THREE.Vector3();
     const p = new THREE.Vector3();
+    const c = new THREE.Vector3();
     const tint = new THREE.Color();
     for (const t of picks) {
       const sp = species[t.species];
@@ -909,14 +1006,20 @@ export class World {
       q.setFromAxisAngle(THREE.Object3D.DEFAULT_UP, rnd() * Math.PI * 2);
       m.compose(p.set(t.x, y - 0.1, t.z), q, s.set(t.k, t.k * stretch, t.k));
       const i = used[t.species]++;
-      sp.mesh.setMatrixAt(i, m);
+      sp.trunks.setMatrixAt(i, m);
+      sp.crowns.setMatrixAt(i, m);
       const b = 1 + rnd.range(-F.tintVariation, F.tintVariation);
-      sp.mesh.setColorAt(i, tint.setRGB(b * rnd.range(0.94, 1.04), b, b * rnd.range(0.92, 1.02)));
+      tint.setRGB(b * rnd.range(0.94, 1.04), b, b * rnd.range(0.92, 1.02));
+      sp.trunks.setColorAt(i, tint);
+      sp.crowns.setColorAt(i, tint);
+      c.copy(sp.crownSphere.center).applyMatrix4(m);
+      items[t.species][i] = { x: c.x, y: c.y, z: c.z, r: sp.crownSphere.radius * t.k * Math.max(1, stretch) };
       this.cylinders.push({ x: t.x, z: t.z, r: sp.trunkRadius * t.k, top: y + sp.height * t.k * stretch, bottom: y - 1 });
     }
     species.forEach((sp, i) => {
-      sp.mesh.count = used[i];
-      this.scene.add(sp.mesh);
+      sp.trunks.count = sp.crowns.count = used[i];
+      this.scene.add(sp.trunks, sp.crowns);
+      this.foliageSets.push({ mesh: sp.crowns, items: items[i] });
     });
   }
 
@@ -961,5 +1064,18 @@ export class World {
     rocks.setMatrixAt(k++, m.compose(p, q, s));
     rocks.count = k;
     this.scene.add(rocks);
+
+    // Dark cave mouth at the far side of the arena (placeholder for the boss cave).
+    const [ax, az] = CV.archPosition;
+    const ay = this.heightAt(ax, az);
+    const arch = await loadCaveArchModel();
+    arch.position.set(ax, ay, az);
+    this.scene.add(arch);
+    this.caveArch = new THREE.Vector3(ax, ay, az);
+    for (const side of [-1, 1]) {
+      this.cylinders.push({ x: ax, z: az + side * CV.archRadius, r: CV.archTube, top: ay + CV.archRadius, bottom: ay - 1 });
+    }
+    // The mouth is solid for now (the cave interior comes with the boss).
+    this.boxes.push({ minX: ax + 0.1, maxX: ax + 3.2, minZ: az - CV.archRadius, maxZ: az + CV.archRadius, top: ay + CV.archRadius * 1.1, bottom: ay - 1, route: false });
   }
 }

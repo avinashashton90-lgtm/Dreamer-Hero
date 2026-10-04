@@ -20,6 +20,7 @@ export class Input {
     this.lookSensitivity = CONFIG.camera.dragSensitivity;
     this.jumpQueued = false;
     this.jumpHeld = false;
+    this.mountQueued = false;
 
     this.#buildDom(overlayRoot);
     this.#bind();
@@ -54,11 +55,13 @@ export class Input {
       moveX: this.enabled ? mx : 0,
       moveY: this.enabled ? my : 0,
       jumpPressed: this.enabled && this.jumpQueued,
+      mountPressed: this.enabled && this.mountQueued,
       lookDX: this.enabled ? this.lookDX : 0,
       lookDY: this.enabled ? this.lookDY : 0,
       lookSensitivity: this.lookSensitivity,
     };
     this.jumpQueued = false;
+    this.mountQueued = false;
     this.lookDX = 0;
     this.lookDY = 0;
     return out;
@@ -80,7 +83,13 @@ export class Input {
     this.jumpBtn.textContent = 'JUMP';
     this.jumpBtn.style.width = this.jumpBtn.style.height = `${I.jumpButtonSize}px`;
 
-    this.controls.append(this.joyBase, this.jumpBtn);
+    // Mount / Dismount: only shown when it applies (see setMountButton).
+    this.mountBtn = document.createElement('button');
+    this.mountBtn.className = 'mount-btn';
+    this.mountBtn.style.display = 'none';
+    this.mountBtn.style.bottom = `calc(max(28px, env(safe-area-inset-bottom) + 12px) + ${I.jumpButtonSize + 14}px)`;
+
+    this.controls.append(this.joyBase, this.jumpBtn, this.mountBtn);
     root.appendChild(this.controls);
     this.#hideJoystick();
   }
@@ -110,7 +119,14 @@ export class Input {
     window.addEventListener('pointerup', jumpUp);
     window.addEventListener('pointercancel', jumpUp);
 
+    this.mountBtn.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.mountQueued = true;
+    });
+
     window.addEventListener('keydown', (e) => {
+      if (e.code === 'KeyE' && !e.repeat) this.mountQueued = true;
       if (e.code === 'Space') {
         e.preventDefault();
         if (!e.repeat) this.jumpQueued = true;
@@ -119,6 +135,13 @@ export class Input {
     });
     window.addEventListener('keyup', (e) => this.keys.delete(e.code));
     window.addEventListener('blur', () => this.#releaseAll());
+  }
+
+  /** Shows/hides the Mount button and sets its label (Mount / Dismount). */
+  setMountButton(visible, label) {
+    const display = visible ? '' : 'none';
+    if (this.mountBtn.style.display !== display) this.mountBtn.style.display = display;
+    if (visible && this.mountBtn.textContent !== label) this.mountBtn.textContent = label;
   }
 
   #onDown(e) {
@@ -187,6 +210,7 @@ export class Input {
     this.jumpQueued = false;
     this.jumpHeld = false;
     this.jumpId = null;
+    this.mountQueued = false;
     this.jumpBtn.classList.remove('pressed');
     this.#hideJoystick();
   }
