@@ -89,12 +89,27 @@ html, body {
 @keyframes blink { 50% { opacity: 0.3; } }
 
 /* Cutscene */
-.cutscene { background: #f7f0de; color: #222; gap: 8px; }
-.slide { height: 68vh; aspect-ratio: 16 / 9; max-width: 92vw; opacity: 0; transition: opacity ease-out; }
-.slide.in { opacity: 1; }
-.slide-art, .slide-art svg { width: 100%; height: 100%; display: block; border-radius: 12px; border: 4px solid #222; background: #fff; }
-.caption { font-size: clamp(14px, 3.4vh, 22px); max-width: 90vw; }
-.tap-hint { font-size: 12px; opacity: 0.7; }
+.cutscene { background: #f7f0de; color: #222; gap: 10px; }
+.slide { height: 76vh; aspect-ratio: 16 / 9; max-width: 92vw; opacity: 0; }
+.slide.in { animation: slide-in var(--fade-ms) ease-out forwards; }
+.slide.in-swirl { animation: swirl-in var(--swirl-ms) cubic-bezier(.2,.7,.2,1) forwards; }
+@keyframes slide-in { from { opacity: 0; transform: scale(0.97); } to { opacity: 1; transform: none; } }
+@keyframes swirl-in {
+  0%   { opacity: 0; transform: rotate(-200deg) scale(0.05); filter: hue-rotate(90deg) blur(6px); }
+  60%  { opacity: 1; filter: hue-rotate(0) blur(1px); }
+  100% { opacity: 1; transform: none; filter: none; }
+}
+.slide-art, .slide-art svg { width: 100%; height: 100%; display: block; border-radius: 14px; }
+.slide-art { border: 5px solid #222; overflow: hidden; background: #fff; box-shadow: 6px 6px 0 #222; }
+.caption { font-size: clamp(16px, 4vh, 24px); font-weight: 900; max-width: 90vw; -webkit-text-stroke: 0.5px #222; }
+
+.progress { display: flex; align-items: center; gap: 10px; }
+.dots { display: flex; gap: 8px; }
+.dots i { width: 10px; height: 10px; border-radius: 50%; border: 2px solid #222; background: transparent; transition: background .2s, transform .2s; }
+.dots i.on { background: #d62828; transform: scale(1.15); }
+.next-arrow { font-size: 14px; color: #222; animation: nudge 1s ease-in-out infinite; }
+@keyframes nudge { 50% { transform: translateX(5px); opacity: 0.5; } }
+
 .skip-btn {
   position: absolute;
   top: max(12px, env(safe-area-inset-top));
@@ -106,4 +121,65 @@ html, body {
   color: #222;
   font: inherit;
   font-weight: bold;
+  box-shadow: 3px 3px 0 #222;
+}
+
+/* Slide art animations (SVG parts) */
+.slide-art svg * { transform-box: fill-box; }
+.ca-head { transform-origin: 50% 100%; }
+.ca-bob { animation: bob 2.4s ease-in-out infinite; }
+@keyframes bob { 50% { transform: translateY(1.5px) rotate(-2deg); } }
+.ca-nod { animation: nod var(--nod-s) ease-in-out infinite; }
+@keyframes nod {
+  0%, 10%  { transform: rotate(0); }
+  55%      { transform: rotate(16deg) translateY(4px); }
+  62%      { transform: rotate(18deg) translateY(5px); }
+  70%      { transform: rotate(-3deg); }
+  100%     { transform: rotate(0); }
+}
+.ca-lids { transform-origin: 50% 100%; animation: lids var(--nod-s) ease-in-out infinite; }
+@keyframes lids { 0%, 10% { transform: scaleY(0.6); } 55%, 62% { transform: scaleY(1.6); } 70%, 100% { transform: scaleY(0.6); } }
+.ca-blink { transform-origin: 50% 50%; animation: blink-eyes 3s infinite; }
+@keyframes blink-eyes { 0%, 92%, 100% { transform: scaleY(1); } 95% { transform: scaleY(0.1); } }
+.ca-hand { transform-origin: 50% 100%; animation: tick 4s steps(8) infinite; }
+@keyframes tick { to { transform: rotate(360deg); } }
+
+.ca-eq { opacity: 0; animation: eq-cycle 4.5s ease-in-out infinite; }
+.ca-eq2 { animation-delay: 1.5s; }
+.ca-eq3 { animation-delay: 3s; }
+@keyframes eq-cycle { 0% { opacity: 0; } 15%, 55% { opacity: 1; } 75%, 100% { opacity: 0; } }
+.ca-fade-board .ca-eq { animation: none; opacity: 1; }
+.ca-fade-board .ca-chalk { animation: board-fade 3s ease-in forwards; }
+@keyframes board-fade { to { opacity: 0; filter: blur(2px); } }
+.ca-dim { opacity: 0; animation: dim 3.5s ease-in forwards; }
+@keyframes dim { to { opacity: 0.35; } }
+
+.ca-breathe { transform-origin: 50% 100%; animation: breathe 2.8s ease-in-out infinite; }
+@keyframes breathe { 50% { transform: translateY(-1.5px) scale(1.01); } }
+.ca-bubble { transform-origin: 0% 50%; animation: bubble 2.8s ease-in-out infinite; }
+@keyframes bubble { 50% { transform: scale(1.8); } }
+.ca-z { opacity: 0; animation: zfloat 3s ease-out infinite; }
+.ca-z2 { animation-delay: 1s; }
+.ca-z3 { animation-delay: 2s; }
+@keyframes zfloat {
+  0%   { opacity: 0; transform: translate(0, 0) rotate(0); }
+  20%  { opacity: 1; }
+  100% { opacity: 0; transform: translate(40px, -70px) rotate(-20deg); }
+}
+.ca-swirl-start { transform-origin: 50% 50%; opacity: 0; animation: swirl-grow 4s ease-in forwards; }
+@keyframes swirl-grow { 0% { opacity: 0; transform: rotate(0) scale(0.2); } 100% { opacity: 0.9; transform: rotate(720deg) scale(1.2); } }
+
+.ca-swirl { transform-origin: 50% 50%; animation: spin 9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.ca-star { transform-origin: 50% 50%; animation: twinkle 2s ease-in-out infinite; }
+@keyframes twinkle { 50% { transform: scale(0.4); opacity: 0.4; } }
+.ca-hero { transform-origin: 50% 100%; opacity: 0; animation: hero-in 1s ease-out calc(var(--swirl-ms) * 0.6) forwards; }
+@keyframes hero-in { from { opacity: 0; transform: translateY(20px) scale(0.6); } to { opacity: 1; transform: none; } }
+.ca-cape { transform-origin: 50% 0%; animation: cape 1.2s ease-in-out infinite; }
+@keyframes cape { 50% { transform: skewX(6deg) scaleX(1.05); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .slide-art svg *, .slide.in, .slide.in-swirl { animation: none !important; }
+  .slide, .ca-hero, .ca-eq, .ca-swirl-start { opacity: 1; }
+  .ca-z, .ca-dim { opacity: 0.4; }
 }

@@ -12,7 +12,7 @@
 An average, bored schoolboy falls asleep at his desk and dreams he is a **masked superhero** in another world.
 
 ### Part 1 flow
-1. **Cartoon intro** — slides: dull student at desk → drowsy → dozing off → the dream begins. Tap to advance, Skip button.
+1. **Cartoon intro** — animated picture-only slides (no captions): dull student at desk (equations appear on the chalkboard) → drowsy (head slowly nods, chalkboard fades) → dozing off (Zzz, a swirl forms) → swirl into the purple dream world where the masked hero appears. Tap to advance, dot + arrow progress indicator, Skip button. Slides may take an optional one-line `caption` (bold comic style) but pictures carry the story.
 2. **Rooftops** — hero learns to run and jump across rooftops.
 3. **Tree leaping** — leap between giant trees.
 4. **Horse by the river** — hero finds a horse at a riverbank and mounts it.

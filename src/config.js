@@ -73,7 +73,9 @@ export const CONFIG = {
   },
 
   cutscene: {
-    fadeMs: 350,
+    fadeMs: 450,       // fade between slides
+    swirlMs: 1600,     // swirl transition into the dream world
+    nodSeconds: 3.2,   // one slow head-nod cycle on the drowsy slide
   },
 
   ui: {
@@ -85,17 +87,17 @@ export const CONFIG = {
 export const DIALOGUE = {
   title: 'Dreamer Hero',
   rotatePhone: 'Please rotate your phone to landscape',
-  tapToContinue: 'Tap to continue',
   skip: 'Skip ▶▶',
   gameOver: 'You woke up with a jolt!',
   retry: 'Tap to dream again',
   toBeContinued: 'To be continued…',
   controlsHint: 'Left: move · Right: look · Jump button  —  Keys: WASD / Space / mouse drag',
 
+  // Intro is told through pictures only. Add `caption: '...'` to a slide for one short comic line.
   intro: [
-    { scene: 'desk',   caption: 'An average schoolboy. Average grades. A very average Tuesday.' },
-    { scene: 'drowsy', caption: '“...and the square of the hypotenuse is...” His eyelids grow heavy.' },
-    { scene: 'dozing', caption: 'Zzz... The classroom fades away...' },
-    { scene: 'dream',  caption: 'In another world, a masked hero opens his eyes.' },
+    { scene: 'desk' },
+    { scene: 'drowsy' },
+    { scene: 'dozing' },
+    { scene: 'dream', transition: 'swirl' },
   ],
 };
