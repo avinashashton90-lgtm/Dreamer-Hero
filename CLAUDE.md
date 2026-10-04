@@ -66,3 +66,4 @@ An average, bored schoolboy falls asleep at his desk and dreams he is a **masked
 
 ## Commands
 - `npm install` · `npm run dev` (use `--host` to test on a phone on the LAN) · `npm run build` · `npm run preview`
+- Deploy: pushing to `main` runs `.github/workflows/deploy.yml` (npm ci + build → GitHub Pages).

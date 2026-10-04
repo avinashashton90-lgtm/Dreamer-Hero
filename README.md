@@ -47,4 +47,6 @@ Debug from the browser console: `game.state.set('ending')`, `game.hero.position`
 
 ## Deploying to GitHub Pages
 
-`vite.config.js` uses `base: './'`, so the contents of `dist/` work from any Pages sub-path. Run `npm run build` and publish `dist/` (e.g. via a GitHub Actions Pages workflow).
+`.github/workflows/deploy.yml` runs `npm ci` and `npm run build` on every push to `main` and publishes `dist/` to GitHub Pages. One-time setup: in the repo's **Settings → Pages**, set **Source** to **GitHub Actions**.
+
+`vite.config.js` uses `base: './'`, so the build works from any Pages sub-path.
