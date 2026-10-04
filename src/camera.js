@@ -16,6 +16,11 @@ export class FollowCamera {
 
   #desired;
 
+  reset() {
+    this.yaw = C.startYaw;
+    this.pitch = C.startPitch;
+  }
+
   rotate(dx, dy, sensitivity) {
     this.yaw -= dx * sensitivity;
     this.pitch = THREE.MathUtils.clamp(this.pitch + dy * sensitivity, C.minPitch, C.maxPitch);

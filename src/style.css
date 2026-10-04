@@ -33,9 +33,36 @@ html, body {
 }
 
 /* HUD */
-.hud { position: absolute; top: max(8px, env(safe-area-inset-top)); left: 0; right: 0; text-align: center; pointer-events: none; text-shadow: 0 2px 3px #0008; }
-.hud-title { font-size: 18px; font-weight: bold; }
-.hud-hint { font-size: 11px; opacity: 0.8; }
+.hud { position: absolute; inset: 0; pointer-events: none; text-shadow: 0 2px 3px #0008; }
+.quest {
+  position: absolute;
+  top: max(10px, env(safe-area-inset-top));
+  left: max(12px, env(safe-area-inset-left));
+  display: flex; align-items: baseline; gap: 10px;
+  padding: 6px 14px 6px 12px;
+  border-radius: 14px;
+  background: rgba(20, 16, 50, 0.55);
+  border: 2px solid rgba(255, 210, 63, 0.8);
+  font-weight: bold;
+  font-size: clamp(13px, 3.4vh, 18px);
+}
+.quest::before { content: '★'; color: #ffd23f; }
+.quest-dist { font-size: 0.8em; opacity: 0.8; }
+.hud-hint {
+  position: absolute; left: 0; right: 0; bottom: max(8px, env(safe-area-inset-bottom));
+  text-align: center; font-size: 11px; opacity: 0.8; transition: opacity 1s;
+}
+.hud-hint.hidden { opacity: 0; }
+.toast {
+  position: absolute; left: 50%; top: 22%;
+  transform: translate(-50%, -10px) scale(0.9);
+  padding: 8px 20px; border-radius: 18px;
+  background: #ffd23f; color: #222; border: 3px solid #222; box-shadow: 4px 4px 0 #222;
+  font-weight: 900; font-size: clamp(16px, 4.5vh, 26px); text-shadow: none;
+  opacity: 0; transition: opacity .25s, transform .25s;
+}
+.toast.show { opacity: 1; transform: translate(-50%, 0) scale(1); }
+.fade { position: absolute; inset: 0; background: #000; opacity: 0; pointer-events: none; }
 
 /* Controls */
 .controls { position: absolute; inset: 0; pointer-events: none; }

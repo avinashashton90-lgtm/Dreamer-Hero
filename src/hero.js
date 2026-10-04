@@ -51,15 +51,22 @@ function makeBlobShadow() {
 }
 
 export class Hero {
-  constructor(scene, heightAt) {
+  /**
+   * @param {THREE.Scene} scene
+   * @param {import('./world.js').World} world  provides groundAt / collide / isHazard
+   */
+  constructor(scene, world) {
     this.scene = scene;
-    this.heightAt = heightAt;
-    this.position = new THREE.Vector3(...H.spawn);
+    this.world = world;
+    this.position = new THREE.Vector3();
     this.velocity = new THREE.Vector3();
     this.facing = 0; // yaw radians
     this.grounded = false;
+    this.platform = null; // what we are standing on (null = terrain)
     this.coyote = 0;
     this.jumpBuffered = 0;
+    this.lastSafe = new THREE.Vector3();
+    this.onRespawn = null; // callback(position)
   }
 
   async init() {
@@ -69,13 +76,18 @@ export class Hero {
     this.reset();
   }
 
+  /** Back to the start of the level (first rooftop). */
   reset() {
-    this.position.set(...H.spawn);
-    this.position.y = this.heightAt(this.position.x, this.position.z);
-    this.velocity.set(0, 0, 0);
-    this.grounded = true;
-    this.facing = 0;
-    this.#sync();
+    const first = this.world.boxes[0];
+    this.lastSafe.copy(first.safe);
+    this.facing = Math.PI / 2; // face along the route (+X)
+    this.#placeAt(this.lastSafe);
+  }
+
+  /** Back to the last safe platform after a fall. */
+  respawn() {
+    this.#placeAt(this.lastSafe);
+    this.onRespawn?.(this.position);
   }
 
   /**
@@ -91,13 +103,11 @@ export class Hero {
     const dirX = -sin * input.moveY + cos * input.moveX;
     const dirZ = -cos * input.moveY - sin * input.moveX;
     const mag = Math.min(1, Math.hypot(input.moveX, input.moveY));
-    const targetX = dirX * H.walkSpeed;
-    const targetZ = dirZ * H.walkSpeed;
 
     const accel = H.acceleration * (this.grounded ? 1 : H.airControl);
-    const k = 1 - Math.exp(-accel * dt / H.walkSpeed);
-    this.velocity.x += (targetX - this.velocity.x) * k;
-    this.velocity.z += (targetZ - this.velocity.z) * k;
+    const k = 1 - Math.exp((-accel * dt) / H.walkSpeed);
+    this.velocity.x += (dirX * H.walkSpeed - this.velocity.x) * k;
+    this.velocity.z += (dirZ * H.walkSpeed - this.velocity.z) * k;
 
     if (mag > 0.05) {
       const targetYaw = Math.atan2(dirX, dirZ);
@@ -106,7 +116,7 @@ export class Hero {
       this.facing += diff * Math.min(1, H.turnSpeed * dt);
     }
 
-    // Jump with coyote time + input buffering.
+    // Jump assist: coyote time + input buffering.
     if (input.jumpPressed) this.jumpBuffered = H.jumpBuffer;
     else this.jumpBuffered = Math.max(0, this.jumpBuffered - dt);
     this.coyote = this.grounded ? H.coyoteTime : Math.max(0, this.coyote - dt);
@@ -121,34 +131,55 @@ export class Hero {
     this.velocity.y = Math.max(this.velocity.y - H.gravity * dt, -H.maxFallSpeed);
     this.position.addScaledVector(this.velocity, dt);
 
-    // Keep inside the world bounds.
-    const half = CONFIG.world.size / 2 - 1;
-    this.position.x = THREE.MathUtils.clamp(this.position.x, -half, half);
-    this.position.z = THREE.MathUtils.clamp(this.position.z, -half, half);
+    // Keep inside the map.
+    const hw = CONFIG.world.width / 2 - 1;
+    const hd = CONFIG.world.depth / 2 - 1;
+    this.position.x = THREE.MathUtils.clamp(this.position.x, -hw, hw);
+    this.position.z = THREE.MathUtils.clamp(this.position.z, -hd, hd);
 
-    const ground = this.heightAt(this.position.x, this.position.z);
-    if (this.position.y <= ground && this.velocity.y <= 0) {
-      this.position.y = ground;
+    // Ground: walking steps up small ledges; falling also snaps onto ledges just above the feet.
+    const falling = this.velocity.y <= 0;
+    const reach = falling ? (this.grounded ? H.stepUp : H.ledgeAssist) : 0;
+    const ground = this.world.groundAt(this.position.x, this.position.z, this.position.y + reach, H.edgeGrace);
+    const gap = this.position.y - ground.y;
+    if (falling && (gap <= 0 || (this.grounded && gap < H.stepUp))) {
+      // Landed, or stuck to a slope/step while walking.
+      this.position.y = ground.y;
       this.velocity.y = 0;
       this.grounded = true;
-    } else if (this.grounded && this.position.y - ground < 0.3 && this.velocity.y <= 0) {
-      // Stick to downhill slopes instead of bouncing off them.
-      this.position.y = ground;
-      this.velocity.y = 0;
+      this.platform = ground.platform;
     } else {
       this.grounded = false;
     }
 
+    this.world.collide(this.position, this.velocity, H.radius, H.height, H.stepUp);
+
+    if (this.grounded) {
+      if (this.platform?.safe) this.lastSafe.copy(this.platform.safe);
+      else if (!this.platform && this.world.isHazard(this.position.x)) return this.respawn();
+      else if (!this.platform) this.lastSafe.copy(this.position);
+    }
+    if (this.position.y < CONFIG.world.killY) return this.respawn();
+
+    this.#sync();
+  }
+
+  #placeAt(p) {
+    this.position.copy(p);
+    this.velocity.set(0, 0, 0);
+    this.grounded = true;
+    this.platform = null;
+    this.coyote = 0;
+    this.jumpBuffered = 0;
     this.#sync();
   }
 
   #sync() {
     this.model.position.copy(this.position);
     this.model.rotation.y = this.facing;
-    const g = this.heightAt(this.position.x, this.position.z);
+    const g = this.world.groundAt(this.position.x, this.position.z, this.position.y + 0.05).y;
     this.shadow.position.set(this.position.x, g + 0.03, this.position.z);
     const lift = Math.max(0, this.position.y - g);
-    const s = 1 / (1 + lift * 0.25);
-    this.shadow.scale.setScalar(s);
+    this.shadow.scale.setScalar(1 / (1 + lift * 0.25));
   }
 }

@@ -31,14 +31,16 @@ src/
   main.js       bootstrap + game loop
   config.js     all tunable numbers + DIALOGUE text
   state.js      state machine: intro / play / cutscene / gameover / ending
-  world.js      scene, lights, terrain, trees
+  world.js      map layout, terrain, sky, river, buildings, trees, cave, colliders
   hero.js       hero movement & jumping
   camera.js     third-person follow camera
   input.js      joystick, camera drag, jump button, keyboard/mouse
   ui.js         HUD, rotate message, gameover & ending screens
   cutscene.js   slide cutscenes (intro)
   style.css     overlay/UI styles
-  horse.js gems.js abilities.js boss.js quests.js   (stubs for upcoming levels)
+  quests.js     objectives, objective arrow and beacon
+  horse.js      the horse on the sand bank (riding comes later)
+  gems.js abilities.js boss.js   (stubs for upcoming levels)
 ```
 
 Placeholder models are built in `loadXModel()` functions (`loadHeroModel`, `loadTerrainModel`, `loadHorseModel`, …) so real glTF assets can be swapped in later.

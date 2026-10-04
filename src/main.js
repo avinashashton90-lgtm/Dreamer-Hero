@@ -9,6 +9,7 @@ import { Input } from './input.js';
 import { UI } from './ui.js';
 import { Cutscene } from './cutscene.js';
 import { Quests } from './quests.js';
+import { Horse } from './horse.js';
 
 async function boot() {
   const app = document.getElementById('app');
@@ -23,8 +24,11 @@ async function boot() {
   const world = new World();
   await world.init();
 
-  const hero = new Hero(world.scene, world.heightAt);
+  const hero = new Hero(world.scene, world);
   await hero.init();
+
+  const horse = new Horse(world.scene, world.heightAt);
+  await horse.init();
 
   const cam = new FollowCamera(window.innerWidth / window.innerHeight, world.heightAt);
   cam.snapTo(hero.position);
@@ -32,7 +36,13 @@ async function boot() {
   const ui = new UI(overlay);
   const input = new Input(renderer.domElement, overlay);
   const cutscene = new Cutscene(overlay);
-  const quests = new Quests();
+  const quests = new Quests(world.scene, world, ui);
+  await quests.init();
+
+  hero.onRespawn = (p) => {
+    ui.flash();
+    cam.snapTo(p);
+  };
   const state = new GameState(STATES.INTRO);
 
   // --- State wiring ---
@@ -47,6 +57,7 @@ async function boot() {
     if (prev === STATES.GAMEOVER || prev === STATES.INTRO) {
       hero.reset();
       quests.reset();
+      cam.reset();
       cam.snapTo(hero.position);
     }
     ui.showHud(true);
@@ -88,15 +99,16 @@ async function boot() {
       const inp = input.read();
       cam.rotate(inp.lookDX, inp.lookDY, inp.lookSensitivity);
       hero.update(dt, inp, cam.yaw);
-      quests.update(dt);
-      if (hero.position.y < CONFIG.world.killY) state.set(STATES.GAMEOVER);
+      quests.update(dt, hero);
     }
+    horse.update(dt);
     cam.update(dt, hero.position);
+    world.update(dt, cam.camera.position);
     renderer.render(world.scene, cam.camera);
   });
 
   // Exposed for debugging in the browser console (e.g. game.state.set('ending')).
-  window.game = { state, hero, cam, world, quests, STATES };
+  window.game = { state, hero, cam, world, quests, horse, input, STATES };
 
   state.start();
 }

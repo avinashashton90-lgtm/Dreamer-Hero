@@ -24,7 +24,16 @@ An average, bored schoolboy falls asleep at his desk and dreams he is a **masked
 
 ## Rules
 - Game states: `intro`, `play`, `cutscene`, `gameover`, `ending` (see `src/state.js`). Only valid transitions are allowed.
-- Hero falls below `CONFIG.world.killY` → gameover. Gameover → tap to retry (back to play).
+- Falling (touching the town streets or the swamp under the trees, or dropping below `CONFIG.world.killY`) → respawn at the last safe platform with a quick fade. Gameover is reserved for later (e.g. the boss); gameover → tap to retry.
+- Jump assist (phone fairness): coyote time, jump buffering, ledge assist (snap up onto ledges just above the feet while falling) and edge grace (platform edges count a little past their border). All in `CONFIG.hero`.
+- Every jump on the route is generated within the hero's reach: ~4 units jumping up 1, ~5 level (walk speed 7, jump 9, gravity 25).
+
+## Map (≈300×200, linear route along +X)
+Town rooftops (x≈-142…-67) → tree canopy pads (…≈-22) → sand bank with the horse → river (x≈0, meandering) → forest (8…84, trees keep clear of the wiggly ground path `pathZ(x)`) → cave arena (84…124, rock ring opening west) → desert (124…150, empty for now). Boundary hills on all edges.
+- Layout is generated deterministically from `CONFIG.world.seed` in `world.js` (`generateLayout`). Terrain height is analytic: `world.heightAt(x,z)`.
+- Colliders in `world.js`: `boxes` (buildings: standable tops + walls), `discs` (tree pads), `cylinders` (trunks, rocks). Hero uses `world.groundAt()` and `world.collide()`.
+- Repeated objects use `InstancedMesh` (buildings, roofs, tree trunks/pads/canopies, forest trees, rocks, clouds). Building windows are drawn in-shader in world space.
+- Quests (`quests.js`): ordered objectives with a target + completion test, HUD text with distance, a floating arrow above the hero, and a light beacon at the target. Current: "Jump across the rooftops" → "Leap through the trees" → "Find the horse".
 - Controls (touch): left-half virtual joystick moves; right-half drag rotates camera; Jump button (multi-touch: move + look + jump at once).
 - Controls (keyboard fallback): WASD / arrows move, Space jumps, mouse drag rotates camera.
 - Portrait orientation shows a "rotate your phone" overlay and pauses the game.
@@ -34,17 +43,17 @@ An average, bored schoolboy falls asleep at his desk and dreams he is a **masked
 |---|---|
 | `config.js` | **All tunable numbers** + the `DIALOGUE` object (all text/dialogue). |
 | `state.js` | Game state machine (`intro/play/cutscene/gameover/ending`) with enter/exit listeners. |
-| `world.js` | Scene, lights, fog, terrain (`heightAt(x,z)`), `loadTerrainModel()`. |
-| `hero.js` | Hero movement, gravity, jump, terrain collision, `loadHeroModel()`. |
+| `world.js` | Map layout, terrain (`heightAt`), sky, river, buildings, trees, cave rocks, colliders; `loadTerrainModel()`, `loadBuildingModels()`, `loadTreeRouteModels()`, `loadTreeModel()`, `loadRockModel()`. |
+| `hero.js` | Hero movement, gravity, jump assist, platform/wall collision, respawn at last safe spot, `loadHeroModel()`. |
 | `camera.js` | Third-person follow camera with yaw/pitch orbit. |
 | `input.js` | Joystick, camera drag, jump button, keyboard & mouse; unified input state. |
-| `ui.js` | DOM overlays: HUD, rotate-phone message, gameover/ending screens. |
+| `ui.js` | DOM overlays: quest panel, toast, respawn fade, controls hint, rotate-phone message, gameover/ending screens. |
 | `cutscene.js` | Slide-based cutscenes (intro, girl scene) with tap-to-advance + Skip. |
-| `horse.js` | Horse (mount/ride) — `loadHorseModel()`. *(stub)* |
+| `horse.js` | Horse waiting on the sand bank (idle grazing) — `loadHorseModel()`. Riding not yet. |
 | `gems.js` | Collectible gems — `loadGemModel()`. *(stub)* |
 | `abilities.js` | Hero super abilities. *(stub)* |
 | `boss.js` | Cave monster boss — `loadBossModel()`. *(stub)* |
-| `quests.js` | Level/quest progression through Part 1 flow. *(stub)* |
+| `quests.js` | Objectives, objective arrow + beacon — `loadArrowModel()`, `loadBeaconModel()`. |
 | `main.js` | Bootstraps systems and runs the game loop. |
 
 ### Conventions
@@ -55,9 +64,11 @@ An average, bored schoolboy falls asleep at his desk and dreams he is a **masked
 
 ## Progress
 - [x] Foundation: state machine, capsule hero on terrain, follow camera, joystick, jump, rotate message, keyboard fallback, intro slides.
-- [ ] Rooftops level
-- [ ] Tree leaping
-- [ ] Horse & river
+- [x] Map: terrain, sky, river, town, tree canopy, forest, cave arena, empty desert
+- [x] Rooftops level
+- [x] Tree leaping
+- [x] Quest text + objective arrow (rooftops → trees → find the horse)
+- [ ] Horse & river (horse placed; mounting/riding not yet)
 - [ ] Forest ride + gems
 - [ ] Cave + boss
 - [ ] Girl/witch cutscene
