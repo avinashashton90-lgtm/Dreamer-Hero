@@ -10,8 +10,11 @@ export class UI {
     this.hud.innerHTML = `
       <div class="quest" style="display:none"><span class="quest-text"></span><span class="quest-dist"></span></div>
       <div class="hud-hint">${DIALOGUE.controlsHint}</div>
+      <div class="vitals"><div class="hearts"></div><div class="lives"></div></div>
       <div class="gems" style="display:none"></div>
       <div class="toast"></div>`;
+    this.heartsEl = this.hud.querySelector('.hearts');
+    this.livesEl = this.hud.querySelector('.lives');
     this.questEl = this.hud.querySelector('.quest');
     this.questText = this.hud.querySelector('.quest-text');
     this.questDist = this.hud.querySelector('.quest-dist');
@@ -34,7 +37,9 @@ export class UI {
     this.rotate.innerHTML = `<div class="rotate-icon">📱</div><p>${DIALOGUE.rotatePhone}</p>`;
 
     this.gameover = this.#el('div', 'overlay screen');
-    this.gameover.innerHTML = `<h1>${DIALOGUE.gameOver}</h1><p class="blink">${DIALOGUE.retry}</p>`;
+    this.gameover.innerHTML = `<h1>${DIALOGUE.gameOverTitle}</h1><p>${DIALOGUE.gameOver}</p><button class="retry-btn">${DIALOGUE.retryRide}</button>`;
+    this.retryBtn = this.gameover.querySelector('.retry-btn');
+    this.numbers = this.#el('div', 'hud numbers');
 
     this.ending = this.#el('div', 'overlay screen ending');
     this.ending.innerHTML = `<h1>${DIALOGUE.toBeContinued}</h1>`;
@@ -119,9 +124,49 @@ export class UI {
     this.fade.style.opacity = '0';
   }
 
+  /** Game Over screen with a Retry button (restarts the ride). */
   showGameOver(on, onRetry) {
     this.gameover.style.display = on ? '' : 'none';
-    this.gameover.onclick = on && onRetry ? onRetry : null;
+    this.retryBtn.onclick = on && onRetry ? onRetry : null;
+  }
+
+  /** Hearts (filled / empty) and remaining respawns as life icons. */
+  setLives(hearts, maxHearts, respawns, maxRespawns) {
+    const key = `${hearts}/${maxHearts}/${respawns}`;
+    if (this.livesKey === key) return;
+    const lost = this.livesKey && hearts < Number(this.livesKey.split('/')[0]);
+    this.livesKey = key;
+    this.heartsEl.innerHTML = Array.from({ length: maxHearts }, (_, i) => `<i class="${i < hearts ? '' : 'empty'}">♥</i>`).join('');
+    this.livesEl.innerHTML = Array.from({ length: maxRespawns }, (_, i) => `<i class="${i < respawns ? '' : 'used'}"></i>`).join('');
+    if (lost) {
+      this.heartsEl.classList.remove('hit');
+      void this.heartsEl.offsetWidth;
+      this.heartsEl.classList.add('hit');
+    }
+  }
+
+  /** Floating damage number at screen position (px). kind: '' | 'heavy' | 'flash'. */
+  damageNumber(x, y, text, kind = '') {
+    const el = document.createElement('div');
+    el.className = `dmg ${kind}`;
+    el.textContent = text;
+    el.style.left = `${x}px`;
+    el.style.top = `${y}px`;
+    el.style.setProperty('--ms', `${CONFIG.combat.damageNumberMs}ms`);
+    this.numbers.appendChild(el);
+    setTimeout(() => el.remove(), CONFIG.combat.damageNumberMs + 50);
+  }
+
+  /** Fade to black (death), then call back; `fadeIn()` brings the picture back. */
+  fadeOut(ms, then) {
+    this.fade.style.transition = `opacity ${ms}ms ease-in`;
+    this.fade.style.opacity = '1';
+    setTimeout(then, ms);
+  }
+
+  fadeIn(ms) {
+    this.fade.style.transition = `opacity ${ms}ms ease-out`;
+    this.fade.style.opacity = '0';
   }
 
   showEnding(on, onTap) {

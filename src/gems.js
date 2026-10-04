@@ -130,6 +130,12 @@ export class Gems {
     this.#render();
   }
 
+  /** Debug: collect every remaining gem (unlocks everything). */
+  grantAll() {
+    for (const g of this.gems) if (!g.collected) this.#collect(g);
+    this.#render();
+  }
+
   #collect(g) {
     g.collected = true;
     g.pop = 0;

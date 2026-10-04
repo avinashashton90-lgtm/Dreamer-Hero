@@ -177,6 +177,95 @@ export const CONFIG = {
     tintVariation: 0.12,     // +/- brightness per tree
   },
 
+  // Hero outfit (placeholder primitives in loadHeroModel) and animation.
+  outfit: {
+    skin: 0xf1c27d,
+    suit: 0x2b4dff,        // torso / arms
+    mask: 0x111111,
+    cloak: 0xf2b705,       // golden cloak
+    pants: 0xc0262d,
+    boots: 0x6b3f1f,
+    belt: 0x3b2614,
+    pouch: 0x8a6a3a,
+    buckle: 0xffd23f,
+    blade: 0xd8dde6,
+    chain: 0x9aa0a8,
+    hair: 0x2a1a10,
+    cloakSegments: [4, 8], // width × height segments (animated cloth)
+    cloakFlutter: 0.12,    // ripple amplitude at full speed
+    cloakLift: 0.9,        // radians the cloak swings back at full speed
+    walkCycle: 1.6,        // leg cycles per unit... per second at walk speed scale
+    legSwing: 0.7,
+    armSwing: 0.55,
+    ridingDrop: 0.95,      // seated: the rig sits this much lower (hips on the saddle)
+  },
+
+  // Melee, dodge, lock-on and hit feedback (see combat.js).
+  combat: {
+    combo: [
+      // kind, damage, reach (from the hero's centre), active-hit time, duration, knockback
+      { kind: 'punch', damage: 10, reach: 2.0, hitAt: 0.1, duration: 0.3, knockback: 1.5 },
+      { kind: 'punch', damage: 10, reach: 2.0, hitAt: 0.1, duration: 0.3, knockback: 1.5 },
+      { kind: 'kick', damage: 22, reach: 2.4, hitAt: 0.16, duration: 0.45, knockback: 7, heavy: true },
+    ],
+    comboWindow: 0.5,      // tap again within this long after a hit to continue the combo
+    frontDot: 0.45,        // hits land only on targets roughly in front (cos of the half-angle)
+    attackMoveScale: 0.25, // movement while attacking
+    lunge: 2.5,            // small step forward on each hit
+    lockRange: 12,         // soft lock-on: nearest target within this range...
+    lockDot: -0.2,         // ...not behind the hero
+    lockRingColor: 0xffd23f,
+    hitFlash: 0.12,        // seconds a hit target flashes white
+    shake: { light: 0.06, heavy: 0.2, flash: 0.45, time: 0.25 },
+    hitStop: 0.05,         // heavy hits freeze the action this long
+    flashHitStop: 0.18,
+    dodge: { duration: 0.4, distance: 6, invincible: 0.4, cooldown: 1 },
+    hurtInvincible: 1.0,   // after taking damage
+    hurtKnockback: 6,
+    damageNumberMs: 900,
+  },
+
+  // Abilities (unlocked by gems; see abilities.js).
+  abilities: {
+    batarang: {
+      damage: 8, range: 14, speed: 20, returnSpeed: 24, arc: 3, // sideways bulge of the flight
+      radius: 0.5, catchRadius: 1.2, maxTime: 3, cooldown: 1.5, chaseFactor: 2, // returns faster than the hero (even galloping)
+      size: 0.35, spin: 22, height: 1.2,
+      color: 0xffd23f,
+    },
+    smokeBomb: {
+      throwRange: 8, flightTime: 0.6, arcHeight: 2.5, radius: 4, duration: 6,
+      exposure: 1, paralyze: 10, cooldown: 15, puffs: 14, color: 0xc9c4d6, opacity: 0.55,
+    },
+    flashMode: {
+      perHit: 0.1,           // energy per landed hit...
+      perPinkGem: 0.15,      // ...and per pink gem
+      chargeTime: 1,         // gold glow charge-up before the punch is armed
+      damageFraction: 0.5,   // of the target's max HP
+      knockback: 12,
+      glowColor: 0xffc400,
+    },
+  },
+
+  // Hearts and respawns (see lives.js).
+  lives: {
+    hearts: 5,
+    respawns: 3,
+    deathFadeMs: 600,
+    bossResetsOnRespawn: true, // used by the boss fight
+    debugDamage: 1,            // hearts lost per debug-damage key press
+  },
+
+  // Training dummy near the river sand (for trying out combat).
+  dummy: {
+    position: [-12, -9],
+    hp: 200,
+    radius: 0.45,
+    height: 1.9,
+    respawnTime: 3,        // after being knocked down, it stands back up at full HP
+    color: 0xd9b26f,
+  },
+
   cave: {
     center: [104, 0],
     radius: 20,              // monster arena (ring of boulders, opening west)
@@ -307,8 +396,16 @@ export const CONFIG = {
   input: {
     joystickRadius: 60,    // px, max knob travel
     joystickDeadZone: 0.12,
-    jumpButtonSize: 84,    // px
-    gallopButtonSize: 76,  // px
+    // Right-hand buttons (px from the bottom-right corner, button centres).
+    attackButton: { size: 104, right: 76, bottom: 76 },
+    jumpButton: { size: 76, right: 196, bottom: 54 },
+    dodgeButton: { size: 64, right: 52, bottom: 196 },
+    gallopButton: { size: 76, right: 290, bottom: 60 },
+    mountButtonBottom: 284, // the Mount / Dismount pill sits above Dodge...
+    mountButtonBottomRiding: 176, // ...and lower while riding (Dodge is hidden then)
+    // Ability buttons in an arc around Attack: angle 0 = left, 90 = up (degrees).
+    abilityArc: { radius: 166, angles: [22, 48, 74], size: 52 },
+    debugKeys: { grantGems: 'KeyG', damageHero: 'KeyH' },
   },
 
   cutscene: {
@@ -334,7 +431,6 @@ export const CONFIG = {
     mountArc: 1.1,         // hop height of the rider during the transition
     dismountSide: 1.7,     // rider lands this far to the horse's left
     seatHeight: 1.45,      // rider's feet above the horse's hooves
-    riderSquash: 0.72,     // rider capsule height scale while seated (reads as sitting)
     maxSpeed: 17.5,        // 2.5 × hero walk speed
     acceleration: 9,       // units/s² toward the joystick speed
     braking: 16,
@@ -526,7 +622,14 @@ export const DIALOGUE = {
   gallop: 'Gallop',
   objectiveComplete: 'Objective complete!',
   distanceUnit: 'm',
-  controlsHint: 'Left: move · Right: look · Jump / Mount / Gallop buttons  —  Keys: WASD / Space / E / Shift / mouse drag',
+  controlsHint: 'Left: move · Right: look · Attack / Jump / Dodge / ability buttons  —  Keys: WASD / Space jump / J attack / K dodge / 1 2 3 abilities / E mount / Shift gallop',
+  attack: 'Attack',
+  dodge: 'Dodge',
+  jump: 'Jump',
+  abilityShort: { batarang: '★', smokeBomb: '☁', flashMode: '⚡' },
+  gameOverTitle: 'Game Over',
+  retryRide: 'Retry',
+  dummyName: 'Training dummy',
 
   // Intro is told through pictures only. Add `caption: '...'` to a slide for one short comic line.
   intro: [

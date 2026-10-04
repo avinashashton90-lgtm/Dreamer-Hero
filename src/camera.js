@@ -24,6 +24,9 @@ export class FollowCamera {
     this.gallop = 0; // 0 … 1 while galloping (smoothed)
     this.pivot = new THREE.Vector3(); // look-at point (shifted over the rider's shoulder)
     this.sinceLook = Infinity; // seconds since the player last dragged to look
+    this.shakeT = 0;
+    this.shakeTime = 1;
+    this.shakeAmp = 0;
     this.#dir = new THREE.Vector3();
   }
 
@@ -74,6 +77,23 @@ export class FollowCamera {
     this.focus.y += (target.y + lerp(C.height, C.rideHeight, this.ride) - this.focus.y) * k;
     this.focus.z += (target.z - this.focus.z) * k;
     this.#place(dt);
+    if (this.shakeT > 0) {
+      this.shakeT = Math.max(0, this.shakeT - dt);
+      const a = this.shakeAmp * (this.shakeT / this.shakeTime);
+      this.camera.position.x += (Math.random() - 0.5) * 2 * a;
+      this.camera.position.y += (Math.random() - 0.5) * 2 * a;
+      this.camera.position.z += (Math.random() - 0.5) * 2 * a;
+    }
+  }
+
+  /** Small screen shake (hits, slams): amplitude in units, decays over `time` seconds. */
+  shake(amp, time) {
+    if (amp <= 0) return;
+    if (amp >= this.shakeAmp * (this.shakeT / this.shakeTime)) {
+      this.shakeAmp = amp;
+      this.shakeTime = time;
+      this.shakeT = time;
+    }
   }
 
   setAspect(aspect) {

@@ -1,4 +1,4 @@
-import { CONFIG } from './config.js';
+import { CONFIG, DIALOGUE } from './config.js';
 
 const I = CONFIG.input;
 
@@ -21,7 +21,13 @@ export class Input {
     this.jumpQueued = false;
     this.jumpHeld = false;
     this.mountQueued = false;
+    this.attackQueued = this.dodgeQueued = false;
+    this.abilityQueued = null;
     this.gallopId = null; // pointer holding the Gallop button
+    this.attackQueued = false;
+    this.dodgeQueued = false;
+    this.abilityQueued = null; // 'batarang' | 'smokeBomb' | 'flashMode'
+    this.debugQueued = { grantGems: false, damageHero: false };
 
     this.#buildDom(overlayRoot);
     this.#bind();
@@ -58,12 +64,21 @@ export class Input {
       jumpPressed: this.enabled && this.jumpQueued,
       mountPressed: this.enabled && this.mountQueued,
       gallop: this.enabled && (this.gallopId !== null || this.keys.has('ShiftLeft') || this.keys.has('ShiftRight')),
+      attackPressed: this.enabled && this.attackQueued,
+      dodgePressed: this.enabled && this.dodgeQueued,
+      ability: this.enabled ? this.abilityQueued : null,
+      debugGrantGems: this.enabled && this.debugQueued.grantGems,
+      debugDamageHero: this.enabled && this.debugQueued.damageHero,
       lookDX: this.enabled ? this.lookDX : 0,
       lookDY: this.enabled ? this.lookDY : 0,
       lookSensitivity: this.lookSensitivity,
     };
     this.jumpQueued = false;
     this.mountQueued = false;
+    this.attackQueued = false;
+    this.dodgeQueued = false;
+    this.abilityQueued = null;
+    this.debugQueued.grantGems = this.debugQueued.damageHero = false;
     this.lookDX = 0;
     this.lookDY = 0;
     return out;
@@ -80,27 +95,52 @@ export class Input {
     this.joyKnob.className = 'joy-knob';
     this.joyBase.appendChild(this.joyKnob);
 
-    this.jumpBtn = document.createElement('button');
-    this.jumpBtn.className = 'jump-btn';
-    this.jumpBtn.textContent = 'JUMP';
-    this.jumpBtn.style.width = this.jumpBtn.style.height = `${I.jumpButtonSize}px`;
+    // Right side: Attack (large), Jump, Dodge, ability buttons in an arc, Gallop, Mount.
+    const place = (el, { size, right, bottom }) => {
+      el.style.width = el.style.height = `${size}px`;
+      el.style.right = `calc(env(safe-area-inset-right, 0px) + ${right - size / 2}px)`;
+      el.style.bottom = `calc(env(safe-area-inset-bottom, 0px) + ${bottom - size / 2}px)`;
+    };
+    const button = (cls, label) => {
+      const b = document.createElement('button');
+      b.className = `btn ${cls}`;
+      b.innerHTML = `<span class="btn-label">${label}</span>`;
+      return b;
+    };
+    this.attackBtn = button('attack-btn', DIALOGUE.attack);
+    place(this.attackBtn, I.attackButton);
+    this.jumpBtn = button('jump-btn', DIALOGUE.jump);
+    place(this.jumpBtn, I.jumpButton);
+    this.dodgeBtn = button('dodge-btn', DIALOGUE.dodge);
+    place(this.dodgeBtn, I.dodgeButton);
+
+    // Abilities: small buttons on an arc around Attack (greyed out while locked).
+    this.abilityBtns = {};
+    const A = I.abilityArc;
+    ['batarang', 'smokeBomb', 'flashMode'].forEach((name, i) => {
+      const b = button('ability-btn locked', DIALOGUE.abilityShort[name]);
+      b.title = DIALOGUE.abilityNames[name];
+      b.insertAdjacentHTML('beforeend', '<i class="cooldown"></i>' + (name === 'flashMode' ? '<span class="energy"><i></i></span>' : ''));
+      const ang = (A.angles[i] * Math.PI) / 180;
+      place(b, { size: A.size, right: I.attackButton.right + Math.cos(ang) * A.radius, bottom: I.attackButton.bottom + Math.sin(ang) * A.radius });
+      this.abilityBtns[name] = b;
+    });
 
     // Mount / Dismount: only shown when it applies (see setMountButton).
     this.mountBtn = document.createElement('button');
     this.mountBtn.className = 'mount-btn';
     this.mountBtn.style.display = 'none';
-    this.mountBtn.style.bottom = `calc(max(28px, env(safe-area-inset-bottom) + 12px) + ${I.jumpButtonSize + 14}px)`;
+    this.mountBtn.style.bottom = `calc(env(safe-area-inset-bottom, 0px) + ${I.mountButtonBottom}px)`;
 
     // Gallop (hold): left of Jump, only while riding, with a small stamina bar.
     this.gallopBtn = document.createElement('button');
     this.gallopBtn.className = 'gallop-btn';
     this.gallopBtn.style.display = 'none';
-    this.gallopBtn.style.width = this.gallopBtn.style.height = `${I.gallopButtonSize}px`;
-    this.gallopBtn.style.right = `calc(max(28px, env(safe-area-inset-right) + 12px) + ${I.jumpButtonSize + 16}px)`;
+    place(this.gallopBtn, I.gallopButton);
     this.gallopBtn.innerHTML = `<span class="gallop-label"></span><span class="stamina"><i></i></span>`;
     this.staminaFill = this.gallopBtn.querySelector('.stamina i');
 
-    this.controls.append(this.joyBase, this.jumpBtn, this.mountBtn, this.gallopBtn);
+    this.controls.append(this.joyBase, this.attackBtn, this.jumpBtn, this.dodgeBtn, ...Object.values(this.abilityBtns), this.mountBtn, this.gallopBtn);
     root.appendChild(this.controls);
     this.#hideJoystick();
   }
@@ -130,6 +170,18 @@ export class Input {
     window.addEventListener('pointerup', jumpUp);
     window.addEventListener('pointercancel', jumpUp);
 
+    const tap = (el, fn) =>
+      el.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        fn();
+        el.classList.add('pressed');
+        setTimeout(() => el.classList.remove('pressed'), 110);
+      });
+    tap(this.attackBtn, () => (this.attackQueued = true));
+    tap(this.dodgeBtn, () => (this.dodgeQueued = true));
+    for (const [name, b] of Object.entries(this.abilityBtns)) tap(b, () => (this.abilityQueued = name));
+
     this.mountBtn.addEventListener('pointerdown', (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -152,6 +204,15 @@ export class Input {
 
     window.addEventListener('keydown', (e) => {
       if (e.code === 'KeyE' && !e.repeat) this.mountQueued = true;
+      if (!e.repeat) {
+        if (e.code === 'KeyJ') this.attackQueued = true;
+        if (e.code === 'KeyK') this.dodgeQueued = true;
+        if (e.code === 'Digit1') this.abilityQueued = 'batarang';
+        if (e.code === 'Digit2') this.abilityQueued = 'smokeBomb';
+        if (e.code === 'Digit3') this.abilityQueued = 'flashMode';
+        if (e.code === I.debugKeys.grantGems) this.debugQueued.grantGems = true;
+        if (e.code === I.debugKeys.damageHero) this.debugQueued.damageHero = true;
+      }
       if (e.code === 'Space') {
         e.preventDefault();
         if (!e.repeat) this.jumpQueued = true;
@@ -175,6 +236,46 @@ export class Input {
     this.staminaFill.style.transform = `scaleX(${stamina.toFixed(3)})`;
     this.gallopBtn.classList.toggle('active', active);
     this.gallopBtn.classList.toggle('tired', !active && stamina < CONFIG.horse.gallop.minToStart);
+  }
+
+  /**
+   * Combat buttons. While mounted only Batarang (and Jump / Gallop / Dismount) show.
+   * @param {boolean} mounted
+   * @param {import('./abilities.js').Abilities} ab
+   */
+  setCombatButtons(mounted, ab) {
+    const show = (el, on) => {
+      const d = on ? '' : 'none';
+      if (el.style.display !== d) el.style.display = d;
+    };
+    // Riding: Dismount takes Dodge's (hidden) spot, clear of the gem counters.
+    const mb = `calc(env(safe-area-inset-bottom, 0px) + ${mounted ? I.mountButtonBottomRiding : I.mountButtonBottom}px)`;
+    if (this.mountBtn.style.bottom !== mb) this.mountBtn.style.bottom = mb;
+    show(this.attackBtn, !mounted);
+    show(this.dodgeBtn, !mounted);
+    for (const [name, b] of Object.entries(this.abilityBtns)) {
+      show(b, !mounted || name === 'batarang');
+      const unlocked = ab.has(name);
+      b.classList.toggle('locked', !unlocked);
+      if (!unlocked) continue;
+      const cd = ab.cooldownFraction(name);
+      b.style.setProperty('--cd', cd.toFixed(3));
+      b.classList.toggle('cooling', cd > 0);
+      if (name === 'flashMode') {
+        b.querySelector('.energy i').style.transform = `scaleX(${ab.energy.toFixed(3)})`;
+        b.classList.toggle('ready', ab.flashReady);
+        b.classList.toggle('active', ab.charging > 0 || ab.armed);
+      }
+    }
+  }
+
+  /** Brief pulse on an ability button (on unlock). */
+  pulseAbility(name) {
+    const b = this.abilityBtns[name];
+    if (!b) return;
+    b.classList.remove('pulse');
+    void b.offsetWidth;
+    b.classList.add('pulse');
   }
 
   /** Shows/hides the Mount button and sets its label (Mount / Dismount). */
@@ -251,6 +352,8 @@ export class Input {
     this.jumpHeld = false;
     this.jumpId = null;
     this.mountQueued = false;
+    this.attackQueued = this.dodgeQueued = false;
+    this.abilityQueued = null;
     this.gallopId = null;
     this.gallopBtn?.classList.remove('pressed');
     this.jumpBtn.classList.remove('pressed');

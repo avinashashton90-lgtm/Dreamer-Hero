@@ -53,11 +53,45 @@ html, body {
   text-align: center; font-size: 11px; opacity: 0.8; transition: opacity 1s;
 }
 .hud-hint.hidden { opacity: 0; }
-/* Small toast in the top-left corner, under the quest panel (never mid-screen). */
-.toast {
+/* Hearts and life (respawn) icons, top-left under the quest panel. */
+.vitals {
   position: absolute;
   left: max(12px, env(safe-area-inset-left));
   top: calc(max(10px, env(safe-area-inset-top)) + clamp(34px, 9vh, 46px));
+  display: flex; align-items: center; gap: 10px;
+  font-size: clamp(14px, 4vh, 20px);
+}
+.hearts, .lives { display: flex; gap: 3px; }
+.hearts i { color: #ff3b5c; font-style: normal; transition: transform .2s, opacity .2s; }
+.hearts i.empty { color: #fff; opacity: 0.3; }
+.hearts.hit i:not(.empty) { animation: heart-hit .35s ease-out 1; }
+@keyframes heart-hit { 40% { transform: scale(1.35); } }
+.lives { padding-left: 8px; border-left: 2px solid rgba(255,255,255,.35); }
+.lives i { width: 1.2em; height: 0.62em; border-radius: 0.3em 0.3em 0.45em 0.45em; background: #111; border: 2px solid #ffd23f; position: relative; display: inline-block; }
+.lives i::before, .lives i::after { content: ''; position: absolute; top: 28%; width: 22%; height: 32%; background: #fff; border-radius: 50%; }
+.lives i::before { left: 18%; }
+.lives i::after { right: 18%; }
+.lives i.used { opacity: 0.2; filter: grayscale(1); }
+/* Floating damage numbers (anchored at the hit, rise and fade). */
+.dmg {
+  position: absolute; transform: translate(-50%, -50%); pointer-events: none;
+  font-weight: 900; font-size: clamp(14px, 4.5vh, 22px); color: #fff;
+  text-shadow: 0 0 3px #000, 0 2px 0 #000;
+  animation: dmg-rise var(--ms, 900ms) ease-out forwards;
+}
+.dmg.heavy { color: #ffd23f; font-size: clamp(18px, 6vh, 28px); }
+.dmg.flash { color: #ffc400; font-size: clamp(22px, 8vh, 36px); }
+@keyframes dmg-rise { 0% { opacity: 0; transform: translate(-50%, -30%) scale(.6); } 15% { opacity: 1; transform: translate(-50%, -60%) scale(1.15); } 100% { opacity: 0; transform: translate(-50%, -260%) scale(1); } }
+.retry-btn {
+  margin-top: 8px; padding: 10px 28px; border-radius: 24px; border: 3px solid #fff;
+  background: #d62828; color: #fff; font: inherit; font-weight: 900; font-size: 20px; pointer-events: auto;
+}
+
+/* Small toast in the top-left corner, under the vitals (never mid-screen). */
+.toast {
+  position: absolute;
+  left: max(12px, env(safe-area-inset-left));
+  top: calc(max(10px, env(safe-area-inset-top)) + clamp(64px, 17vh, 86px));
   padding: 5px 12px; border-radius: 12px;
   background: #ffd23f; color: #222; border: 2px solid #222; box-shadow: 3px 3px 0 #222;
   font-weight: 900; font-size: clamp(12px, 3.2vh, 16px); text-shadow: none;
@@ -88,24 +122,41 @@ html, body {
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.7);
 }
-.jump-btn {
+.btn {
   position: absolute;
-  right: max(28px, calc(env(safe-area-inset-right) + 12px));
-  bottom: max(28px, calc(env(safe-area-inset-bottom) + 12px));
   border-radius: 50%;
   border: 3px solid rgba(255, 255, 255, 0.8);
-  background: rgba(214, 40, 40, 0.65);
   color: #fff;
   font: inherit;
   font-weight: bold;
-  font-size: 15px;
+  font-size: 14px;
   pointer-events: auto;
   touch-action: none;
+  overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+  text-shadow: 0 1px 2px #0008;
 }
-.jump-btn.pressed { transform: scale(0.92); background: rgba(214, 40, 40, 0.9); }
+.btn.pressed { transform: scale(0.9); filter: brightness(1.25); }
+.btn-label { position: relative; z-index: 2; }
+.attack-btn { background: rgba(214, 40, 40, 0.7); font-size: 17px; }
+.jump-btn { background: rgba(40, 150, 90, 0.65); }
+.dodge-btn { background: rgba(110, 70, 190, 0.65); font-size: 13px; }
+.ability-btn { background: rgba(20, 16, 50, 0.7); font-size: 22px; border-width: 2px; }
+.ability-btn.locked { filter: grayscale(1); opacity: 0.4; }
+.ability-btn .cooldown {
+  position: absolute; inset: 0; z-index: 1; border-radius: 50%;
+  background: conic-gradient(rgba(0, 0, 0, 0.65) calc(var(--cd, 0) * 360deg), transparent 0);
+}
+.ability-btn .energy { position: absolute; left: 18%; right: 18%; bottom: 7px; height: 5px; border-radius: 3px; background: rgba(0,0,0,.5); overflow: hidden; z-index: 2; }
+.ability-btn .energy i { display: block; height: 100%; background: #ff5fc8; transform-origin: left; transform: scaleX(0); }
+.ability-btn.ready { border-color: #ffd23f; animation: flash-ready 0.8s ease-in-out infinite; }
+.ability-btn.active { border-color: #ffd23f; background: rgba(255, 196, 0, 0.75); }
+@keyframes flash-ready { 50% { box-shadow: 0 0 16px 4px #ffd23f; } }
+.ability-btn.pulse { animation: ability-pulse 1.2s ease-out 1; }
+@keyframes ability-pulse { 25% { transform: scale(1.35); box-shadow: 0 0 18px 4px #fff; } 100% { transform: none; } }
 .mount-btn {
   position: absolute;
-  right: max(22px, calc(env(safe-area-inset-right) + 6px));
+  right: calc(env(safe-area-inset-right, 0px) + 20px);
   min-width: 96px;
   padding: 10px 16px;
   border-radius: 22px;
@@ -122,7 +173,6 @@ html, body {
 @keyframes mount-pulse { 50% { transform: scale(1.06); } }
 .gallop-btn {
   position: absolute;
-  bottom: max(34px, calc(env(safe-area-inset-bottom) + 18px));
   border-radius: 50%;
   border: 3px solid rgba(255, 255, 255, 0.8);
   background: rgba(40, 110, 200, 0.6);

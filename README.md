@@ -11,7 +11,8 @@ npm install
 npm run dev        # http://localhost:5173 (also exposed on your LAN to test on a phone)
 npm run build      # production build in dist/
 npm run preview    # serve the build
-npm run test:route # headless check: jump route fair + completable, and the full ~90 s horse ride (jumps, all gems, ford, cave)
+npm run test:route # headless check: jump route fair + completable, and the full horse ride (jumps, all gems, ford, walls, cave)
+npm run test:combat # headless check: combo, dodge, Batarang, Smoke Bomb, Flash Mode, hearts/respawns/Game Over
 ```
 
 ## Controls
@@ -21,7 +22,11 @@ npm run test:route # headless check: jump route fair + completable, and the full
 | Move | Drag on the left half (virtual joystick) | WASD / arrow keys |
 | Ride | Joystick left/right steers, push to go, pull back to brake | A/D steer, W go, S brake |
 | Look | Drag on the right half | Mouse drag |
-| Jump | JUMP button (works while moving + looking) | Space |
+| Jump | Jump button (works while moving + looking) | Space |
+| Attack (3-hit combo) | Attack button (large, bottom-right) | J |
+| Dodge roll | Dodge button | K |
+| Batarang / Smoke Bomb / Flash Mode | Small ability buttons around Attack (unlock with 5 gems of a colour) | 1 / 2 / 3 |
+| Debug: all gems / hurt the hero | — | G / H |
 | Mount / dismount the horse | Mount button (appears near the horse) | E |
 | Gallop (hold, uses stamina) | Gallop button (while riding) | Shift |
 
@@ -48,13 +53,18 @@ src/
   horse.js      the horse: mount/dismount, riding, gallop, obstacles, dust & splashes, checkpoints
   audio.js      sound placeholders (events only for now)
   gems.js       collectible gems (yellow/blue/pink) and ability unlocks
-  abilities.js  unlocked abilities (the abilities themselves come later)
+  abilities.js  Batarang, Smoke Bomb, Flash Mode (unlocked by gems)
+  combat.js     melee combo, lock-on, hit feedback
+  lives.js      hearts and respawns
+  dummy.js      training dummy
   boss.js       (stub for the cave boss)
 ```
 
 Placeholder models are built in `loadXModel()` functions (`loadHeroModel`, `loadTerrainModel`, `loadHorseModel`, …) so real glTF assets can be swapped in later.
 
 The forest ride follows one trail spline: a 14-wide, ~1544-long dirt trail (at least `CONFIG.trailLength` = 1500; about 94 s at normal speed, ~64 s galloping) from the river to the cave, with wide curves, a hill climb and descent, a river ford half way, 6 jumpable logs/walls on straights, and 60 gems in rows and arcs along the centre lane. Trees stay outside a 22-wide corridor behind a continuous line of bushes and boulders, and invisible side walls keep the horse on the trail (it slides along them).
+
+The hero has 5 hearts and 3 respawns: losing all hearts puts you back on the horse at the last checkpoint; after the third respawn it's Game Over (Retry restarts the ride). A training dummy stands on the river sand south of the horse.
 
 Debug from the browser console: `game.state.set('ending')`, `game.hero.position`, etc.
 

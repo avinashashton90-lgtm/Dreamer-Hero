@@ -358,6 +358,15 @@ export class Horse {
     this.#updateSplash(dt);
   }
 
+  /** Retry after Game Over: back on the horse at the start of the ride (no checkpoints). */
+  restartRide(hero) {
+    this.lastCheckpoint = 0;
+    this.checkpoints.forEach((cp, i) => (cp.reached = i === 0));
+    this.markers?.forEach((m) => m.userData.flag.material.color.setHex(CP.flagColor));
+    this.stamina = 1;
+    this.respawnAtCheckpoint(hero);
+  }
+
   /** After a fall: back on the horse at the last checkpoint reached. */
   respawnAtCheckpoint(hero) {
     const { position: cp, heading, s } = this.checkpoints[this.lastCheckpoint];
