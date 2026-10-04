@@ -10,6 +10,7 @@ import { UI } from './ui.js';
 import { Cutscene } from './cutscene.js';
 import { Quests } from './quests.js';
 import { Horse } from './horse.js';
+import { JumpGuide } from './guides.js';
 
 async function boot() {
   const app = document.getElementById('app');
@@ -30,7 +31,7 @@ async function boot() {
   const horse = new Horse(world.scene, world.heightAt);
   await horse.init();
 
-  const cam = new FollowCamera(window.innerWidth / window.innerHeight, world.heightAt);
+  const cam = new FollowCamera(window.innerWidth / window.innerHeight, world);
   cam.snapTo(hero.position);
 
   const ui = new UI(overlay);
@@ -38,6 +39,8 @@ async function boot() {
   const cutscene = new Cutscene(overlay);
   const quests = new Quests(world.scene, world, ui);
   await quests.init();
+  const guide = new JumpGuide(world.scene, world);
+  await guide.init();
 
   hero.onRespawn = (p) => {
     ui.flash();
@@ -57,6 +60,7 @@ async function boot() {
     if (prev === STATES.GAMEOVER || prev === STATES.INTRO) {
       hero.reset();
       quests.reset();
+      guide.reset();
       cam.reset();
       cam.snapTo(hero.position);
     }
@@ -100,15 +104,17 @@ async function boot() {
       cam.rotate(inp.lookDX, inp.lookDY, inp.lookSensitivity);
       hero.update(dt, inp, cam.yaw);
       quests.update(dt, hero);
+      guide.update(dt, hero);
     }
     horse.update(dt);
     cam.update(dt, hero.position);
     world.update(dt, cam.camera.position);
+    world.updateFoliage(dt, cam.camera.position, cam.focus);
     renderer.render(world.scene, cam.camera);
   });
 
   // Exposed for debugging in the browser console (e.g. game.state.set('ending')).
-  window.game = { state, hero, cam, world, quests, horse, input, STATES };
+  window.game = { state, hero, cam, world, quests, horse, input, guide, STATES };
 
   state.start();
 }

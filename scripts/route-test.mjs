@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { World } from '../src/world.js';
 import { Hero } from '../src/hero.js';
 import { CONFIG } from '../src/config.js';
+import { FollowCamera } from '../src/camera.js';
 const world = new World(); await world.init();
 const hero = new Hero(world.scene, world); await hero.init();
 let respawns = 0; hero.onRespawn = () => respawns++;
@@ -102,5 +103,44 @@ for (const b of world.beams.filter((b) => b.route)) {
   world.collide(onTop, new THREE.Vector3(), H.radius, H.height, H.stepUp);
   if (lat < hw + H.radius - 0.05 || onTop.distanceTo(new THREE.Vector3(cx, b.top, cz)) > 1e-6) { console.log('branch collision wrong at', cx.toFixed(1)); failed = true; }
 }
+// 7) Camera in the tree zone: during an autopilot run the camera never sits inside a trunk
+// or a leaf cluster, and leaves left opaque never block the camera→hero line for long.
+{
+  const cam = new FollowCamera(16 / 9, world);
+  hero.reset(); respawns = 0;
+  cam.reset(); cam.snapTo(hero.position);
+  const fade = world.foliage.mesh.geometry.attributes.instanceFade.array;
+  let ti = 1, t = 0, inside = 0, blockedFor = 0, worstBlock = 0, frames = 0, minDist = Infinity, maxDist = 0;
+  const treeStart = L.townEndX, treeEnd = L.hazardEndX;
+  while (ti < targets.length && t < 90) {
+    const tg = targets[ti]; const dx = tg.x-hero.position.x, dz = tg.z-hero.position.z, d = Math.hypot(dx,dz);
+    if (d < 1.0 && hero.grounded) { ti++; continue; }
+    let jump = false;
+    if (hero.grounded) { const a = world.groundAt(hero.position.x+dx/d*0.7, hero.position.z+dz/d*0.7, hero.position.y+0.3, 0.25); if (hero.position.y - a.y > 0.5) jump = true; }
+    // Keep the camera behind the hero like a player would (yaw follows the route).
+    cam.yaw += (Math.atan2(-dx, -dz) - cam.yaw) * 0.05;
+    hero.update(dt, { moveX: 0, moveY: 1, jumpPressed: jump }, cam.yaw); t += dt;
+    cam.update(dt, hero.position);
+    world.updateFoliage(dt, cam.camera.position, cam.focus);
+    if (hero.position.x < treeStart || hero.position.x > treeEnd) continue;
+    frames++;
+    const c = cam.camera.position, f = cam.focus;
+    const dist = c.distanceTo(f); minDist = Math.min(minDist, dist); maxDist = Math.max(maxDist, dist);
+    for (const cy of world.cylinders) if (Math.hypot(c.x - cy.x, c.z - cy.z) < cy.r && c.y > cy.bottom && c.y < cy.top) inside++;
+    world.foliage.items.forEach((l, i) => { if (fade[i] > 0.5 && Math.hypot(c.x-l.x, c.y-l.y, c.z-l.z) < l.r * 0.9) inside++; });
+    // Opaque leaves crossing the camera→hero segment?
+    const sx = c.x-f.x, sy = c.y-f.y, sz = c.z-f.z, L2 = sx*sx+sy*sy+sz*sz;
+    const blocked = world.foliage.items.some((l, i) => {
+      if (fade[i] < 0.5) return false;
+      const dx = l.x-f.x, dy = l.y-f.y, dz = l.z-f.z;
+      const u = Math.max(0, Math.min(1, (dx*sx+dy*sy+dz*sz)/L2));
+      return Math.hypot(dx-sx*u, dy-sy*u, dz-sz*u) < l.r * 0.8;
+    });
+    blockedFor = blocked ? blockedFor + dt : 0; worstBlock = Math.max(worstBlock, blockedFor);
+  }
+  console.log(`camera in trees: ${frames} frames, distance ${minDist.toFixed(1)}–${maxDist.toFixed(1)} (base ${CONFIG.camera.distance}), inside-solid frames ${inside}, longest leaf block ${worstBlock.toFixed(2)}s`);
+  if (inside > 0 || worstBlock > 0.3) failed = true;
+}
+
 console.log(failed ? 'ROUTE TEST FAILED' : 'route test passed');
 process.exit(failed ? 1 : 0);

@@ -10,6 +10,7 @@ const F = CONFIG.forest;
 const CV = CONFIG.cave;
 const SKY = CONFIG.sky;
 const WATER = CONFIG.water;
+const FOL = CONFIG.foliage;
 
 const { smoothstep, lerp, clamp } = THREE.MathUtils;
 
@@ -307,7 +308,16 @@ const barkPaint = (x, y, z, c) =>
  */
 export async function loadGiantTreeModels(plan) {
   const barkMat = new THREE.MeshLambertMaterial({ vertexColors: true });
-  const leafMat = new THREE.MeshLambertMaterial({ color: 0xffffff, flatShading: true });
+  // Foliage gets its own transparent material with a per-instance fade (see World.updateFoliage).
+  const leafMat = new THREE.MeshLambertMaterial({ color: 0xffffff, flatShading: true, transparent: true });
+  leafMat.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute float instanceFade;\nvarying float vFade;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvFade = instanceFade;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying float vFade;')
+      .replace('#include <color_fragment>', '#include <color_fragment>\ndiffuseColor.a *= vFade;');
+  };
   const geos = {
     limb: paint(new THREE.CylinderGeometry(T.tipHalfWidth / T.baseHalfWidth, 1, 1, 10, 1).translate(0, 0.5, 0), barkPaint),
     elbow: paint(new THREE.CylinderGeometry(0.85, 1, 1, 10, 1).translate(0, 0.5, 0), barkPaint),
@@ -345,7 +355,12 @@ export async function loadGiantTreeModels(plan) {
   plan.knots.forEach((k, i) => knots.setMatrixAt(i, m.compose(k.p, q.identity(), s.setScalar(k.radius))));
   group.add(knots);
 
-  const leaves = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 1), leafMat, plan.leaves.length);
+  const leafGeo = new THREE.IcosahedronGeometry(1, 1);
+  const fade = new THREE.InstancedBufferAttribute(new Float32Array(plan.leaves.length).fill(1), 1);
+  fade.setUsage(THREE.DynamicDrawUsage);
+  leafGeo.setAttribute('instanceFade', fade);
+  const leaves = new THREE.InstancedMesh(leafGeo, leafMat, plan.leaves.length);
+  leaves.renderOrder = 10; // after other transparent things, so faded leaves never hide them
   const col = new THREE.Color();
   plan.leaves.forEach((l, i) => {
     q.setFromAxisAngle(THREE.Object3D.DEFAULT_UP, i * 2.4);
@@ -353,6 +368,7 @@ export async function loadGiantTreeModels(plan) {
     leaves.setColorAt(i, col.setHex(T.leafColors[l.shade % T.leafColors.length]));
   });
   group.add(leaves);
+  group.userData.leaves = leaves;
   return group;
 }
 
@@ -545,6 +561,63 @@ export class World {
     this.river.position.y = Z.waterY + Math.sin(this.time * WATER.waveSpeed) * WATER.waveHeight;
   }
 
+  /**
+   * Fades leaf clusters that block the camera→hero line or sit close to the hero, so
+   * jumps stay readable. Cheap: one segment/sphere test per nearby cluster.
+   */
+  updateFoliage(dt, cameraPos, focus) {
+    const { mesh, items } = this.foliage;
+    const attr = mesh.geometry.attributes.instanceFade;
+    const fade = attr.array;
+    const k = 1 - Math.exp(-FOL.fadeSpeed * dt);
+    const sx = cameraPos.x - focus.x;
+    const sy = cameraPos.y - focus.y;
+    const sz = cameraPos.z - focus.z;
+    const segLen2 = sx * sx + sy * sy + sz * sz;
+    const range2 = FOL.activeRange * FOL.activeRange;
+    const near2 = FOL.fadeRadius * FOL.fadeRadius;
+    let changed = false;
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+      const dx = it.x - focus.x;
+      const dy = it.y - focus.y;
+      const dz = it.z - focus.z;
+      const d2 = dx * dx + dy * dy + dz * dz;
+      let target = 1;
+      if (d2 < range2) {
+        if (d2 < near2) target = FOL.fadeOpacity;
+        else {
+          const t = clamp((dx * sx + dy * sy + dz * sz) / segLen2, 0, 1);
+          const ex = dx - sx * t;
+          const ey = dy - sy * t;
+          const ez = dz - sz * t;
+          const rr = it.r * FOL.blockScale;
+          if (ex * ex + ey * ey + ez * ez < rr * rr) target = FOL.fadeOpacity;
+        }
+      }
+      // A cluster the camera is inside is invisible anyway, so drop it at once (no pop seen).
+      if (target < 1) {
+        const cx = it.x - cameraPos.x;
+        const cy = it.y - cameraPos.y;
+        const cz = it.z - cameraPos.z;
+        if (cx * cx + cy * cy + cz * cz < it.r * it.r && fade[i] > target) {
+          fade[i] = target;
+          changed = true;
+          continue;
+        }
+      }
+      const f = fade[i] + (target - fade[i]) * k;
+      if (Math.abs(f - fade[i]) > 1e-3) {
+        fade[i] = f;
+        changed = true;
+      } else if (fade[i] !== target && Math.abs(f - target) <= 1e-3) {
+        fade[i] = target;
+        changed = true;
+      }
+    }
+    if (changed) attr.needsUpdate = true;
+  }
+
   // --- Queries used by the hero ---
 
   /** True where touching the terrain means a fall (town streets, swamp under the trees). */
@@ -691,10 +764,12 @@ export class World {
       plan.beams.push({ from, to, radius, kind: 'twig' });
       if (leafRadius) addLeaves(to, leafRadius);
     };
-    const addCrown = (axisAt, topY) => {
+    // Crown around the trunk top, optionally leaning away (shiftX/Z) from the walking line.
+    const addCrown = (axisAt, topY, shiftX = 0, shiftZ = 0) => {
       for (let k = 0; k < 3; k++) {
         const a = (k / 3) * Math.PI * 2 + rnd();
-        addLeaves(axisAt(topY - 0.6).add(v(Math.cos(a) * 1.6, rnd.range(-0.4, 0.8), Math.sin(a) * 1.6)), rnd.range(2.2, 2.9));
+        const c = axisAt(topY - 0.6).add(v(Math.cos(a) * 1.6 + shiftX, rnd.range(-0.4, 0.8), Math.sin(a) * 1.6 + shiftZ));
+        addLeaves(c, rnd.range(...T.crownRadius));
       }
     };
     // Two decorative upper branches pointing away from `awayX/Z`, above head height.
@@ -739,15 +814,16 @@ export class World {
       // Leaf clusters around and above the limb (never lower than leafLiftMin above it).
       for (let k = 0; k < T.leafBlobs; k++) {
         const t = rnd();
-        const r = rnd.range(1.5, 2.3);
-        const lat = rnd.range(-2.5, 2.5);
+        const r = rnd.range(...T.pathLeafRadius);
+        const lat = (k % 2 ? 1 : -1) * rnd.range(...T.pathLeafLateral);
         addLeaves(
           v(b.x0 + b.dx * b.len * t + nx * lat, b.top + T.leafLiftMin + r * 0.75 + rnd.range(0, 2.5), b.z0 + b.dz * b.len * t + nz * lat),
           r,
         );
       }
       addUpperBranches(axisAt, b.top + 2.6, b.trunkX - b.x0, b.trunkZ - b.z0);
-      addCrown(axisAt, trunkTop);
+      // Lean the crown away from the limb so it doesn't hang over the path.
+      addCrown(axisAt, trunkTop, (b.trunkX - b.x0) / T.trunkOffset * T.crownShift, (b.trunkZ - b.z0) / T.trunkOffset * T.crownShift);
     }
 
     // Background giant trees in the swamp, clear of the route.
@@ -779,7 +855,13 @@ export class World {
       addCrown(axisAt, topY);
     }
 
-    this.scene.add(await loadGiantTreeModels(plan));
+    const trees = await loadGiantTreeModels(plan);
+    this.scene.add(trees);
+    // Cluster bounds for the foliage fade and camera collision (index = instance index).
+    this.foliage = {
+      mesh: trees.userData.leaves,
+      items: plan.leaves.map((l) => ({ x: l.p.x, y: l.p.y, z: l.p.z, r: Math.max(l.scale.x, l.scale.y, l.scale.z) })),
+    };
   }
 
   /** Forest and edge trees: three species, varied size, shape and tint. */

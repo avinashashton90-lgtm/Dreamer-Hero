@@ -37,6 +37,9 @@ Town rooftops (x≈-142…-72) → giant swamp trees with walkable branches (…
 - Layout is generated deterministically from `CONFIG.world.seed` in `world.js` (`generateLayout`). Terrain height is analytic: `world.heightAt(x,z)`.
 - Colliders in `world.js`: `boxes` (buildings: standable tops + walls), `beams` (horizontal branches: flat walkable top that tapers base→tip, solid sides), `cylinders` (trunks, rocks, forest trees). Hero uses `world.groundAt()` and `world.collide()`.
 - Tree-leaping zone: each route platform is a thick limb that grows sideways out of a bowed, root-flared trunk (an elbow) and then runs along the route, wide base facing the previous platform. Twigs angle outward off the path; leaf clusters (3 greens) stay ≥ `leafLiftMin` above the walkable top. Background giant trees frame the swamp. No floating platforms.
+- Tree-zone visibility: leaf clusters (separate transparent foliage material, per-instance `instanceFade`) that block the camera→hero line or sit within `CONFIG.foliage.fadeRadius` of the hero fade smoothly to ~15% (`World.updateFoliage`). Trunks/branches stay solid. Canopy over the path is kept small, pushed to the sides and above the jump apex; crowns lean away from the walking line.
+- Jump guide (`guides.js`): while airborne a ring marks the spot directly below the hero (yellow over a platform, red over the swamp/street); the next branch on the route gets a soft pulsing glow.
+- Camera: in the tree zone it pulls back 20% and looks further down (blended at the zone edges). It never renders from inside trunks, rocks, buildings or leaf clusters: snaps in front of solids, eases back out; leaves merely in the way fade instead.
 - Forest/edge trees: three species (conifer, broadleaf, birch) with varied size, stretch and tint, one InstancedMesh each.
 - Repeated objects use `InstancedMesh` (buildings, roofs, giant-tree trunks/limbs/twigs/leaves, forest species, rocks, clouds). Building windows are drawn in-shader in world space.
 - Quests (`quests.js`): ordered objectives with a target + completion test, HUD text with distance, a floating arrow above the hero, and a light beacon at the target. Current: "Jump across the rooftops" → "Leap through the trees" → "Find the horse".
@@ -48,7 +51,7 @@ Town rooftops (x≈-142…-72) → giant swamp trees with walkable branches (…
 | `state.js` | Game state machine (`intro/play/cutscene/gameover/ending`) with enter/exit listeners. |
 | `world.js` | Map layout, terrain (`heightAt`), sky, river, buildings, trees, cave rocks, colliders; `loadTerrainModel()`, `loadBuildingModels()`, `loadGiantTreeModels()`, `loadForestTreeModels()`, `loadRockModel()`. |
 | `hero.js` | Hero movement, gravity, jump assist, platform/wall collision, respawn at last safe spot, `loadHeroModel()`. |
-| `camera.js` | Third-person follow camera with yaw/pitch orbit. |
+| `camera.js` | Third-person follow camera with yaw/pitch orbit, tree-zone distance/pitch, collision with trunks, rocks, buildings and leaves. |
 | `input.js` | Joystick, camera drag, jump button, keyboard & mouse; unified input state. |
 | `ui.js` | DOM overlays: quest panel, toast, respawn fade, controls hint, rotate-phone message, gameover/ending screens. |
 | `cutscene.js` | Slide-based cutscenes (intro, girl scene) with tap-to-advance + Skip. |
@@ -56,6 +59,7 @@ Town rooftops (x≈-142…-72) → giant swamp trees with walkable branches (…
 | `gems.js` | Collectible gems — `loadGemModel()`. *(stub)* |
 | `abilities.js` | Hero super abilities. *(stub)* |
 | `boss.js` | Cave monster boss — `loadBossModel()`. *(stub)* |
+| `guides.js` | Jump readability: landing ring under the airborne hero, glow on the next branch — `loadLandingRingModel()`, `loadHighlightModel()`. |
 | `quests.js` | Objectives, objective arrow + beacon — `loadArrowModel()`, `loadBeaconModel()`. |
 | `main.js` | Bootstraps systems and runs the game loop. |
 
@@ -80,5 +84,5 @@ Town rooftops (x≈-142…-72) → giant swamp trees with walkable branches (…
 
 ## Commands
 - `npm install` · `npm run dev` (use `--host` to test on a phone on the LAN) · `npm run build` · `npm run preview`
-- `npm run test:route` — headless physics test: gap fairness vs. reach, every hop (early + coyote-late jumps), no platform skippable, full autopilot run, branch collision.
+- `npm run test:route` — headless physics test: gap fairness vs. reach, every hop (early + coyote-late jumps), no platform skippable, full autopilot run, branch collision, and camera checks in the tree zone (never inside a trunk/leaf cluster, opaque leaves never block the hero).
 - Deploy: pushing to `main` runs `.github/workflows/deploy.yml` (npm ci + build → GitHub Pages).

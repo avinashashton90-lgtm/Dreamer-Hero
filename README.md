@@ -34,12 +34,13 @@ src/
   state.js      state machine: intro / play / cutscene / gameover / ending
   world.js      map layout, terrain, sky, river, buildings, trees, cave, colliders
   hero.js       hero movement & jumping
-  camera.js     third-person follow camera
+  camera.js     third-person follow camera with collision
   input.js      joystick, camera drag, jump button, keyboard/mouse
   ui.js         HUD, rotate message, gameover & ending screens
   cutscene.js   slide cutscenes (intro)
   style.css     overlay/UI styles
   quests.js     objectives, objective arrow and beacon
+  guides.js     landing ring and next-branch glow while jumping
   horse.js      the horse on the sand bank (riding comes later)
   gems.js abilities.js boss.js   (stubs for upcoming levels)
 ```

@@ -97,10 +97,14 @@ export const CONFIG = {
     trunkOffset: 1.9,        // trunk axis sits this far to the side of the limb
     trunkRadius: 0.95,       // trunk radius at branch height (it flares to ~2x at the roots)
     trunkBend: 0.55,         // sideways bow of the trunk, in trunk radii
-    trunkAbove: 6.5,         // trunk continues this far above the branch into the crown
+    trunkAbove: 8,           // trunk continues this far above the branch into the crown
+    crownRadius: [1.8, 2.4],
+    crownShift: 1.6,         // crown leans away from the walking line
     twigsPerBranch: 3,
     leafBlobs: 9,            // leaf clusters per tree (around and above the branch)
-    leafLiftMin: 3.0,        // leaf blobs stay at least this far above the walkable top
+    leafLiftMin: 3.9,        // leaf blobs stay at least this far above the walkable top (above jump apex)
+    pathLeafRadius: [1.1, 1.6], // leaf clusters over the limb are kept small...
+    pathLeafLateral: [1.6, 3.0], // ...and pushed out to the sides of the walking line
     backgroundCount: 14,     // non-route giant trees in the swamp
     barkColor: 0x6b4a2f,
     barkDark: 0x3f2a19,
@@ -196,6 +200,16 @@ export const CONFIG = {
     dragSensitivity: 0.006, // radians per pixel (touch)
     mouseSensitivity: 0.005,
     groundClearance: 0.5,
+    // Tree-leaping zone: pull back a little and look down more so branches read clearly.
+    // Blended in/out smoothly around the zone's edges.
+    treeZoneDistanceScale: 1.2,
+    treeZonePitchBoost: 0.14,   // radians added to the pitch (looks further down)
+    treeZoneBlend: 6,           // units over which the zone settings fade in/out
+    // Collision: the camera is pulled in front of trunks and pushed out of leaf clusters.
+    collisionPadding: 0.4,
+    minDistance: 0.6,           // only reached when the hero stands right against a trunk
+    leafMinDistance: 1.8,       // leaf clusters closer than this to the hero fade instead of blocking
+    releaseLerp: 3,             // ease back out slowly once the view is clear (snaps in instantly)
   },
 
   input: {
@@ -219,6 +233,29 @@ export const CONFIG = {
   horse: {
     position: [-12, 6],    // on the sand bank by the river (x, z)
     facing: Math.PI / 2,
+  },
+
+  // Foliage fade: giant-tree leaf clusters between the camera and the hero, or close to
+  // the hero, fade out smoothly so jumps stay visible.
+  foliage: {
+    fadeOpacity: 0.15,
+    fadeRadius: 6,           // clusters whose centre is this close to the hero fade
+    blockScale: 0.9,         // fraction of a cluster's radius that counts as blocking the view
+    fadeSpeed: 7,            // per second (exponential)
+    activeRange: 45,         // clusters farther than this from the hero are skipped
+  },
+
+  // Jump readability in the tree zone.
+  guides: {
+    ringRadius: 0.85,
+    ringWidth: 0.2,
+    ringColor: 0xfff3a0,     // over a branch/roof
+    ringHazardColor: 0xff6a5a, // over the swamp/street (you'd fall)
+    ringOpacity: 0.9,
+    ringFadeSpeed: 10,
+    highlightColor: 0xfff3a0,
+    highlightOpacity: 0.5,
+    highlightPulse: 3,       // pulses per ~2 seconds
   },
 
   quests: {
