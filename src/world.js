@@ -524,10 +524,15 @@ export function placeObstacles(track, heightAt) {
   O.at.forEach((frac, i) => {
     let best = null;
     for (let s = (frac - O.search) * L; s <= (frac + O.search) * L; s += 2) {
-      if (s - O.runUp < 30 || s + O.runOut > L - CONFIG.obstacles.arenaClear) continue;
+      if (s - O.runUp < 30 || s + O.runOut > L) continue;
+      const at = track.at(s);
+      if (Math.hypot(at.x - CV.archPosition[0], at.z - CV.archPosition[1]) < O.caveClear) continue;
       if (list.some((o) => s > o.s - O.runUp - O.runOut && s < o.s + O.runUp + O.runOut)) continue;
       const k = track.maxCurvature(s - O.straightBefore, s + O.straightAfter);
       if (k > O.maxCurvature || wet(s - O.runUp, s + O.runOut)) continue;
+      const pa = track.at(s - O.slopeSpan);
+      const pb = track.at(s + O.slopeSpan);
+      if (Math.abs(heightAt(pb.x, pb.z) - heightAt(pa.x, pa.z)) / (2 * O.slopeSpan) > O.maxSlope) continue; // not on a hill
       const score = k + Math.abs(s - frac * L) * 1e-5; // straightest, then closest to target
       if (!best || score < best.score) best = { s, score };
     }
@@ -568,7 +573,7 @@ export async function loadCaveArchModel() {
   return group;
 }
 
-/** Placeholder ride obstacles (instanced per kind): logs, low stone walls, hurdles. */
+/** Placeholder ride obstacles (instanced per kind): low logs and low stone walls. */
 export async function loadObstacleModels(obstacles) {
   const group = new THREE.Group();
   const m = new THREE.Matrix4();
@@ -579,7 +584,6 @@ export async function loadObstacleModels(obstacles) {
   const X = new THREE.Vector3(1, 0, 0);
   const logs = obstacles.filter((o) => o.type === 'log');
   const walls = obstacles.filter((o) => o.type === 'wall');
-  const hurdles = obstacles.filter((o) => o.type === 'hurdle');
   const T = CONFIG.obstacles.types;
 
   if (logs.length) {
@@ -617,32 +621,6 @@ export async function loadObstacleModels(obstacles) {
           mesh.setColorAt(k++, col.set(T.wall.color).offsetHSL(0, 0, ((j * 37 + row * 11) % 10) * 0.012 - 0.05));
         }
       }
-    });
-    mesh.count = k;
-    group.add(mesh);
-  }
-  if (hurdles.length) {
-    const mesh = new THREE.InstancedMesh(
-      new THREE.BoxGeometry(1, 1, 1),
-      new THREE.MeshLambertMaterial({ color: 0xffffff }),
-      hurdles.length * 6,
-    );
-    const white = new THREE.Color(T.hurdle.color);
-    const red = new THREE.Color(0xd62828);
-    let k = 0;
-    hurdles.forEach((o) => {
-      q.setFromUnitVectors(X, across.set(o.nx, 0, o.nz));
-      for (const t of [-o.halfLength, 0, o.halfLength]) {
-        mesh.setMatrixAt(k, m.compose(p.set(o.cx + o.nx * t, o.base + o.height / 2, o.cz + o.nz * t), q, s.set(0.16, o.height, 0.16)));
-        mesh.setColorAt(k++, white);
-      }
-      for (const [y, c] of [[o.height - 0.08, red], [o.height * 0.55, white]]) {
-        mesh.setMatrixAt(k, m.compose(p.set(o.cx, o.base + y, o.cz), q, s.set(o.halfLength * 2, 0.1, 0.1)));
-        mesh.setColorAt(k++, c);
-      }
-      // Third slot: a striped middle rail segment for readability.
-      mesh.setMatrixAt(k, m.compose(p.set(o.cx, o.base + o.height - 0.08, o.cz), q, s.set(1.4, 0.12, 0.12)));
-      mesh.setColorAt(k++, white);
     });
     mesh.count = k;
     group.add(mesh);
@@ -796,6 +774,7 @@ export class World {
     this.boxes = [];
     this.beams = [];
     this.cylinders = [];
+    this.trees = []; // forest trees {x, z, reach} (for checks)
     // Fadeable foliage: [{ mesh (InstancedMesh with instanceFade), items: [{x,y,z,r}] }].
     this.foliageSets = [];
     this.time = 0;
@@ -922,7 +901,7 @@ export class World {
   /**
    * Highest standable surface under (x,z) whose top is at or below maxY.
    * `grace` widens platforms so standing half over an edge still counts.
-   * `ignoreObstacles` skips the ride obstacles (logs, walls, hurdles).
+   * `ignoreObstacles` skips the ride obstacles (logs, walls).
    * @returns {{y:number, platform:object|null}}
    */
   groundAt(x, z, maxY, grace = 0, ignoreObstacles = false) {
@@ -956,7 +935,7 @@ export class World {
    * `ignoreObstacles` skips the ride obstacles (the horse jumps / stumbles over them instead).
    * Velocity components into a wall are removed.
    */
-  collide(pos, vel, radius, height, stepUp, ignoreObstacles = false) {
+  collide(pos, vel, radius, height, stepUp, ignoreObstacles = false, ignoreWalls = false) {
     const feet = pos.y;
     const head = pos.y + height;
     for (const b of this.boxes) {
@@ -999,6 +978,43 @@ export class World {
       const cz = b.z0 + b.uz * b.len * t;
       pushOut(pos, vel, pos.x - cx, pos.z - cz, lerp(b.hw0, b.hw1, t) + radius);
     }
+    this.wallHit = ignoreWalls ? null : this.#trailWalls(pos, vel, radius);
+  }
+
+  /**
+   * Invisible walls just outside both trail edges: anything within `wall.band` beyond the
+   * wall line is pushed back onto the trail and loses only its outward velocity (it slides).
+   * Returns the inward normal {x, z, tx, tz} on contact (tangent = trail direction), else null.
+   */
+  #trailWalls(pos, vel, radius) {
+    const WL = TR.wall;
+    const limit = WL.offset - radius;
+    const n = this.track.nearest(pos.x, pos.z, WL.offset + WL.band);
+    if (!n || n.s < WL.startS || n.s > this.track.length - WL.endMargin) return null;
+    if (Math.abs(n.lateral) <= limit || Math.abs(n.lateral) > WL.offset + WL.band) return null;
+    if (pos.y > this.heightAt(pos.x, pos.z) + WL.height) return null;
+    const side = Math.sign(n.lateral);
+    // Right of travel is (-tz, tx); inward is the opposite of the side we're on.
+    const ix = n.tz * side;
+    const iz = -n.tx * side;
+    const over = Math.abs(n.lateral) - limit;
+    pos.x += ix * over;
+    pos.z += iz * over;
+    const into = vel.x * ix + vel.z * iz;
+    if (into < 0) {
+      vel.x -= ix * into;
+      vel.z -= iz * into;
+    }
+    return { x: ix, z: iz, tx: n.tx, tz: n.tz };
+  }
+
+  /** Is the point inside the trail walls (for the camera)? */
+  insideTrailWalls(x, z, y) {
+    const WL = TR.wall;
+    const n = this.track.nearest(x, z, WL.offset + WL.band);
+    if (!n || n.s < WL.startS || n.s > this.track.length - WL.endMargin) return true;
+    if (Math.abs(n.lateral) <= WL.offset || Math.abs(n.lateral) > WL.offset + WL.band) return true;
+    return y > this.heightAt(x, z) + WL.height;
   }
 
   // --- Builders ---
@@ -1161,8 +1177,11 @@ export class World {
     });
   }
 
-  /** May a tree (scale k) stand here? Off the trail, river, arena, cliffs, swamp and town. */
-  #treeSpot(x, z, k) {
+  /**
+   * May a tree (scale k, horizontal reach `reach` at scale 1) stand here? Wholly outside the
+   * trail corridor; off the river, arena, cliffs, swamp and town.
+   */
+  #treeSpot(x, z, k, reach) {
     const hw = W.width / 2 - 6;
     if (x < -hw || x > hw || z < W.zMin + 8 || z > W.zMax - 8) return false;
     if (inSouthRegion(z) && x < this.layout.hazardEndX + 3) return false;
@@ -1171,12 +1190,18 @@ export class World {
     if (Math.hypot(x - cx, z - cz) < CV.radius + 6) return false;
     if (x > CV.cliff.faceX - 8 && z < 120) return false;
     if (Math.hypot(x - CONFIG.horse.position[0], z - CONFIG.horse.position[1]) < 8) return false;
-    const keep = TR.halfWidth + TR.edge.offset + F.trailClearance + 1.2 * k;
+    const keep = TR.corridorHalfWidth + F.corridorMargin + reach * k;
     return this.track.distance(x, z, keep + 1) > keep;
   }
 
-  /** Dense forest along both sides of the trail plus a scattering everywhere else. */
+  /**
+   * Forest placed only by sampling the trail spline: a dense band of rows either side just
+   * outside the tree-free corridor, and a sparser outer band. Never on or near the trail.
+   */
   async #buildForest(rnd) {
+    const species = await loadForestTreeModels();
+    // Horizontal reach (trunk axis → crown edge) at scale 1, crown stretch included.
+    const reach = species.map((sp) => Math.hypot(sp.crownSphere.center.x, sp.crownSphere.center.z) + sp.crownSphere.radius * F.maxStretch);
     const picks = [];
     const taken = new Set();
     const weights = F.speciesWeights;
@@ -1185,25 +1210,31 @@ export class World {
       for (let i = 0; i < weights.length; i++) if ((r -= weights[i]) <= 0) return i;
       return 0;
     };
-    const tryPlace = (x, z) => {
-      const k = rnd.range(F.scaleMin, F.scaleMax);
-      const cell = `${Math.round(x / 1.8)},${Math.round(z / 1.8)}`; // trunks never overlap
-      if (taken.has(cell) || !this.#treeSpot(x, z, k)) return;
-      taken.add(cell);
-      picks.push({ x, z, k, species: pickSpecies() });
-    };
     const { track } = this;
-    const edge = TR.halfWidth + TR.edge.offset + F.trailClearance;
-    // A dense band either side of the trail...
-    for (let tries = 0; picks.length < F.count && tries < F.count * 12; tries++) {
-      const p = track.at(rnd() * track.length);
-      const lat = (rnd() < 0.5 ? -1 : 1) * (edge + 1.5 + rnd() ** 1.5 * F.nearPathBand);
-      tryPlace(p.x - p.tz * lat, p.z + p.tx * lat);
-    }
-    // ...and a scattering everywhere else.
-    const total = picks.length + F.farCount;
-    for (let tries = 0; picks.length < total && tries < F.farCount * 20; tries++) {
-      tryPlace(rnd.range(-W.width / 2, W.width / 2), rnd.range(W.zMin, W.zMax));
+    const place = (sAlong, lat) => {
+      const p = track.at(sAlong);
+      const x = p.x - p.tz * lat;
+      const z = p.z + p.tx * lat;
+      const k = rnd.range(F.scaleMin, F.scaleMax);
+      const species = pickSpecies();
+      const cell = `${Math.round(x / 1.8)},${Math.round(z / 1.8)}`; // trunks never overlap
+      if (taken.has(cell) || !this.#treeSpot(x, z, k, reach[species])) return;
+      taken.add(cell);
+      picks.push({ x, z, k, species });
+    };
+    const inner = TR.corridorHalfWidth + F.corridorMargin;
+    for (const side of [-1, 1]) {
+      // Dense rows just outside the corridor (the first row hugs the bush line)...
+      for (let row = 0; row < F.nearRows; row++) {
+        for (let s = row * F.nearStep * 0.5; s < track.length; s += F.nearStep) {
+          const lat = inner + reach[0] * F.scaleMin + (row + rnd()) * (F.nearBand / F.nearRows);
+          place(s + rnd.range(-F.jitter, F.jitter), side * lat);
+        }
+      }
+      // ...and a sparser outer band.
+      for (let s = 0; s < track.length; s += F.farStep) {
+        place(s + rnd.range(-F.jitter * 3, F.jitter * 3), side * (inner + rnd.range(...F.farBand)));
+      }
     }
 
     // Instanced per chunk (so off-screen chunks are frustum-culled) and per species.
@@ -1213,7 +1244,6 @@ export class World {
       if (!chunks.has(key)) chunks.set(key, []);
       chunks.get(key).push(t);
     }
-    const species = await loadForestTreeModels();
     const m = new THREE.Matrix4();
     const q = new THREE.Quaternion();
     const s = new THREE.Vector3();
@@ -1228,7 +1258,7 @@ export class World {
         const items = [];
         trees.forEach((t, i) => {
           const y = this.heightAt(t.x, t.z);
-          const stretch = rnd.range(0.85, 1.2);
+          const stretch = rnd.range(0.85, F.maxStretch);
           q.setFromAxisAngle(THREE.Object3D.DEFAULT_UP, rnd() * Math.PI * 2);
           m.compose(p.set(t.x, y - 0.1, t.z), q, s.set(t.k, t.k * stretch, t.k));
           trunks.setMatrixAt(i, m);
@@ -1239,7 +1269,8 @@ export class World {
           crowns.setColorAt(i, tint);
           c.copy(sp.crownSphere.center).applyMatrix4(m);
           items.push({ x: c.x, y: c.y, z: c.z, r: sp.crownSphere.radius * t.k * Math.max(1, stretch) });
-          this.cylinders.push({ x: t.x, z: t.z, r: sp.trunkRadius * t.k, top: y + sp.height * t.k * stretch, bottom: y - 1 });
+          this.cylinders.push({ x: t.x, z: t.z, r: sp.trunkRadius * t.k, top: y + sp.height * t.k * stretch, bottom: y - 1, tree: true });
+          this.trees.push({ x: t.x, z: t.z, reach: reach[si] * t.k });
         });
         trunks.computeBoundingSphere();
         crowns.computeBoundingSphere();
@@ -1250,22 +1281,25 @@ export class World {
     this.treeCount = picks.length;
   }
 
-  /** A soft fence of bushes and boulders just outside both trail edges (no colliders). */
+  /**
+   * A continuous, dense line of bushes and boulders along both edges of the tree-free
+   * corridor, sampled along the spline (wholly outside the corridor; none in the river).
+   */
   async #buildTrackEdges(rnd) {
     const E = TR.edge;
     const { track } = this;
     const spots = [];
-    for (let sAlong = 3; sAlong < track.length - 6; sAlong += E.spacing) {
+    for (let sAlong = 0; sAlong < track.length; sAlong += E.spacing) {
       for (const side of [-1, 1]) {
-        if (rnd() < E.gapChance) continue;
-        const sj = sAlong + rnd.range(-1, 1);
-        const p = track.at(sj);
-        const lat = side * (TR.halfWidth + E.offset + rnd.range(-0.3, 0.5));
+        const boulder = rnd() < E.boulderShare;
+        const r = boulder ? E.boulderRadius : E.bushRadius; // max horizontal radius
+        const p = track.at(sAlong + rnd.range(-E.jitter, E.jitter));
+        const lat = side * (TR.corridorHalfWidth + r + rnd.range(0, E.jitter));
         const x = p.x - p.tz * lat;
         const z = p.z + p.tx * lat;
-        if (this.heightAt(x, z) < Z.waterY + 0.15) continue; // not in the ford
-        if (track.distance(x, z, TR.halfWidth + 1) < TR.halfWidth + 0.8) continue; // inside of bends
-        spots.push({ x, z, boulder: rnd() < E.boulderShare });
+        if (this.heightAt(x, z) < Z.waterY + 0.15) continue; // not in the river
+        if (track.distance(x, z, TR.corridorHalfWidth + r + 1) < TR.corridorHalfWidth + r) continue; // inside of bends
+        spots.push({ x, z, r, boulder });
       }
     }
     const { bushes, boulders } = await loadTrackEdgeModels(spots.filter((t) => !t.boulder).length, spots.filter((t) => t.boulder).length);
@@ -1281,7 +1315,7 @@ export class World {
       q.setFromAxisAngle(THREE.Object3D.DEFAULT_UP, rnd() * Math.PI * 2);
       if (t.boulder) {
         const k = rnd.range(...E.boulderSize);
-        boulders.setMatrixAt(nr, m.compose(p.set(t.x, y + k * 0.35, t.z), q, s.set(k * 1.3, k, k * 1.1)));
+        boulders.setMatrixAt(nr, m.compose(p.set(t.x, y + k * 0.35, t.z), q, s.set(k * 1.25, k, k * 1.1)));
         boulders.setColorAt(nr++, col.setScalar(0.85 + rnd() * 0.3));
       } else {
         const k = rnd.range(...E.bushSize);
@@ -1293,6 +1327,7 @@ export class World {
     boulders.computeBoundingSphere();
     this.scene.add(bushes, boulders);
     this.edgeCount = spots.length;
+    this.edgeItems = spots;
   }
 
   /** Ride obstacles: solid (walkable top) for the hero on foot; the horse jumps them. */

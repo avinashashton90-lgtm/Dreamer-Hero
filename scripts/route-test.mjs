@@ -184,15 +184,32 @@ function cameraCheck(cam) {
   const obsInfo = obs.map((o, i) => {
     const gapBefore = i ? o.s - obs[i - 1].s : o.s;
     const k = track.maxCurvature(o.s - OB.straightBefore, o.s + OB.straightAfter);
-    const arenaD = Math.hypot(o.cx - CONFIG.cave.center[0], o.cz - CONFIG.cave.center[1]);
-    if (gapBefore < OB.runUp + OB.runOut || k > OB.maxCurvature || arenaD < CONFIG.cave.radius + 10 || o.height > 0.75) layoutOk = false;
+    const caveD = Math.hypot(o.cx - arch.x, o.cz - arch.z);
+    const n = track.nearest(o.cx, o.cz, 20);
+    const inTrail = n && Math.abs(n.lateral) < 0.5 && o.halfLength <= TRK.halfWidth;
+    if (gapBefore < OB.runUp + OB.runOut || k > OB.maxCurvature || caveD < OB.caveClear || o.height > 0.75 || !inTrail) layoutOk = false;
     return `${o.type}@${o.s.toFixed(0)}`;
   });
-  if (obs.filter((o) => o.type === 'wall').length !== 1) layoutOk = false;
+  if (obs.filter((o) => o.type === 'wall').length !== 1 || obs.some((o) => o.type !== 'log' && o.type !== 'wall')) layoutOk = false;
+  // Nothing hurdle/barrier-like near the cave: no obstacle (or obstacle collider) within caveClear.
+  const nearCave = [...obs, ...world.beams.filter((b) => b.obstacle).map((b) => ({ cx: (b.x0 + b.x1) / 2, cz: (b.z0 + b.z1) / 2 }))]
+    .filter((o) => Math.hypot(o.cx - arch.x, o.cz - arch.z) < OB.caveClear).length;
+  console.log(`trail spline length ${track.length.toFixed(0)} (minimum ${CONFIG.trailLength}); obstacles within ${OB.caveClear} of the cave: ${nearCave}`);
+  if (track.length < CONFIG.trailLength || nearCave) failed = true;
+  // The tree-free corridor: no tree (crown included) or edge bush/boulder inside it.
+  const CH = TRK.corridorHalfWidth;
+  const treesIn = world.trees.filter((t) => track.distance(t.x, t.z, CH + t.reach + 1) < CH + t.reach - 1e-3).length;
+  const crownsIn = world.foliageSets.filter((f) => f.bounds).reduce((n, f) => n + f.items.filter((l) => track.distance(l.x, l.z, CH + l.r + 1) < CH + l.r - 1e-3).length, 0);
+  const edgeIn = world.edgeItems.filter((e) => track.distance(e.x, e.z, CH + e.r + 1) < CH + e.r - 1e-3).length;
+  console.log(`corridor (${CH * 2} wide): trees ${world.trees.length} (inside ${treesIn}, crowns inside ${crownsIn}), edge bushes/boulders ${world.edgeItems.length} (inside ${edgeIn})`);
+  // Continuous edge: at least 85% of the slots along both sides are filled (the rest are the ford).
+  const edgeSlots = (2 * track.length) / TRK.edge.spacing;
+  console.log(`edge line: ${world.edgeItems.length}/${edgeSlots.toFixed(0)} slots filled`);
+  if (treesIn || crownsIn || edgeIn || world.edgeItems.length < edgeSlots * 0.85) failed = true;
   let gemsOut = 0, airLow = 0;
   for (const g of gems.gems) {
     const n = track.nearest(g.position.x, g.position.z, 20);
-    if (!n || n.dist > TRK.halfWidth - 1.5) gemsOut++;
+    if (!n || n.dist > GC.laneMax || n.dist > TRK.halfWidth) gemsOut++;
     if (g.kind === 'air') {
       const ground = world.heightAt(g.position.x, g.position.z) + GC.riderReach;
       if (g.position.y - ground < GC.collectHeight + 0.1) airLow++; // reachable without a jump
@@ -200,7 +217,7 @@ function cameraCheck(cam) {
   }
   const perColor = JSON.stringify(gems.perColor);
   console.log(`track: length ${track.length.toFixed(0)}, obstacles ${obs.length} [${obsInfo.join(' ')}], gems ${gems.gems.length} ${perColor}, outside trail ${gemsOut}, air gems reachable without jump ${airLow}, checkpoints at ${horse.checkpoints.map((c) => (c.s / track.length * 100).toFixed(0) + '%').join(' ')}`);
-  if (!layoutOk || gemsOut || airLow || Object.values(gems.perColor).some((n) => n < 12)) failed = true;
+  if (!layoutOk || gemsOut || airLow || Object.values(gems.perColor).some((n) => n < 15 || n > 20)) failed = true;
 
   // Autopilot jump: take off so the apex lands over the obstacle.
   const shouldJump = () => {
@@ -239,6 +256,7 @@ function cameraCheck(cam) {
   const ride = ({ gallop = false, jump = true, check = false } = {}) => {
     horse.lastCheckpoint = 0; horse.checkpoints.forEach((c, i) => (c.reached = i === 0));
     horse.respawnAtCheckpoint(hero); horse.stamina = 1; rideFalls = 0; checkpoints = 0;
+    gems.reset(); abilities.reset?.();
     const stumbles0 = horse.stumbles, cleared0 = horse.obstaclesCleared;
     cam.reset(); cam.snapTo(hero.position);
     let t = 0, bestS = 0, since = 0, stuck = false, stuckAt = '', topSpeed = 0, maxLat = 0, wobble = 0, prevSteer = 0;
@@ -258,7 +276,9 @@ function cameraCheck(cam) {
         tx = p.x - p.tz * lat; tz = p.z + p.tx * lat;
       }
       const moveX = steerTo(tx, tz);
-      horse.update(dt, { moveX, moveY: 1, jumpPressed: jump && shouldJump(), gallop }, cam.yaw, hero);
+      // Like a player: ease off the gallop just before the tighter corners.
+      const tight = track.maxCurvature(n.s, n.s + 30) > 0.018;
+      horse.update(dt, { moveX, moveY: 1, jumpPressed: jump && shouldJump(), gallop: gallop && !tight }, cam.yaw, hero);
       gems.update(dt, horse.collectPoint);
       cam.update(dt, hero.position, { mounted: horse.mounted, speed: horse.speedRatio, gallop: horse.galloping, heading: horse.heading });
       if (check) world.updateFoliage(dt, cam.camera.position, cam.focus);
@@ -280,7 +300,7 @@ function cameraCheck(cam) {
       }
     }
     rideDists.sort((a, b) => a - b);
-    return { t, stuck, stuckAt, atCave, topSpeed, maxLat, wobble, frames, inside, worstBlock, medianDist: rideDists[Math.floor(rideDists.length / 2)],
+    return { gemsLeft: gems.remaining, missed: gems.gems.filter((g) => !g.collected).map((g) => g.kind + '@' + g.s.toFixed(0)).join(' '), t, stuck, stuckAt, atCave, topSpeed, maxLat, wobble, frames, inside, worstBlock, medianDist: rideDists[Math.floor(rideDists.length / 2)],
       waterTime, waterMaxSpeed, minSeat, stumbles: horse.stumbles - stumbles0, cleared: horse.obstaclesCleared - cleared0, falls: rideFalls, checkpoints };
   };
 
@@ -298,10 +318,10 @@ function cameraCheck(cam) {
   if (!(r.medianDist < CONFIG.camera.rideDistance * 1.25)) failed = true;
   if (r.inside > 0 || r.worstBlock > 0.3) failed = true;
 
-  // b) Holding Gallop the whole way (stamina permitting).
+  // b) Holding Gallop the whole way (stamina permitting), easing off before tight corners.
   const rg = ride({ gallop: true });
-  console.log(`ride (gallop held): ${rg.t.toFixed(1)}s, top speed ${rg.topSpeed.toFixed(1)}, stumbles ${rg.stumbles}, jumps cleared ${rg.cleared}/${obs.length}, max off-centre ${rg.maxLat.toFixed(1)}, stuck ${rg.stuck}, falls ${rg.falls}, reached cave ${rg.atCave}`);
-  if (rg.stuck || rg.falls || !rg.atCave || rg.maxLat > TRK.halfWidth || rg.t > 60 || rg.t < 40) failed = true;
+  console.log(`ride (gallop held): ${rg.t.toFixed(1)}s, top speed ${rg.topSpeed.toFixed(1)}, gems missed ${rg.gemsLeft} ${rg.missed}, stumbles ${rg.stumbles}, jumps cleared ${rg.cleared}/${obs.length}, max off-centre ${rg.maxLat.toFixed(1)}, stuck ${rg.stuck}, falls ${rg.falls}, reached cave ${rg.atCave}`);
+  if (rg.stuck || rg.falls || !rg.atCave || rg.maxLat > TRK.halfWidth || rg.t > 65 || rg.t < 40 || rg.gemsLeft || rg.stumbles || rg.cleared < obs.length) failed = true;
 
   // c) Never jumping: every obstacle is a stumble (slows a little), never a trap or a respawn.
   const rn = ride({ jump: false });
@@ -323,7 +343,7 @@ function cameraCheck(cam) {
       if (horse.stumble > 0) slowest = Math.min(slowest, horse.speed);
     }
     const stumbled = horse.stumbles === s0 + 1;
-    console.log(`stumble: ${stumbled ? 'ok' : 'FAILED'} (${before.toFixed(1)} → ${slowest.toFixed(1)}), respawned: ${rideFalls > 0}, carried on past it: ${n.s > o.s}`);
+    console.log(`stumble: ${stumbled ? 'ok' : 'FAILED'} [${horse.stumbles - s0} at obstacle s ${o.s.toFixed(0)}, start ${horse.checkpoints[1].s.toFixed(0)}] (${before.toFixed(1)} → ${slowest.toFixed(1)}), respawned: ${rideFalls > 0}, carried on past it: ${n.s > o.s}`);
     if (!stumbled || rideFalls || n.s <= o.s || slowest < before * 0.5) failed = true;
   }
 
@@ -361,6 +381,43 @@ function cameraCheck(cam) {
     const refilled = horse.stamina > before;
     console.log(`gallop: top speed ${gTop.toFixed(1)} (normal ${HC.maxSpeed}, x${(gTop / HC.maxSpeed).toFixed(2)}), lasted ${(steps * dt).toFixed(1)}s, drained ${drained}, refills ${refilled} (to ${horse.stamina.toFixed(2)} after 3 s)`);
     if (gTop < HC.maxSpeed * 1.9 || !drained || !refilled) failed = true;
+  }
+
+  // Side walls: steer hard into them (normal speed and galloping, both sides, at several
+  // places) — the horse stays on the trail and slides along instead of stopping dead.
+  {
+    let worst = 0, slowest = Infinity, tests = 0;
+    for (const f of [0.15, 0.33, 0.55, 0.7, 0.9]) for (const side of [-1, 1]) for (const gallop of [false, true]) {
+      const s0 = f * track.length, p = track.at(s0);
+      horse.position.set(p.x, world.heightAt(p.x, p.z), p.z); horse.heading = Math.atan2(p.tx, p.tz);
+      horse.speed = HC.maxSpeed * (gallop ? 2 : 1); horse.stamina = 1; horse.steer = 0; horse.velocity.set(0, 0, 0); horse.grounded = true;
+      for (let i = 0; i < 60 * 3; i++) {
+        horse.update(dt, { moveX: side, moveY: 1, jumpPressed: false, gallop }, cam.yaw, hero);
+        const n = track.nearest(horse.position.x, horse.position.z, 30);
+        worst = Math.max(worst, n ? Math.abs(n.lateral) : Infinity);
+        if (i > 60) slowest = Math.min(slowest, horse.speed);
+      }
+      tests++;
+    }
+    // On foot, too.
+    horse.toggle(hero); for (let i = 0; i < 40; i++) horse.update(dt, none, 0, hero);
+    let footWorst = 0;
+    for (const side of [-1, 1]) {
+      const p = track.at(track.length * 0.3);
+      hero.lastSafe.set(p.x, world.heightAt(p.x, p.z), p.z); hero.respawn();
+      const yaw = Math.atan2(p.tx, p.tz) + Math.PI; // camera behind, looking along the trail
+      for (let i = 0; i < 60 * 3; i++) {
+        hero.update(dt, { moveX: side, moveY: 0.3, jumpPressed: false }, yaw);
+        const n = track.nearest(hero.position.x, hero.position.z, 30);
+        footWorst = Math.max(footWorst, n ? Math.abs(n.lateral) : Infinity);
+      }
+    }
+    horse.position.copy(hero.position); horse.mode = 'idle';
+    const mx = hero.position.x - Math.cos(horse.heading) * 1.5, mz = hero.position.z + Math.sin(horse.heading) * 1.5;
+    horse.position.set(mx, world.heightAt(mx, mz), mz);
+    horse.toggle(hero); for (let i = 0; i < 40; i++) horse.update(dt, none, 0, hero);
+    console.log(`side walls: ${tests} hard pushes on horseback — max off-centre ${worst.toFixed(2)} (trail half-width ${TRK.halfWidth}), slowest while sliding ${slowest.toFixed(1)}; on foot max off-centre ${footWorst.toFixed(2)}; remounted ${horse.mode === 'riding'}`);
+    if (worst > TRK.halfWidth || footWorst > TRK.halfWidth || slowest < 3 || horse.mode !== 'riding') failed = true;
   }
 
   // Giant cave: entrance ~10x the horse's height, cliffs tower over the arena.

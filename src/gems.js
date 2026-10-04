@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { CONFIG } from './config.js';
 
 const G = CONFIG.gems;
+const { clamp } = THREE.MathUtils;
 const COLORS = Object.keys(G.colors); // ['yellow', 'blue', 'pink']
 
 let haloTexture = null;
@@ -189,7 +190,7 @@ export function layoutGroups(world) {
 
   // In the air over obstacles: an arc following the hop at full speed, a little above it.
   const H = CONFIG.horse;
-  const air = G.airGemObstacles.map((i) => obstacles[i]).filter(Boolean);
+  const air = G.airGemObstacles === 'all' ? obstacles : G.airGemObstacles.map((i) => obstacles[i]).filter(Boolean);
   for (const o of air) {
     const spots = G.airOffsets.map((d) => {
       const t = d / H.maxSpeed; // time from the apex
@@ -207,13 +208,20 @@ export function layoutGroups(world) {
   const clear = G.obstacleClear + span / 2;
   for (let i = 0; i < count; i++) {
     let mid = s0 + span / 2 + ((i + 0.5) / count) * (s1 - s0);
+    // Somewhere fairly straight (so a gallop can follow the line) and clear of obstacles.
+    const bad = (m) => track.maxCurvature(m - span / 2 - G.leadIn, m + span / 2) > G.maxCurvature || obstacles.some((o) => Math.abs(m - o.s) < clear);
+    const base = mid;
+    for (let d = 0; d < (s1 - s0) / count / 2 && bad(mid); d += G.searchStep) {
+      if (!bad(base + d)) mid = base + d;
+      else if (!bad(base - d)) mid = base - d;
+    }
     for (const o of obstacles) if (Math.abs(mid - o.s) < clear) mid = o.s - clear;
     const arc = i % 2 === 1;
     const side = i % 4 === 1 ? 1 : -1;
     const spots = [];
     for (let k = 0; k < G.groupSize; k++) {
       const s = mid - span / 2 + k * G.spacing;
-      const lateral = arc ? side * G.arcLateral[k] : 0;
+      const lateral = clamp(arc ? side * G.arcLateral[k] : 0, -G.laneMax, G.laneMax);
       const { x, z } = at(s, lateral);
       spots.push({ s, lateral, position: new THREE.Vector3(x, groundY(x, z) + G.height, z) });
     }

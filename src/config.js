@@ -1,5 +1,8 @@
 // All tunable numbers live here. Systems must not hard-code gameplay values.
 export const CONFIG = {
+  // The forest ride must be at least this long (river → cave, along the trail spline).
+  trailLength: 1500,
+
   render: {
     maxPixelRatio: 2,
     antialias: true,
@@ -17,9 +20,9 @@ export const CONFIG = {
     depth: 200,              // the original map (town, swamp, cave region): z -100…100
     // The map extends north for the long ride: z from zMin to zMax.
     zMin: -100,
-    zMax: 640,
+    zMax: 680,
     segmentsX: 125,
-    segmentsZ: 300,
+    segmentsZ: 312,
     killY: -20,              // safety net: below this the hero respawns at the last safe spot
     fogNear: 70,
     fogFar: 240,
@@ -42,20 +45,27 @@ export const CONFIG = {
   // rounded corners (radius `cornerRadius`, or a point's 3rd value). From the horse on the
   // west river bank: north along the bank, a sweep west, the hill climb and descent up the
   // west side, east along the north edge across the river ford (~50%), the long descent down
-  // the east side, a sweep back west, south past the cliffs and into the cave arena. ~1480 long.
+  // the east side, a sweep back west, south past the cliffs and into the cave arena. ~1540 long (at least `trailLength`).
   track: {
     points: [
-      [-20, 6], [-20, 290], [-122, 360], [-122, 600], [50, 600], [112, 540], [112, 340],
+      [-20, 6], [-20, 320], [-122, 390], [-122, 630], [50, 630], [112, 570], [112, 340],
       [40, 280], [40, 40], [60, 0], [96, 0],
     ],
     cornerRadius: 40,
-    halfWidth: 6,            // ~12 wide
+    halfWidth: 7,            // 14 wide
+    // Tree-free corridor: nothing but the trail, grass and the edge line within this distance
+    // of the centre line (22 wide in total). Trees only grow outside it.
+    corridorHalfWidth: 11,
+    // Invisible walls just outside the trail edge: the hero and horse can't leave the trail
+    // (the horse slides along them). Not at the very start (the horse's spot) or in the arena.
+    wall: { offset: 7.3, band: 3, height: 7, startS: 10, endMargin: 25, slideTurn: 6, slideDrag: 0.5 },
     sampleSpacing: 1,
     gridCell: 8,
     dirtColor: 0x9c7a4f,
     rimColor: 0x7a6040,      // slightly darker trail edge
-    // A soft fence of bushes and boulders just outside each edge (no hard colliders).
-    edge: { offset: 1.8, spacing: 4.2, boulderShare: 0.3, bushSize: [0.9, 1.5], boulderSize: [0.45, 0.85], gapChance: 0.06 },
+    // A continuous, dense line of bushes and boulders along both corridor edges (sampled
+    // along the spline; outside the corridor, so the trail stays clear).
+    edge: { spacing: 2.1, jitter: 0.4, boulderShare: 0.3, bushSize: [1.0, 1.6], boulderSize: [0.6, 1.0], bushRadius: 1.2, boulderRadius: 1.3 },
     // Riding: a gentle push back toward the trail near the edges (never a wall).
     softEdge: { start: 4.6, strength: 4, turn: 1.2, band: 11 },
     // Gentle path assist: with the stick near neutral, nudge the heading along the trail.
@@ -63,7 +73,7 @@ export const CONFIG = {
     // A hill climb then a long descent on each side of the ford.
     hills: [
       { x: -122, z: 470, height: 12, radius: 46 }, // west side: a climb, then down the far side
-      { x: 104, z: 548, height: 11, radius: 56 },  // north-east: a long descent down the east side
+      { x: 104, z: 575, height: 11, radius: 56 },  // north-east: a long descent down the east side
     ],
     uphillDrag: 2.2,         // top speed × (1 − slope × this): slower uphill, quicker downhill
     hillSpeed: [0.78, 1.12], // ...clamped to this range
@@ -149,10 +159,15 @@ export const CONFIG = {
 
   // Forest and background trees: three species with per-instance size and tint.
   forest: {
-    count: 950,              // dense forest along both sides of the trail
-    nearPathBand: 22,        // ...within this distance outside the trail edge
-    farCount: 220,           // plus a scattering everywhere else (off the trail)
-    trailClearance: 2.4,     // trees keep at least this much beyond the bush edge
+    // Placed only by sampling the trail spline: rows of trees either side, outside the corridor.
+    nearStep: 3.4,           // along the trail, per side, in the dense band...
+    nearRows: 3,             // ...rows deep
+    nearBand: 20,            // ...spread over this width outside the corridor
+    farStep: 12,             // a sparser outer band...
+    farBand: [20, 60],       // ...this far outside the corridor
+    jitter: 1.2,             // along-trail jitter
+    corridorMargin: 0.6,     // whole tree (crown included) at least this far outside the corridor
+    maxStretch: 1.2,         // random height stretch per tree
     chunkSize: 100,          // instanced per chunk so off-screen chunks are culled
     trunkRadius: 0.35,       // collider radius at scale 1
     scaleMin: 0.8,
@@ -275,6 +290,7 @@ export const CONFIG = {
     minDistance: 0.6,           // only reached when the hero stands right against a trunk
     leafMinDistance: 1.8,       // leaf clusters closer than this to the hero fade instead of blocking
     releaseLerp: 3,
+    wallStep: 0.5,              // ray march step against the invisible trail walls
     // Riding: close over-the-shoulder view behind and slightly above the rider.
     rideDistance: 4.2,        // from the look-at point
     rideHeight: 1.25,         // look-at point above the rider's seat
@@ -384,7 +400,7 @@ export const CONFIG = {
   // direction; groups give a clear line of approach.
   // Obstacles: few and fair — each alone on a straight, with a long clear run-up.
   obstacles: {
-    at: [0.1, 0.27, 0.42, 0.62, 0.76, 0.88], // target positions (fraction of the track)
+    at: [0.1, 0.27, 0.42, 0.67, 0.78, 0.89], // target positions (fraction of the track)
     wallIndex: 3,            // which one is the low rock wall (the rest are logs)
     search: 0.04,            // look this far (fraction) either side for a straight spot
     runUp: 40,               // clear (no other obstacle, no water) before...
@@ -392,8 +408,10 @@ export const CONFIG = {
     straightBefore: 25,      // the obstacle sits on a straight: at least this much before it...
     straightAfter: 10,       // ...and after
     maxCurvature: 0.004,     // "straight": heading changes less than this per unit
-    halfLength: 6.8,         // across the trail (into the bush edge)
-    arenaClear: 50,          // none in the last stretch into the cave arena
+    halfLength: 6.9,         // across the trail (within its 14 width)
+    caveClear: 120,          // no obstacle within this distance of the cave mouth
+    maxSlope: 0.025,         // only on level ground (rise per unit over ±slopeSpan)
+    slopeSpan: 15,
     types: {
       log: { height: 0.6, depth: 0.55, color: 0x6b4423 },
       wall: { height: 0.7, depth: 0.6, color: 0x8a8378 },
@@ -408,7 +426,7 @@ export const CONFIG = {
   // first mount respawn the hero on the horse at the last checkpoint reached.
   checkpoints: {
     fractions: [0, 0.25, 0.5, 0.75], // along the track (the first is the horse's spot)
-    dryStep: 4,              // moved forward this far at a time while in the river
+    dryStep: 4,              // moved forward this far at a time while in the river (or an obstacle run-up)
     edgeOffset: 0.4,         // flag pole beyond the trail's right edge
     radius: 9,
     poleHeight: 3.2,
@@ -422,14 +440,18 @@ export const CONFIG = {
     // (15 of each). Rows on the centre line, gentle arcs within the lane, and arcs in the
     // air above three obstacles (a jump collects them). Unlocks still trigger at 5.
     needed: 5,
-    groups: 9,               // in total, air arcs included
+    groups: 12,              // in total, air arcs included (20 of each colour)
+    laneMax: 4,              // every gem within this distance of the centre line
     groupSize: 5,
     spacing: 3.2,            // between gems in a group
     startS: 45,              // first group (after the horse) ...
     endMargin: 40,           // ... last group ends this far before the arena
-    arcLateral: [0, 1.0, 1.4, 1.0, 0], // arc groups bow this far off the centre line
+    arcLateral: [0, 1.0, 1.5, 1.0, 0], // arc groups bow this far off the centre line
     obstacleClear: 16,       // ground groups keep this far (along the trail) from obstacles
-    airGemObstacles: [0, 2, 4], // obstacle indices with a gem arc above them
+    maxCurvature: 0.01,      // ground groups sit where the trail is fairly straight (rad/unit)
+    leadIn: 15,              // ...with this much straight trail before the group
+    searchStep: 4,           // ...searching this far at a time for such a spot
+    airGemObstacles: 'all',  // a gem arc above every obstacle (or a list of indices)
     airOffsets: [-3.5, -1.75, 0, 1.75, 3.5], // along the trail, around the obstacle
     airLift: 0.6,            // above the hop's own arc, so only a jump reaches them
     riderReach: 1.4,         // collect point above the horse's hooves (body centre)

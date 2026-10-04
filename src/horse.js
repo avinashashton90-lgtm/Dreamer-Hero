@@ -197,7 +197,11 @@ export class Horse {
         return { s: 0, position: new THREE.Vector3(hx, world.heightAt(hx, hz), hz), heading: track.headingAt(0), reached: true };
       }
       let s = f * track.length;
-      while (world.surfaceAt(track.at(s).x, track.at(s).z) === 'water') s += CP.dryStep;
+      // Not in the river, and never just before an obstacle (always a full run-up).
+      const blocked = (s) =>
+        world.surfaceAt(track.at(s).x, track.at(s).z) === 'water' ||
+        world.obstacles.some((o) => s > o.s - OBS.runUp && s < o.s + OBS.runOut);
+      while (blocked(s) && s < track.length) s += CP.dryStep;
       const p = track.at(s);
       return { s, position: new THREE.Vector3(p.x, world.heightAt(p.x, p.z), p.z), heading: track.headingAt(s), reached: false };
     });
@@ -218,6 +222,7 @@ export class Horse {
     this.yawRate = 0; // rad/s, for the lean
     this.lean = 0;
     this.trackS = 0; // progress along the track (nearest point)
+    this.wallContacts = 0;
   }
 
   #from;
@@ -484,8 +489,18 @@ export class Horse {
       } else this.grounded = false;
 
       this.world.collide(this.position, this.velocity, HC.radius, HC.height, HC.stepUp, true);
-      // Bumping into something takes the speed off along the heading.
-      this.speed = clamp(this.velocity.x * Math.sin(this.heading) + this.velocity.z * Math.cos(this.heading), 0, HC.maxSpeed * GAL.speedMultiplier);
+      const wall = this.world.wallHit;
+      if (wall) {
+        // Trail wall: slide along it (keep the sliding speed, turn to run with the trail).
+        this.wallContacts++;
+        let along = Math.atan2(wall.tx, wall.tz);
+        if (Math.abs(wrap(along - this.heading)) > Math.PI / 2) along += Math.PI;
+        this.heading = wrap(this.heading + wrap(along - this.heading) * (1 - Math.exp(-TR.wall.slideTurn * h)));
+        this.speed *= 1 - TR.wall.slideDrag * h; // rails along the wall, a little slower
+      } else {
+        // Bumping into something takes the speed off along the heading.
+        this.speed = clamp(this.velocity.x * Math.sin(this.heading) + this.velocity.z * Math.cos(this.heading), 0, HC.maxSpeed * GAL.speedMultiplier);
+      }
     }
 
     // Falls: the swamp, or off the world.

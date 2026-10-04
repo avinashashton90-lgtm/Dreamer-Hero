@@ -54,7 +54,7 @@ src/
 
 Placeholder models are built in `loadXModel()` functions (`loadHeroModel`, `loadTerrainModel`, `loadHorseModel`, …) so real glTF assets can be swapped in later.
 
-The forest ride is a ~1480-long dirt trail (about 90 s at normal speed, ~55 s galloping) from the river to the cave: wide curves, a hill climb and descent, a river ford half way, 6 jumpable logs/walls on straights, and 45 gems in rows and arcs along the centre lane.
+The forest ride follows one trail spline: a 14-wide, ~1544-long dirt trail (at least `CONFIG.trailLength` = 1500; about 94 s at normal speed, ~64 s galloping) from the river to the cave, with wide curves, a hill climb and descent, a river ford half way, 6 jumpable logs/walls on straights, and 60 gems in rows and arcs along the centre lane. Trees stay outside a 22-wide corridor behind a continuous line of bushes and boulders, and invisible side walls keep the horse on the trail (it slides along them).
 
 Debug from the browser console: `game.state.set('ending')`, `game.hero.position`, etc.
 

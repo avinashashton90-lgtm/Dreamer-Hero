@@ -146,6 +146,16 @@ export class FollowCamera {
       if (t > 0 && t < hit) hit = t;
     }
 
+    // Invisible trail walls: never put the camera beyond them (into the edge bushes/trees).
+    if (this.world.insideTrailWalls && this.world.insideTrailWalls(o.x, o.z, o.y)) {
+      for (let t = C.wallStep; t < hit + pad; t += C.wallStep) {
+        if (!this.world.insideTrailWalls(o.x + dir.x * t, o.z + dir.z * t, o.y + dir.y * t)) {
+          hit = Math.max(0, t - C.wallStep - pad * 0.5);
+          break;
+        }
+      }
+    }
+
     // Leaf clusters: clusters merely between camera and hero fade out (World.updateFoliage);
     // only when the camera itself would end up inside one is it moved in front of it.
     for (let pass = 0; pass < 3; pass++) {
