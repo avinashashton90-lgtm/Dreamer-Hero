@@ -141,7 +141,7 @@ export class Input {
     this.attackQueued = false;
     this.dodgeQueued = false;
     this.abilityQueued = null; // 'batarang' | 'smokeBomb' | 'flashMode'
-    this.debugQueued = { grantGems: false, damageHero: false, teleportArena: false, killBoss: false };
+    this.debugQueued = { grantGems: false, damageHero: false, teleportArena: false, killBoss: false, cutscene: false, desert: false, ending: false };
 
     this.#buildDom(overlayRoot);
     this.#bind();
@@ -192,6 +192,9 @@ export class Input {
       debugDamageHero: this.enabled && this.debugQueued.damageHero,
       debugTeleportArena: this.enabled && this.debugQueued.teleportArena,
       debugKillBoss: this.enabled && this.debugQueued.killBoss,
+      debugCutscene: this.enabled && this.debugQueued.cutscene,
+      debugDesert: this.enabled && this.debugQueued.desert,
+      debugEnding: this.enabled && this.debugQueued.ending,
       lookDX: this.enabled ? this.lookDX : 0,
       lookDY: this.enabled ? this.lookDY : 0,
       lookSensitivity: this.lookSensitivity,
@@ -336,6 +339,9 @@ export class Input {
         if (e.code === I.debugKeys.damageHero) this.debugQueued.damageHero = true;
         if (e.code === I.debugKeys.teleportArena) this.debugQueued.teleportArena = true;
         if (e.code === I.debugKeys.killBoss) this.debugQueued.killBoss = true;
+        if (e.code === I.debugKeys.cutscene) this.debugQueued.cutscene = true;
+        if (e.code === I.debugKeys.desert) this.debugQueued.desert = true;
+        if (e.code === I.debugKeys.ending) this.debugQueued.ending = true;
       }
       if (e.code === 'Space') {
         e.preventDefault();

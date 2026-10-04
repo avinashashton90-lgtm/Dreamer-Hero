@@ -9,7 +9,7 @@ export const CONFIG = {
     clearColor: 0x8fc8ff,
     fov: 60,
     near: 0.1,
-    far: 400,
+    far: 950,                // far enough for the castle silhouette across the desert
   },
 
   // The map is a linear route along +X: town rooftops → tree canopy → sand bank & river
@@ -21,6 +21,9 @@ export const CONFIG = {
     // The map extends north for the long ride: z from zMin to zMax.
     zMin: -100,
     zMax: 680,
+    // The main grid covers x -width/2…width/2; the desert (beyond the cave cliffs) runs east to xMax.
+    xMin: -150,
+    xMax: 820,
     segmentsX: 125,
     segmentsZ: 312,
     killY: -20,              // safety net: below this the hero respawns at the last safe spot
@@ -259,6 +262,64 @@ export const CONFIG = {
     debugDamage: 1,            // hearts lost per debug-damage key press
   },
 
+  // The desert beyond the cave (Part 1 finale): its own trail spline, rolling dunes, cacti,
+  // rocks, a sunset sky and the castle on the horizon. Same trail system as the forest
+  // (halfWidth, corridor, invisible walls from CONFIG.track).
+  desert: {
+    startX: 168,             // dunes begin beyond the cliff ridge
+    points: [
+      [192, 0], [420, 0], [560, 90], [600, 260], [480, 400], [520, 560], [720, 600],
+    ],
+    minLength: 1000,         // the route test fails if the desert trail is shorter
+    castle: { distance: 35, height: 44, color: 0x2c2238, glow: 0xffb36b }, // castle this far past the trail end
+    endRange: 40,            // the ending starts within this distance of the castle
+    checkpoints: [0, 0.33, 0.66],
+    // Rolling dunes: value noise (octaves of [wavelength, height]); gentle rolls on the trail.
+    dunes: [[140, 7], [55, 2.6], [22, 0.7]],
+    trailDunes: [[140, 2.2]],
+    trailBlend: [9, 22],     // full trail profile within 9 of the centre line, dunes beyond 22
+    ridge: { from: 140, top: 152, to: 176 }, // the ridge between the forest/cliffs and the desert
+    terrainStep: 4.5,        // grid spacing of the desert terrain
+    colors: { sand: 0xeec27c, dune: 0xd9a35e, shade: 0xc98d4f, trail: 0xc89b62, rim: 0xb7864f },
+    cacti: { step: 7, band: [2, 46], scale: [0.8, 1.7], color: 0x4f8a3b },
+    rocks: { step: 9, band: [1, 55], scale: [0.6, 2.4], color: 0xb98a5a },
+    edge: { step: 3.2, scale: [0.35, 0.7], tuftShare: 0.45, tuftColor: 0x9c9550, rockColor: 0xc49a68 },
+    prints: { max: 180, life: 7, size: 0.22, color: 0x7a5a36, opacity: 0.45, minSpeed: 2 },
+    gems: { groups: 3, startS: 120, endMargin: 140 },
+    // Sunset: sky, fog and light colours blend in as the camera moves east into the desert.
+    sunset: {
+      blend: [150, 260],     // camera x range over which the sunset takes over
+      top: 0x3a3b7a, horizon: 0xff9a5c, sunColor: 0xffc27a, sunDirection: [0.85, 0.1, 0.5],
+      fog: 0xf0a070, hemiSky: 0xffc08a, hemiGround: 0x8a5a3a, sunLight: 0xffb070, sunIntensity: 1.2,
+    },
+  },
+
+  // Cinematic cutscenes (cinematic.js): camera moves, dialogue boxes, waits, callbacks.
+  cinematic: {
+    charsPerSecond: 38,      // typewriter speed
+    defaultMove: 1.2,        // seconds for a camera move without its own duration
+    trigger: 4,              // walk this close to the girl (after the boss) to start her scene
+    heroStand: 3.2,          // the hero stands this far in front of her
+    tremble: 0.035,          // frightened shiver (radians)
+    hintTime: 1.5,           // witch hint: eyes flicker purple, the shadow shows a hat and staff
+    hintColor: 0xb84dff,
+    mountFadeMs: 450,        // short fade while the girl climbs on behind the hero
+    // Camera shots in the girl's frame: offset [side, up, forward], look-at height, seconds.
+    shots: {
+      establish: { offset: [2.6, 2.3, 6.8], look: 1.2, duration: 1.4 },
+      twoShot: { offset: [4.4, 2.5, 4.6], look: 1.25, duration: 1.0 },
+      pushIn: { offset: [0.55, 1.6, 2.3], look: 1.4, duration: 2.6 },
+    },
+  },
+
+  // The end of Part 1.
+  ending: {
+    brake: 10,               // the horse slows to a stop near the castle
+    shot: { back: 24, height: 11, lookAhead: 45, lookUp: 19, duration: 3.5 }, // wide shot from behind, castle and sunset ahead
+    holdTime: 2.2,           // then the title...
+    titleMs: 3200,           // ..."To be continued... Part 2" for this long, then the summary
+  },
+
   // The cave monster (boss.js). Arena = CONFIG.cave.center / radius.
   boss: {
     hp: 100,
@@ -293,7 +354,13 @@ export const CONFIG = {
     dismountSpeed: 1.5,      // ...and the hero dismounts once it is this slow
     colors: { skin: 0x5b3f78, belly: 0x9c7fb5, horn: 0xe8dcc0, eye: 0xff2a2a },
     warningColor: 0xff2020,
-    girl: { position: [119, 0], color: 0x8a4fd0, height: 1.6, radius: 0.32, appearTime: 1.2 },
+    girl: {
+      position: [116.5, -16.5], // at the cave mouth, by the left wall of the arch
+      facing: -0.65,         // looking out toward the arena centre (radians, 0 = +Z)
+      color: 0x8a4fd0, hair: 0x1c1026, skin: 0xf3d2b0, height: 1.6, radius: 0.32, appearTime: 1.2,
+      shadow: { x: 120.8, z: -23, width: 3.6, height: 5.2, opacity: 0.5 }, // on the cave wall behind her
+      seatBack: 0.62,        // riding: sits this far behind the hero's seat
+    },
     victoryMs: 3200,
   },
 
@@ -437,7 +504,7 @@ export const CONFIG = {
     mountButtonBottomRiding: 176, // ...and lower while riding (Dodge is hidden then)
     // Ability buttons in an arc around Attack: angle 0 = left, 90 = up (degrees).
     abilityArc: { radius: 166, angles: [22, 48, 74], size: 52 },
-    debugKeys: { grantGems: 'KeyG', damageHero: 'KeyH', teleportArena: 'KeyT', killBoss: 'KeyB' },
+    debugKeys: { grantGems: 'KeyG', damageHero: 'KeyH', teleportArena: 'KeyT', killBoss: 'KeyB', cutscene: 'KeyP', desert: 'KeyO', ending: 'KeyU' },
   },
 
   cutscene: {
@@ -637,7 +704,7 @@ export const DIALOGUE = {
   skip: 'Skip ▶▶',
   gameOver: 'You woke up with a jolt!',
   retry: 'Tap to dream again',
-  toBeContinued: 'To be continued…',
+  toBeContinued: 'To be continued... Part 2',
   quests: {
     rooftops: 'Jump across the rooftops',
     trees: 'Leap through the trees',
@@ -647,6 +714,8 @@ export const DIALOGUE = {
     boss: 'Defeat the monster',
     bossDone: 'The monster is defeated!',
     enterCave: 'Enter the cave',
+    castle: 'Ride to the castle',
+    castleReached: 'The castle!',
   },
   mount: 'Mount',
   dismount: 'Dismount',
@@ -665,6 +734,24 @@ export const DIALOGUE = {
   gameOverTitle: 'Game Over',
   retryRide: 'Retry',
   bossName: 'Cave Monster',
+  // The girl's scene at the cave mouth (she is secretly a witch — only hinted).
+  speakers: { hero: 'Hero', girl: 'Girl' },
+  girlScene: {
+    safe: "You're safe now. The monster is gone.",
+    thanks: 'My saviour, you have come at last! I am so thankful to you. My life is yours. Take me.',
+    hintCue: 'Take me.', // the witch hint plays as she says this
+    safety: 'Come, I will take you to safety.',
+    castle: 'My castle lies beyond the desert dunes. Let us go together!',
+  },
+  tapToContinue: '▼',
+  summary: {
+    title: 'Part 1 complete',
+    gems: 'Gems collected',
+    time: 'Time',
+    deaths: 'Deaths',
+    playAgain: 'Play Again',
+    part2: 'Part 2 (Coming soon)',
+  },
   victory: 'Victory!',
 
   // Intro is told through pictures only. Add `caption: '...'` to a slide for one short comic line.

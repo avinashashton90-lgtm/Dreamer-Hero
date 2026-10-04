@@ -168,6 +168,11 @@ function cameraCheck(cam) {
   const abilities = new Abilities(hero);
   const gems = new Gems(world.scene, world, { onUnlock: (c, a) => abilities.unlock(a) });
   await gems.init();
+  // The forest ride's gems (the desert has a few optional ones of its own).
+  const forestGems = gems.gems.filter((g) => g.zone === 'forest');
+  const forestLeft = () => forestGems.filter((g) => !g.collected).length;
+  const forestPerColor = {};
+  for (const g of forestGems) forestPerColor[g.color] = (forestPerColor[g.color] ?? 0) + 1;
   const cam = new FollowCamera(16 / 9, world);
   let rideFalls = 0, checkpoints = 0;
   horse.onRespawn = () => rideFalls++;
@@ -207,7 +212,7 @@ function cameraCheck(cam) {
   console.log(`edge line: ${world.edgeItems.length}/${edgeSlots.toFixed(0)} slots filled`);
   if (treesIn || crownsIn || edgeIn || world.edgeItems.length < edgeSlots * 0.85) failed = true;
   let gemsOut = 0, airLow = 0;
-  for (const g of gems.gems) {
+  for (const g of forestGems) {
     const n = track.nearest(g.position.x, g.position.z, 20);
     if (!n || n.dist > GC.laneMax || n.dist > TRK.halfWidth) gemsOut++;
     if (g.kind === 'air') {
@@ -215,9 +220,9 @@ function cameraCheck(cam) {
       if (g.position.y - ground < GC.collectHeight + 0.1) airLow++; // reachable without a jump
     }
   }
-  const perColor = JSON.stringify(gems.perColor);
-  console.log(`track: length ${track.length.toFixed(0)}, obstacles ${obs.length} [${obsInfo.join(' ')}], gems ${gems.gems.length} ${perColor}, outside trail ${gemsOut}, air gems reachable without jump ${airLow}, checkpoints at ${horse.checkpoints.map((c) => (c.s / track.length * 100).toFixed(0) + '%').join(' ')}`);
-  if (!layoutOk || gemsOut || airLow || Object.values(gems.perColor).some((n) => n < 15 || n > 20)) failed = true;
+  const perColor = JSON.stringify(forestPerColor);
+  console.log(`track: length ${track.length.toFixed(0)}, obstacles ${obs.length} [${obsInfo.join(' ')}], gems ${forestGems.length} ${perColor}, outside trail ${gemsOut}, air gems reachable without jump ${airLow}, checkpoints at ${horse.checkpoints.map((c) => (c.s / track.length * 100).toFixed(0) + '%').join(' ')}`);
+  if (!layoutOk || gemsOut || airLow || Object.values(forestPerColor).some((n) => n < 15 || n > 20)) failed = true;
 
   // Autopilot jump: take off so the apex lands over the obstacle.
   const shouldJump = () => {
@@ -270,7 +275,7 @@ function cameraCheck(cam) {
       let tx, tz;
       if (n.s > track.length - 6) { tx = arch.x - 4; tz = arch.z; }
       else {
-        const next = gems.gems.find((g) => !g.collected && g.s > n.s + 2 && g.s < n.s + 30);
+        const next = forestGems.find((g) => !g.collected && g.s > n.s + 2 && g.s < n.s + 30);
         const lat = next ? next.lateral : 0;
         const p = track.at(n.s + 14);
         tx = p.x - p.tz * lat; tz = p.z + p.tx * lat;
@@ -300,17 +305,17 @@ function cameraCheck(cam) {
       }
     }
     rideDists.sort((a, b) => a - b);
-    return { gemsLeft: gems.remaining, missed: gems.gems.filter((g) => !g.collected).map((g) => g.kind + '@' + g.s.toFixed(0)).join(' '), t, stuck, stuckAt, atCave, topSpeed, maxLat, wobble, frames, inside, worstBlock, medianDist: rideDists[Math.floor(rideDists.length / 2)],
+    return { gemsLeft: forestLeft(), missed: forestGems.filter((g) => !g.collected).map((g) => g.kind + '@' + g.s.toFixed(0)).join(' '), t, stuck, stuckAt, atCave, topSpeed, maxLat, wobble, frames, inside, worstBlock, medianDist: rideDists[Math.floor(rideDists.length / 2)],
       waterTime, waterMaxSpeed, minSeat, stumbles: horse.stumbles - stumbles0, cleared: horse.obstaclesCleared - cleared0, falls: rideFalls, checkpoints };
   };
 
   // a) Normal speed, jumping and collecting.
   const r = ride({ check: true });
   const nCp = CONFIG.checkpoints.fractions.length - 1;
-  console.log(`ride (normal): ${r.t.toFixed(1)}s, top speed ${r.topSpeed.toFixed(1)}, gems ${gems.gems.length - gems.remaining}/${gems.gems.length} (${gems.gems.filter((g) => !g.collected).map((g) => g.kind + '@' + g.s.toFixed(0)).join(' ') || 'all'}), counts ${JSON.stringify(gems.counts)}, unlocks [${[...abilities.unlocked]}], checkpoints ${r.checkpoints}/${nCp}, falls ${r.falls}, stumbles ${r.stumbles}, jumps cleared ${r.cleared}/${obs.length}, max off-centre ${r.maxLat.toFixed(1)}, stuck ${r.stuck}${r.stuck ? ' at ' + r.stuckAt : ''}, reached cave ${r.atCave}`);
+  console.log(`ride (normal): ${r.t.toFixed(1)}s, top speed ${r.topSpeed.toFixed(1)}, gems ${forestGems.length - forestLeft()}/${forestGems.length} (${forestGems.filter((g) => !g.collected).map((g) => g.kind + '@' + g.s.toFixed(0)).join(' ') || 'all'}), counts ${JSON.stringify(gems.counts)}, unlocks [${[...abilities.unlocked]}], checkpoints ${r.checkpoints}/${nCp}, falls ${r.falls}, stumbles ${r.stumbles}, jumps cleared ${r.cleared}/${obs.length}, max off-centre ${r.maxLat.toFixed(1)}, stuck ${r.stuck}${r.stuck ? ' at ' + r.stuckAt : ''}, reached cave ${r.atCave}`);
   console.log(`ford: ${r.waterTime.toFixed(1)}s in water, max speed there ${r.waterMaxSpeed.toFixed(1)} (cap ${(HC.maxSpeed * HC.waterSpeed).toFixed(1)}), rider seat ≥ ${r.minSeat.toFixed(2)} above water, sounds ${JSON.stringify(sound.counts)}`);
   console.log(`camera riding: median distance ${r.medianDist.toFixed(2)} (target ${CONFIG.camera.rideDistance}); checked frames ${r.frames}, inside-solid ${r.inside}, longest leaf block ${r.worstBlock.toFixed(2)}s`);
-  if (r.stuck || r.falls || gems.remaining || abilities.unlocked.size !== 3 || !r.atCave || r.checkpoints !== nCp) failed = true;
+  if (r.stuck || r.falls || forestLeft() || abilities.unlocked.size !== 3 || !r.atCave || r.checkpoints !== nCp) failed = true;
   if (r.stumbles || r.cleared < obs.length || r.maxLat > TRK.halfWidth) failed = true;
   if (r.t < 75 || r.t > 105) { console.log('normal ride time out of the ~90 s target'); failed = true; }
   if (!(r.waterTime > 0.3) || r.waterMaxSpeed > HC.maxSpeed * HC.waterSpeed + 0.5 || r.minSeat < 0.5) failed = true;

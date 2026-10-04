@@ -13,6 +13,7 @@ const SKY = CONFIG.sky;
 const WATER = CONFIG.water;
 const FOL = CONFIG.foliage;
 const TR = CONFIG.track;
+const DS = CONFIG.desert;
 
 const { smoothstep, lerp, clamp } = THREE.MathUtils;
 
@@ -120,8 +121,31 @@ export function inSouthRegion(z) {
   return z < W.ridge.z[0] + 22;
 }
 
-export function createHeightFn(layout, track) {
-  const halfW = W.width / 2;
+/** Smooth 2D value noise in 0..1 (hash on the integer lattice, smoothstep blend). */
+function valueNoise(x, z) {
+  const ix = Math.floor(x);
+  const iz = Math.floor(z);
+  const fx = x - ix;
+  const fz = z - iz;
+  const hash = (a, b) => {
+    const v = Math.sin(a * 127.1 + b * 311.7) * 43758.5453;
+    return v - Math.floor(v);
+  };
+  const u = fx * fx * (3 - 2 * fx);
+  const v = fz * fz * (3 - 2 * fz);
+  const a = lerp(hash(ix, iz), hash(ix + 1, iz), u);
+  const b = lerp(hash(ix, iz + 1), hash(ix + 1, iz + 1), u);
+  return lerp(a, b, v);
+}
+
+/** Desert dune height: octaves of value noise, [[wavelength, height], ...]. */
+export function duneHeight(x, z, octaves) {
+  let h = 0;
+  for (const [wave, height] of octaves) h += height * valueNoise(x / wave + 31.7, z / wave - 12.3);
+  return h;
+}
+
+export function createHeightFn(layout, track, desertTrack) {
   return function heightAt(x, z) {
     // Base: gentle forest/meadow hills everywhere...
     let h =
@@ -151,18 +175,31 @@ export function createHeightFn(layout, track) {
       h = lerp(lerp(Z.riverBedY, Z.fordBedY, ford), h, smoothstep(dr, Z.riverHalfWidth - 2, Z.riverHalfWidth + 1));
     }
 
-    // Boundary hills keep the player inside the map; a ridge closes the swamp off to the north.
+    // The desert beyond the cliffs: rolling dunes, smoothed to gentle rolls along its trail.
+    const desert = smoothstep(x, DS.startX - 10, DS.startX + 10);
+    if (desert > 0) {
+      let hD = duneHeight(x, z, DS.dunes);
+      const near = desertTrack?.nearest(x, z, DS.trailBlend[1] + 2);
+      if (near) hD = lerp(hD, duneHeight(x, z, DS.trailDunes), 1 - smoothstep(near.dist, DS.trailBlend[0], DS.trailBlend[1]));
+      h = lerp(h, hD, desert);
+    }
+
+    // Boundary hills keep the player inside the map; a ridge closes the swamp off to the north,
+    // and another runs between the forest/cliffs and the desert.
     const edge = Math.max(
       smoothstep(-z, -(W.zMin + 22), -W.zMin),
       smoothstep(z, W.zMax - 22, W.zMax),
-      smoothstep(Math.abs(x), halfW - 10, halfW),
+      smoothstep(-x, -(W.xMin + 10), -W.xMin),
+      smoothstep(x, W.xMax - 22, W.xMax),
+      smoothstep(x, DS.ridge.from, DS.ridge.top) * (1 - smoothstep(x, DS.ridge.top, DS.ridge.to)),
       smoothstep(z, W.ridge.z[0], W.ridge.z[0] + 14) * (1 - smoothstep(z, W.ridge.z[1] - 12, W.ridge.z[1])) * (1 - smoothstep(x, W.ridge.x - 6, W.ridge.x + 4)),
     );
     h += edge * W.edgeHillHeight * (0.7 + 0.3 * Math.sin(x * 0.11 + z * 0.07));
 
     // Flat floor in front of and inside the giant cave mouth (no dunes poking into the tunnel).
     const [ax, az] = CV.archPosition;
-    const cave = smoothstep(x, ax - 6, ax) * (1 - smoothstep(Math.abs(z - az), CV.archRadius - 1, CV.archRadius + 4));
+    const tunnelEnd = ax + CV.tunnelDepth;
+    const cave = smoothstep(x, ax - 6, ax) * (1 - smoothstep(x, tunnelEnd, tunnelEnd + 8)) * (1 - smoothstep(Math.abs(z - az), CV.archRadius - 1, CV.archRadius + 4));
     h = lerp(h, 0, cave);
     return h;
   };
@@ -213,6 +250,93 @@ export async function loadTerrainModel(heightAt, layout, track) {
   geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   geo.computeVertexNormals();
   return new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ vertexColors: true }));
+}
+
+/** Placeholder desert terrain (east of the main grid): vertex-coloured dunes and the trail. */
+export async function loadDesertTerrainModel(heightAt, desertTrack) {
+  const x0 = W.width / 2;
+  const width = W.xMax - x0;
+  const depth = W.zMax - W.zMin;
+  const geo = new THREE.PlaneGeometry(width, depth, Math.round(width / DS.terrainStep), Math.round(depth / DS.terrainStep));
+  geo.rotateX(-Math.PI / 2);
+  geo.translate(x0 + width / 2, 0, (W.zMin + W.zMax) / 2);
+  const pos = geo.attributes.position;
+  const colors = new Float32Array(pos.count * 3);
+  const C = Object.fromEntries(Object.entries(DS.colors).map(([k, v]) => [k, new THREE.Color(v)]));
+  const grass = new THREE.Color(W.colors.grass);
+  const rock = new THREE.Color(W.colors.rock);
+  const c = new THREE.Color();
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i);
+    const z = pos.getZ(i);
+    const y = heightAt(x, z);
+    pos.setY(i, y);
+    // Dune crests lighter, hollows darker; grass fading out over the ridge.
+    c.copy(C.shade).lerp(C.sand, smoothstep(y, 1, 6)).lerp(C.dune, 0.5 + 0.5 * Math.sin(x * 0.09 + z * 0.05) * 0.4);
+    c.lerp(grass, 1 - smoothstep(x, DS.ridge.from + 4, DS.startX));
+    if (y > 9) c.lerp(rock, smoothstep(y, 9, 16));
+    const near = desertTrack.nearest(x, z, TR.halfWidth + 3);
+    if (near) {
+      c.lerp(C.rim, 1 - smoothstep(near.dist, TR.halfWidth + 0.5, TR.halfWidth + 2.5));
+      c.lerp(C.trail, 1 - smoothstep(near.dist, TR.halfWidth - 1.5, TR.halfWidth + 0.5));
+    }
+    c.offsetHSL(0, 0, Math.sin(x * 1.3 + z * 2.1) * 0.012);
+    colors.set([c.r, c.g, c.b], i * 3);
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  geo.computeVertexNormals();
+  return new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ vertexColors: true }));
+}
+
+/** Placeholder desert scenery (instanced): saguaro cacti, sandstone rocks, trail-edge pebbles and dry tufts. */
+export async function loadDesertSceneryModels(counts) {
+  const cactusGeo = mergeGeometries([
+    new THREE.CylinderGeometry(0.28, 0.32, 3, 7).translate(0, 1.5, 0),
+    new THREE.SphereGeometry(0.28, 7, 4, 0, Math.PI * 2, 0, Math.PI / 2).translate(0, 3, 0),
+    new THREE.CylinderGeometry(0.17, 0.17, 0.8, 6).rotateZ(Math.PI / 2).translate(0.5, 1.4, 0),
+    new THREE.CylinderGeometry(0.17, 0.17, 1.1, 6).translate(0.85, 1.9, 0),
+    new THREE.CylinderGeometry(0.15, 0.15, 0.6, 6).rotateZ(Math.PI / 2).translate(-0.42, 1.9, 0),
+    new THREE.CylinderGeometry(0.15, 0.15, 0.8, 6).translate(-0.68, 2.25, 0),
+  ]);
+  const mk = (geo, color, n) => {
+    const m = new THREE.InstancedMesh(geo, new THREE.MeshLambertMaterial({ color, flatShading: true }), Math.max(1, n));
+    m.count = n;
+    return m;
+  };
+  return {
+    cacti: mk(cactusGeo, DS.cacti.color, counts.cacti),
+    rocks: mk(new THREE.DodecahedronGeometry(1, 0), DS.rocks.color, counts.rocks),
+    pebbles: mk(new THREE.DodecahedronGeometry(1, 0), DS.edge.rockColor, counts.pebbles),
+    tufts: mk(new THREE.ConeGeometry(1, 1.2, 5).translate(0, 0.6, 0), DS.edge.tuftColor, counts.tufts),
+  };
+}
+
+/**
+ * Placeholder castle on the horizon (swap for a glTF later): a dark silhouette of walls,
+ * towers with pointed roofs and lit windows. Unfogged so it reads from across the desert.
+ */
+export async function loadCastleModel() {
+  const H = DS.castle.height;
+  const dark = new THREE.MeshBasicMaterial({ color: DS.castle.color, fog: false });
+  const glow = new THREE.MeshBasicMaterial({ color: DS.castle.glow, fog: false });
+  const group = new THREE.Group();
+  const add = (geo, mat, x, y, z) => {
+    const m = new THREE.Mesh(geo, mat);
+    m.position.set(x, y, z);
+    group.add(m);
+    return m;
+  };
+  add(new THREE.BoxGeometry(H * 0.9, H * 0.32, H * 0.25), dark, 0, H * 0.16, 0); // curtain wall
+  for (let i = 0; i < 13; i++) add(new THREE.BoxGeometry(H * 0.04, H * 0.05, H * 0.26), dark, -H * 0.42 + i * H * 0.07, H * 0.345, 0); // battlements
+  for (const [x, z, k] of [[-0.45, 0, 0.55], [0.45, 0, 0.55], [-0.17, -0.12, 0.75], [0.17, -0.12, 0.7], [0, -0.22, 1]]) {
+    const r = H * 0.07 * (0.8 + k * 0.4);
+    const h = H * k;
+    add(new THREE.CylinderGeometry(r, r * 1.1, h, 10), dark, x * H, h / 2, z * H);
+    add(new THREE.ConeGeometry(r * 1.35, H * 0.22, 10), dark, x * H, h + H * 0.11, z * H);
+    add(new THREE.BoxGeometry(r * 0.35, r * 0.6, 0.2), glow, x * H, h * 0.8, z * H + r * 1.02);
+  }
+  add(new THREE.BoxGeometry(H * 0.1, H * 0.16, 0.3), glow, 0, H * 0.08, H * 0.13); // gate
+  return group;
 }
 
 /** Lambert material that paints a window grid on vertical faces, in world space, so
@@ -704,7 +828,7 @@ function makeClouds(rnd) {
   const m = new THREE.Matrix4();
   let k = 0;
   for (let i = 0; i < SKY.cloudCount; i++) {
-    const cx = rnd.range(-W.width * 0.7, W.width * 0.7);
+    const cx = rnd.range(W.xMin - 40, W.xMax + 40);
     const cz = rnd.range(W.zMin - 40, W.zMax + 40);
     const cy = rnd.range(SKY.cloudHeight[0], SKY.cloudHeight[1]);
     for (let j = 0; j < 3; j++) {
@@ -788,8 +912,11 @@ export class World {
     this.scene.background = new THREE.Color(SKY.horizon);
     this.scene.fog = new THREE.Fog(SKY.horizon, W.fogNear, W.fogFar);
     this.layout = generateLayout();
-    this.track = new Track();
-    this.heightAt = createHeightFn(this.layout, this.track);
+    this.track = new Track(); // the forest ride
+    this.desertTrack = new Track(DS.points); // the desert ride to the castle
+    this.tracks = [this.track, this.desertTrack];
+    this.activeTrack = this.track; // what the horse's path assist follows
+    this.heightAt = createHeightFn(this.layout, this.track, this.desertTrack);
 
     // Colliders. boxes: buildings (standable tops + walls). beams: horizontal branches
     // (standable flat top + sides). cylinders: solid round obstacles (trunks, rocks).
@@ -805,10 +932,13 @@ export class World {
   async init() {
     const L = CONFIG.lights;
     this.scene.add(new THREE.AmbientLight(0xffffff, L.ambient));
-    this.scene.add(new THREE.HemisphereLight(L.hemiSky, L.hemiGround, L.hemiIntensity));
+    const hemi = new THREE.HemisphereLight(L.hemiSky, L.hemiGround, L.hemiIntensity);
+    this.scene.add(hemi);
     const sun = new THREE.DirectionalLight(0xffffff, L.sunIntensity);
     sun.position.set(...L.sunPosition);
     this.scene.add(sun); // no shadow maps by design (mobile perf)
+    this.lights = { hemi, sun };
+    this.sunset = 0; // 0 day … 1 desert sunset
 
     const { layout } = this;
     const rnd = layout.rnd;
@@ -817,7 +947,8 @@ export class World {
     this.scene.add(this.sky, makeClouds(rnd));
 
     this.terrain = await loadTerrainModel(this.heightAt, layout, this.track);
-    this.scene.add(this.terrain);
+    this.desertTerrain = await loadDesertTerrainModel(this.heightAt, this.desertTrack);
+    this.scene.add(this.terrain, this.desertTerrain);
 
     this.#buildWater();
     await this.#buildTown();
@@ -826,17 +957,40 @@ export class World {
     await this.#buildTrackEdges(rnd);
     await this.#buildObstacles();
     await this.#buildCave(rnd);
+    await this.#buildDesert(rnd);
   }
 
   /** Per-frame cosmetic updates. */
   update(dt, cameraPosition) {
     this.time += dt;
     this.sky.position.copy(cameraPosition);
+    this.setSunset(smoothstep(cameraPosition.x, DS.sunset.blend[0], DS.sunset.blend[1]));
     this.river.position.y = Z.waterY + Math.sin(this.time * WATER.waveSpeed) * WATER.waveHeight;
     if (this.mist) {
       this.mist.position.x = Math.sin(this.time * 0.13) * CV.mist.drift * 3;
       this.mist.position.z = Math.cos(this.time * 0.09) * CV.mist.drift * 4;
     }
+  }
+
+  /** Blends sky, fog and light colours from day (0) to the desert sunset (1). */
+  setSunset(f) {
+    if (Math.abs(f - this.sunset) < 1e-3 && this.sunsetSet) return;
+    this.sunset = f;
+    this.sunsetSet = true;
+    const SS = DS.sunset;
+    const L = CONFIG.lights;
+    const u = this.sky.material.uniforms;
+    const mix = (a, b) => new THREE.Color(a).lerp(new THREE.Color(b), f);
+    u.top.value.copy(mix(SKY.top, SS.top));
+    u.horizon.value.copy(mix(SKY.horizon, SS.horizon));
+    u.sunColor.value.copy(mix(SKY.sunColor, SS.sunColor));
+    u.sunDir.value.set(...SKY.sunDirection).normalize().lerp(new THREE.Vector3(...SS.sunDirection).normalize(), f).normalize();
+    this.scene.fog.color.copy(mix(SKY.horizon, SS.fog));
+    this.scene.background.copy(this.scene.fog.color);
+    this.lights.hemi.color.copy(mix(L.hemiSky, SS.hemiSky));
+    this.lights.hemi.groundColor.copy(mix(L.hemiGround, SS.hemiGround));
+    this.lights.sun.color.copy(mix(0xffffff, SS.sunLight));
+    this.lights.sun.intensity = lerp(L.sunIntensity, SS.sunIntensity, f);
   }
 
   /**
@@ -908,6 +1062,7 @@ export class World {
   surfaceAt(x, z) {
     if (this.isHazard(x, z)) return 'swamp';
     if (this.heightAt(x, z) < Z.waterY) return 'water';
+    if (x > DS.startX - 6) return this.desertTrack.distance(x, z, TR.halfWidth + 1) < TR.halfWidth ? 'dirt' : 'sand';
     if (this.track.distance(x, z, TR.halfWidth + 1) < TR.halfWidth) return 'dirt';
     if (Math.abs(x - riverCenterX(z)) < Z.riverHalfWidth + 5) return 'sand';
     if (inSouthRegion(z) && x < Z.forestStart) return 'sand';
@@ -1011,9 +1166,15 @@ export class World {
   #trailWalls(pos, vel, radius) {
     const WL = TR.wall;
     const limit = WL.offset - radius;
-    const n = this.track.nearest(pos.x, pos.z, WL.offset + WL.band);
-    if (!n || n.s < WL.startS || n.s > this.track.length - WL.endMargin) return null;
-    if (Math.abs(n.lateral) <= limit || Math.abs(n.lateral) > WL.offset + WL.band) return null;
+    let n = null;
+    for (const track of this.tracks) {
+      const m = track.nearest(pos.x, pos.z, WL.offset + WL.band);
+      if (!m || m.s < WL.startS || m.s > track.length - WL.endMargin) continue;
+      if (Math.abs(m.lateral) <= limit || Math.abs(m.lateral) > WL.offset + WL.band) continue;
+      n = m;
+      break;
+    }
+    if (!n) return null;
     if (pos.y > this.heightAt(pos.x, pos.z) + WL.height) return null;
     const side = Math.sign(n.lateral);
     // Right of travel is (-tz, tx); inward is the opposite of the side we're on.
@@ -1033,10 +1194,13 @@ export class World {
   /** Is the point inside the trail walls (for the camera)? */
   insideTrailWalls(x, z, y) {
     const WL = TR.wall;
-    const n = this.track.nearest(x, z, WL.offset + WL.band);
-    if (!n || n.s < WL.startS || n.s > this.track.length - WL.endMargin) return true;
-    if (Math.abs(n.lateral) <= WL.offset || Math.abs(n.lateral) > WL.offset + WL.band) return true;
-    return y > this.heightAt(x, z) + WL.height;
+    for (const track of this.tracks) {
+      const n = track.nearest(x, z, WL.offset + WL.band);
+      if (!n || n.s < WL.startS || n.s > track.length - WL.endMargin) continue;
+      if (Math.abs(n.lateral) <= WL.offset || Math.abs(n.lateral) > WL.offset + WL.band) continue;
+      if (y <= this.heightAt(x, z) + WL.height) return false;
+    }
+    return true;
   }
 
   // --- Builders ---
@@ -1472,5 +1636,84 @@ export class World {
     // Mist drifting at the base of the cliffs.
     this.mist = await loadMistModel(rnd, ax, az);
     this.scene.add(this.mist);
+  }
+
+  /**
+   * The desert beyond the cave: cacti and rocks off the trail and a soft edge of pebbles and
+   * dry tufts, all placed by sampling the desert spline (never inside the trail corridor),
+   * and the castle on the horizon past the trail's end.
+   */
+  async #buildDesert(rnd) {
+    const track = this.desertTrack;
+    const corridor = TR.corridorHalfWidth;
+    const items = [];
+    const ok = (x, z, r) =>
+      x > DS.startX + 4 &&
+      x < W.xMax - 26 &&
+      z > W.zMin + 26 &&
+      z < W.zMax - 26 &&
+      track.distance(x, z, corridor + r + 1) > corridor + r;
+    const along = (step, band, kind, r0, scale) => {
+      for (let s = rnd() * step; s < track.length; s += step) {
+        for (const side of [-1, 1]) {
+          const p = track.at(s + rnd.range(-step * 0.4, step * 0.4));
+          const k = rnd.range(...scale);
+          const r = r0 * k;
+          const lat = side * (corridor + r + rnd.range(...band));
+          const x = p.x - p.tz * lat;
+          const z = p.z + p.tx * lat;
+          if (ok(x, z, r)) items.push({ kind, x, z, k, r });
+        }
+      }
+    };
+    along(DS.cacti.step, DS.cacti.band, 'cactus', 0.9, DS.cacti.scale);
+    along(DS.rocks.step, DS.rocks.band, 'rock', 1.1, DS.rocks.scale);
+    // Soft edge: a broken line of pebbles and dry tufts along both corridor edges.
+    for (let s = 0; s < track.length; s += DS.edge.step) {
+      for (const side of [-1, 1]) {
+        const p = track.at(s + rnd.range(-1, 1));
+        const k = rnd.range(...DS.edge.scale);
+        const lat = side * (corridor + k + rnd.range(0, 0.8));
+        const x = p.x - p.tz * lat;
+        const z = p.z + p.tx * lat;
+        if (ok(x, z, k)) items.push({ kind: rnd() < DS.edge.tuftShare ? 'tuft' : 'pebble', x, z, k, r: k });
+      }
+    }
+    const count = (kind) => items.filter((t) => t.kind === kind).length;
+    const meshes = await loadDesertSceneryModels({ cacti: count('cactus'), rocks: count('rock'), pebbles: count('pebble'), tufts: count('tuft') });
+    const idx = { cactus: 0, rock: 0, pebble: 0, tuft: 0 };
+    const target = { cactus: meshes.cacti, rock: meshes.rocks, pebble: meshes.pebbles, tuft: meshes.tufts };
+    const m = new THREE.Matrix4();
+    const q = new THREE.Quaternion();
+    const e = new THREE.Euler();
+    const sc = new THREE.Vector3();
+    const p = new THREE.Vector3();
+    const col = new THREE.Color();
+    for (const t of items) {
+      const y = this.heightAt(t.x, t.z);
+      q.setFromEuler(e.set(t.kind === 'cactus' ? 0 : rnd() * 0.4, rnd() * Math.PI * 2, 0));
+      if (t.kind === 'cactus') sc.setScalar(t.k);
+      else if (t.kind === 'rock') sc.set(t.k * 1.3, t.k * 0.8, t.k);
+      else if (t.kind === 'pebble') sc.set(t.k, t.k * 0.6, t.k * 0.9);
+      else sc.set(t.k * 0.9, t.k, t.k * 0.9);
+      const mesh = target[t.kind];
+      mesh.setMatrixAt(idx[t.kind], m.compose(p.set(t.x, y - (t.kind === 'rock' ? t.k * 0.25 : 0), t.z), q, sc));
+      mesh.setColorAt(idx[t.kind]++, col.setScalar(0.85 + rnd() * 0.3));
+    }
+    for (const mesh of Object.values(meshes)) {
+      mesh.computeBoundingSphere();
+      this.scene.add(mesh);
+    }
+    this.desertItems = items;
+
+    // The castle, past the end of the trail, facing back along it.
+    const end = track.at(track.length);
+    const cx = end.x + end.tx * DS.castle.distance;
+    const cz = end.z + end.tz * DS.castle.distance;
+    this.castle = await loadCastleModel();
+    this.castle.position.set(cx, this.heightAt(cx, cz) - 1, cz);
+    this.castle.rotation.y = Math.atan2(-end.tx, -end.tz);
+    this.scene.add(this.castle);
+    this.castlePosition = this.castle.position.clone();
   }
 }

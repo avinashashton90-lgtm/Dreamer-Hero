@@ -364,8 +364,7 @@ export class Hero {
     this.position.addScaledVector(this.velocity, dt);
 
     // Keep inside the map.
-    const hw = CONFIG.world.width / 2 - 1;
-    this.position.x = THREE.MathUtils.clamp(this.position.x, -hw, hw);
+    this.position.x = THREE.MathUtils.clamp(this.position.x, CONFIG.world.xMin + 1, CONFIG.world.xMax - 1);
     this.position.z = THREE.MathUtils.clamp(this.position.z, CONFIG.world.zMin + 1, CONFIG.world.zMax - 1);
 
     // Ground: walking steps up small ledges; falling also snaps onto ledges just above the feet.

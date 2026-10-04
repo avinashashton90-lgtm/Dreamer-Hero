@@ -71,14 +71,15 @@ export class Gems {
     this.world = world;
     this.events = events;
     this.time = 0;
-    const groups = layoutGroups(world);
+    // The forest ride's groups, then a few optional ones along the desert trail.
+    const groups = [...layoutGroups(world).map((g) => ({ ...g, zone: 'forest' })), ...desertGroups(world).map((g) => ({ ...g, zone: 'desert' }))];
     const perColor = {};
     this.gems = [];
     groups.forEach((grp, gi) => {
       const color = COLORS[gi % COLORS.length];
       for (const sp of grp.spots) {
         perColor[color] = (perColor[color] ?? 0) + 1;
-        this.gems.push({ ...sp, kind: grp.kind, group: gi, color, index: perColor[color] - 1, collected: false, pop: 0 });
+        this.gems.push({ ...sp, kind: grp.kind, zone: grp.zone, group: gi, color, index: perColor[color] - 1, collected: false, pop: 0 });
       }
     });
     this.perColor = perColor;
@@ -234,4 +235,29 @@ export function layoutGroups(world) {
     groups.push({ kind: arc ? 'arc' : 'row', s: mid, spots });
   }
   return groups.sort((a, b) => a.s - b.s);
+}
+
+/** A few optional gem groups along the desert trail's centre lane (rows and arcs). */
+export function desertGroups(world) {
+  const track = world.desertTrack;
+  if (!track) return [];
+  const D = CONFIG.desert.gems;
+  const span = (G.groupSize - 1) * G.spacing;
+  const groundY = (x, z) => world.heightAt(x, z);
+  const groups = [];
+  for (let i = 0; i < D.groups; i++) {
+    const mid = D.startS + ((i + 0.5) / D.groups) * (track.length - D.startS - D.endMargin);
+    const arc = i % 2 === 1;
+    const spots = [];
+    for (let k = 0; k < G.groupSize; k++) {
+      const s = mid - span / 2 + k * G.spacing;
+      const lateral = arc ? G.arcLateral[k] : 0;
+      const p = track.at(s);
+      const x = p.x - p.tz * lateral;
+      const z = p.z + p.tx * lateral;
+      spots.push({ s, lateral, position: new THREE.Vector3(x, groundY(x, z) + G.height, z) });
+    }
+    groups.push({ kind: arc ? 'arc' : 'row', s: mid, spots });
+  }
+  return groups;
 }

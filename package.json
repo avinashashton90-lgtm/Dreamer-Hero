@@ -10,7 +10,8 @@
     "test:route": "node scripts/route-test.mjs",
     "test:combat": "node scripts/combat-test.mjs",
     "test:boss": "node scripts/boss-test.mjs",
-    "test:input": "node scripts/input-test.mjs"
+    "test:input": "node scripts/input-test.mjs",
+    "test:ending": "node scripts/ending-test.mjs"
   },
   "dependencies": {
     "three": "^0.186.1"

@@ -11,6 +11,13 @@ export class Lives {
   /** @param {{ onChange?: Function }} [events]  onChange(lives) after any change */
   constructor(events = {}) {
     this.events = events;
+    this.deaths = 0; // all deaths this game (kept through Retry; cleared by newGame)
+    this.reset();
+  }
+
+  /** Play Again: hearts, respawns and the death count all back to the start. */
+  newGame() {
+    this.deaths = 0;
     this.reset();
   }
 
@@ -33,7 +40,10 @@ export class Lives {
   damage(amount = 1) {
     if (this.dead || amount <= 0) return false;
     this.hearts = Math.max(0, this.hearts - amount);
-    if (this.hearts === 0) this.dead = true;
+    if (this.hearts === 0) {
+      this.dead = true;
+      this.deaths++;
+    }
     this.events.onChange?.(this);
     return this.dead;
   }

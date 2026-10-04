@@ -46,8 +46,37 @@ export class UI {
     this.retryBtn = this.gameover.querySelector('.retry-btn');
     this.numbers = this.#el('div', 'hud numbers');
 
+    // Cinematic cutscenes: letterbox bars, a dialogue box at the bottom, Skip top right.
+    this.cine = this.#el('div', 'overlay cine');
+    this.cine.innerHTML = `
+      <div class="bar top"></div><div class="bar bottom"></div>
+      <button class="skip-btn cine-skip">${DIALOGUE.skip}</button>
+      <div class="dialogue" style="display:none"><div class="speaker"></div><p class="line"></p><span class="more">${DIALOGUE.tapToContinue}</span></div>`;
+    this.cineSkip = this.cine.querySelector('.cine-skip');
+    this.dlg = this.cine.querySelector('.dialogue');
+    this.dlgSpeaker = this.cine.querySelector('.speaker');
+    this.dlgLine = this.cine.querySelector('.line');
+    this.cine.style.display = 'none';
+
+    // Ending: the title, then the summary with Play Again / Part 2 (coming soon).
     this.ending = this.#el('div', 'overlay screen ending');
-    this.ending.innerHTML = `<h1>${DIALOGUE.toBeContinued}</h1>`;
+    this.ending.innerHTML = `
+      <h1 class="end-title">${DIALOGUE.toBeContinued}</h1>
+      <div class="summary" style="display:none">
+        <h2>${DIALOGUE.summary.title}</h2>
+        <dl>
+          <dt>${DIALOGUE.summary.gems}</dt><dd class="s-gems"></dd>
+          <dt>${DIALOGUE.summary.time}</dt><dd class="s-time"></dd>
+          <dt>${DIALOGUE.summary.deaths}</dt><dd class="s-deaths"></dd>
+        </dl>
+        <div class="end-buttons">
+          <button class="retry-btn play-again">${DIALOGUE.summary.playAgain}</button>
+          <button class="retry-btn part2" disabled>${DIALOGUE.summary.part2}</button>
+        </div>
+      </div>`;
+    this.endTitle = this.ending.querySelector('.end-title');
+    this.summary = this.ending.querySelector('.summary');
+    this.playAgainBtn = this.ending.querySelector('.play-again');
 
     this.showHud(false);
     this.showGameOver(false);
@@ -195,9 +224,57 @@ export class UI {
     this.fade.style.opacity = '0';
   }
 
-  showEnding(on, onTap) {
+  /**
+   * Ending: the "To be continued" title for `titleMs`, then the summary
+   * (stats: { gems, gemsTotal, time, deaths }) with Play Again.
+   */
+  showEnding(on, stats = null, onPlayAgain = null) {
+    clearTimeout(this.endingTimer);
     this.ending.style.display = on ? '' : 'none';
-    this.ending.onclick = on && onTap ? onTap : null;
+    this.playAgainBtn.onclick = null;
+    if (!on) return;
+    this.endTitle.classList.remove('show');
+    this.summary.style.display = 'none';
+    void this.endTitle.offsetWidth;
+    this.endTitle.classList.add('show');
+    this.endingTimer = setTimeout(() => {
+      const t = Math.round(stats.time);
+      this.summary.querySelector('.s-gems').textContent = `${stats.gems} / ${stats.gemsTotal}`;
+      this.summary.querySelector('.s-time').textContent = `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
+      this.summary.querySelector('.s-deaths').textContent = String(stats.deaths);
+      this.summary.style.display = '';
+      this.playAgainBtn.onclick = onPlayAgain;
+    }, CONFIG.ending.titleMs);
+  }
+
+  /** The DOM side of cinematic.js (the "view"): tap anywhere to continue, Skip top right. */
+  cinematicView(onTap, onSkip) {
+    this.cine.addEventListener('pointerdown', (e) => {
+      if (e.target === this.cineSkip) return;
+      e.preventDefault();
+      onTap();
+    });
+    this.cineSkip.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      onSkip();
+    });
+    return {
+      show: () => (this.cine.style.display = ''),
+      hide: () => (this.cine.style.display = 'none'),
+      dialogue: (speaker, text, complete) => {
+        this.dlg.style.display = '';
+        if (this.dlgSpeaker.textContent !== speaker) this.dlgSpeaker.textContent = speaker;
+        if (this.dlgLine.textContent !== text) this.dlgLine.textContent = text;
+        this.dlg.classList.toggle('complete', complete);
+      },
+      clearDialogue: () => (this.dlg.style.display = 'none'),
+    };
+  }
+
+  /** Fade to black and resolve when it's black (awaitable). */
+  fadeOutAsync(ms) {
+    return new Promise((resolve) => this.fadeOut(ms, resolve));
   }
 
   #checkOrientation() {

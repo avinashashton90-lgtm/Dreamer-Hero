@@ -10,6 +10,8 @@ const SPL = HC.splash;
 const OBS = CONFIG.obstacles;
 const TR = CONFIG.track;
 const W = CONFIG.world;
+const DS = CONFIG.desert;
+const PR = DS.prints;
 const { clamp, lerp } = THREE.MathUtils;
 
 // ---------------------------------------------------------------------------
@@ -137,6 +139,17 @@ export async function loadSplashModels() {
   return { drops, ripples };
 }
 
+/** Placeholder hoof prints: flat dark discs on the sand (instanced, per-print fade). */
+export async function loadHoofPrintModel(max) {
+  const geo = new THREE.CircleGeometry(1, 10).rotateX(-Math.PI / 2);
+  addFadeAttribute(geo, max);
+  const mesh = new THREE.InstancedMesh(geo, makeFadeMaterial({ color: PR.color, depthWrite: false }), max);
+  mesh.frustumCulled = false;
+  mesh.renderOrder = 7;
+  mesh.count = 0;
+  return mesh;
+}
+
 /** Placeholder checkpoint marker: a pole with a pennant (flag colour shows reached/not). */
 export async function loadCheckpointModel() {
   const group = new THREE.Group();
@@ -189,23 +202,15 @@ export class Horse {
     this.#from = new THREE.Vector3();
     this.#to = new THREE.Vector3();
     this.#seat = new THREE.Vector3();
-    // Checkpoints every 25% along the track (moved forward off the river if one lands in it).
-    const track = world.track;
-    this.checkpoints = CP.fractions.map((f, i) => {
-      if (i === 0) {
-        const [hx, hz] = HC.position;
-        return { s: 0, position: new THREE.Vector3(hx, world.heightAt(hx, hz), hz), heading: track.headingAt(0), reached: true };
-      }
-      let s = f * track.length;
-      // Not in the river, and never just before an obstacle (always a full run-up).
-      const blocked = (s) =>
-        world.surfaceAt(track.at(s).x, track.at(s).z) === 'water' ||
-        world.obstacles.some((o) => s > o.s - OBS.runUp && s < o.s + OBS.runOut);
-      while (blocked(s) && s < track.length) s += CP.dryStep;
-      const p = track.at(s);
-      return { s, position: new THREE.Vector3(p.x, world.heightAt(p.x, p.z), p.z), heading: track.headingAt(s), reached: false };
-    });
+    // Checkpoints every 25% along the forest track (moved forward off the river if one lands in it).
+    this.route = world.track; // the trail the path assist follows (the desert one later)
+    this.forestCheckpoints = this.#buildCheckpoints(world.track, CP.fractions, HC.position);
+    this.checkpoints = this.forestCheckpoints;
+    this.passenger = null; // the girl, riding behind the hero (desert)
+    this.hold = false; // ending: brake to a stop and stay put
+    this.prints = []; // hoof prints in the sand
     this.dust = [];
+
     this.drops = [];
     this.ripples = [];
     this.stamina = 1; // 0..1, drains while galloping
@@ -232,6 +237,33 @@ export class Horse {
   #from;
   #to;
   #seat;
+
+  /** Checkpoints at `fractions` of `track` (the first at `start` [x, z] if given). */
+  #buildCheckpoints(track, fractions, start = null) {
+    const world = this.world;
+    return fractions.map((f, i) => {
+      if (i === 0) {
+        const [hx, hz] = start ?? [track.at(0).x, track.at(0).z];
+        return { s: 0, position: new THREE.Vector3(hx, world.heightAt(hx, hz), hz), heading: track.headingAt(0), reached: true };
+      }
+      let s = f * track.length;
+      // Not in the river, and never just before an obstacle (always a full run-up).
+      const blocked = (s) =>
+        world.surfaceAt(track.at(s).x, track.at(s).z) === 'water' ||
+        (track === world.track && world.obstacles.some((o) => s > o.s - OBS.runUp && s < o.s + OBS.runOut));
+      while (blocked(s) && s < track.length) s += CP.dryStep;
+      const p = track.at(s);
+      return { s, position: new THREE.Vector3(p.x, world.heightAt(p.x, p.z), p.z), heading: track.headingAt(s), reached: false };
+    });
+  }
+
+  /** Ride along another trail (the desert): its path assist and its own checkpoints. */
+  setRoute(track, fractions) {
+    this.route = track;
+    this.checkpoints = this.#buildCheckpoints(track, fractions);
+    this.lastCheckpoint = 0;
+    this.world.activeTrack = track;
+  }
 
   get mounted() {
     return this.mode === MODES.RIDING || this.mode === MODES.MOUNTING;
@@ -261,9 +293,10 @@ export class Horse {
     this.shadow.rotation.x = -Math.PI / 2;
     this.dustMesh = await loadDustModel(DUST.max);
     this.splash = await loadSplashModels();
-    this.scene.add(this.model, this.shadow, this.dustMesh, this.splash.drops, this.splash.ripples);
+    this.printMesh = await loadHoofPrintModel(PR.max);
+    this.scene.add(this.model, this.shadow, this.dustMesh, this.splash.drops, this.splash.ripples, this.printMesh);
     this.markers = [];
-    for (const cp of this.checkpoints.slice(1)) {
+    for (const cp of this.forestCheckpoints.slice(1)) {
       const marker = await loadCheckpointModel();
       // On the trail's right edge, inside the bushes.
       const { tx, tz } = this.world.track.at(cp.s);
@@ -293,9 +326,14 @@ export class Horse {
     this.autoStop = false;
     this.nearCave = false;
     this.lastCheckpoint = 0;
+    this.route = this.world.track;
+    this.world.activeTrack = this.world.track;
+    this.checkpoints = this.forestCheckpoints;
     this.checkpoints.forEach((cp, i) => (cp.reached = i === 0));
     this.markers?.forEach((m) => m.userData.flag.material.color.setHex(CP.flagColor));
-    for (const d of [...this.dust, ...this.drops, ...this.ripples]) d.age = d.life;
+    this.setPassenger(null);
+    this.hold = false;
+    for (const d of [...this.dust, ...this.drops, ...this.ripples, ...this.prints]) d.age = d.life;
     this.stamina = 1;
     this.galloping = false;
     this.stumble = 0;
@@ -365,6 +403,13 @@ export class Horse {
     this.#updateSplash(dt);
   }
 
+  /** Someone riding behind the hero (the girl), or null. */
+  setPassenger(obj) {
+    if (this.passenger && this.passenger !== obj) this.passenger.userData.onDismount?.();
+    this.passenger = obj;
+    obj?.userData.onMount?.();
+  }
+
   /** Retry after Game Over: back on the horse at the start of the ride (no checkpoints). */
   restartRide(hero) {
     this.lastCheckpoint = 0;
@@ -429,7 +474,7 @@ export class Horse {
     this.heading -= this.steer * rate * dt; // + steer = right = heading decreases
 
     // Trail guidance (only while moving and near the trail).
-    const near = this.speed > 1 ? this.world.track.nearest(this.position.x, this.position.z, TR.softEdge.band) : null;
+    const near = this.speed > 1 ? this.route.nearest(this.position.x, this.position.z, TR.softEdge.band) : null;
     if (near) {
       this.trackS = near.s;
       let along = Math.atan2(near.tx, near.tz);
@@ -475,15 +520,18 @@ export class Horse {
       (this.stumble > 0 ? OBS.stumbleSpeed : 1) *
       hill;
     // Near the cave arena: slow down and let the hero off (once per arrival).
-    const atCave = this.#nearCave();
+    const atCave = this.route === this.world.track && this.#nearCave();
     if (atCave && !this.nearCave) {
       this.autoStop = true;
       this.galloping = false;
     }
     this.nearCave = atCave;
-    const target = braking || mag < 0.05 || this.autoStop ? 0 : top * mag * (1 - HC.turnSlowdown * Math.abs(this.steer));
+    if (this.hold) this.galloping = false;
+    const target = braking || mag < 0.05 || this.autoStop || this.hold ? 0 : top * mag * (1 - HC.turnSlowdown * Math.abs(this.steer));
     const accel =
-      target > this.speed ? (this.galloping ? GAL.acceleration : HC.acceleration) : this.autoStop ? CONFIG.boss.autoBrake : this.inWater ? HC.waterBraking : HC.braking;
+      target > this.speed
+        ? this.galloping ? GAL.acceleration : HC.acceleration
+        : this.hold ? CONFIG.ending.brake : this.autoStop ? CONFIG.boss.autoBrake : this.inWater ? HC.waterBraking : HC.braking;
     this.speed += clamp(target - this.speed, -accel * dt, accel * dt);
 
     if (input.jumpPressed && this.grounded) {
@@ -494,14 +542,14 @@ export class Horse {
     // Move in small steps so a full gallop never tunnels through a trunk.
     const steps = Math.max(1, Math.ceil((this.speed * dt) / HC.substep));
     const h = dt / steps;
-    const hw = W.width / 2 - 2;
+
     let ground = null;
     for (let i = 0; i < steps; i++) {
       this.velocity.x = Math.sin(this.heading) * this.speed;
       this.velocity.z = Math.cos(this.heading) * this.speed;
       this.velocity.y -= HC.gravity * h;
       this.position.addScaledVector(this.velocity, h);
-      this.position.x = clamp(this.position.x, -hw, hw);
+      this.position.x = clamp(this.position.x, W.xMin + 2, W.xMax - 2);
       this.position.z = clamp(this.position.z, W.zMin + 2, W.zMax - 2);
 
       // Follow the terrain: stick to it while galloping, land after a hop.
@@ -551,7 +599,7 @@ export class Horse {
       if (Math.hypot(cp.position.x - this.position.x, cp.position.z - this.position.z) < CP.radius) {
         cp.reached = true;
         this.lastCheckpoint = i;
-        this.markers[i - 1]?.userData.flag.material.color.setHex(CP.reachedColor);
+        if (this.checkpoints === this.forestCheckpoints) this.markers[i - 1]?.userData.flag.material.color.setHex(CP.reachedColor);
         this.onCheckpoint?.(i);
       }
     });
@@ -628,13 +676,15 @@ export class Horse {
       hip.userData.knee.rotation.x = airborne ? 0.9 : Math.max(0, -Math.sin(ph + off + 0.8)) * 1.1 * s;
       // Footfall: the leg swings back through vertical → hoof hits the ground.
       const now = Math.sin(ph + off);
-      if (this.legPrev[i] > 0 && now <= 0 && !airborne && this.inWater && this.speed > 1) {
+      if (this.legPrev[i] > 0 && now <= 0 && !airborne && this.speed > 1) {
         const lx = hip.position.x;
         const lz = hip.position.z;
         const hx = this.position.x + Math.cos(this.heading) * lx + Math.sin(this.heading) * lz;
         const hz = this.position.z - Math.sin(this.heading) * lx + Math.cos(this.heading) * lz;
-        this.#splashBurst(hx, hz, SPL.dropsPerStep, 1);
-        this.sound?.play('splashStep');
+        if (this.inWater) {
+          this.#splashBurst(hx, hz, SPL.dropsPerStep, 1);
+          this.sound?.play('splashStep');
+        } else if (hx > DS.startX - 6 && this.speed > PR.minSpeed) this.#stampPrint(hx, hz);
       }
       this.legPrev[i] = now;
     });
@@ -656,7 +706,44 @@ export class Horse {
 
     this.model.updateMatrixWorld();
     body.updateMatrixWorld();
+    // The passenger (the girl) sits behind the rider and leans with the horse.
+    if (this.passenger) {
+      const back = new THREE.Vector3(seat.x, seat.y, seat.z - CONFIG.boss.girl.seatBack).applyMatrix4(body.matrixWorld);
+      this.passenger.position.copy(back);
+      this.passenger.rotation.set(0, this.heading, this.lean, 'YXZ');
+    }
+    this.#updatePrints(dt);
     return this.#seat.copy(seat).applyMatrix4(body.matrixWorld);
+  }
+
+  #stampPrint(x, z) {
+    let p = this.prints.find((q) => q.age >= q.life);
+    if (!p) {
+      if (this.prints.length >= PR.max) p = this.prints.reduce((a, b) => (a.age > b.age ? a : b));
+      else this.prints.push((p = { x: 0, y: 0, z: 0, yaw: 0, age: 0, life: PR.life }));
+    }
+    Object.assign(p, { x, z, y: this.world.heightAt(x, z) + 0.03, yaw: this.heading, age: 0, life: PR.life });
+  }
+
+  #updatePrints(dt) {
+    const mesh = this.printMesh;
+    if (!mesh) return;
+    const fade = mesh.geometry.attributes.instanceFade;
+    const m = new THREE.Matrix4();
+    const q = new THREE.Quaternion();
+    const sc = new THREE.Vector3(PR.size, 1, PR.size * 1.3);
+    const pos = new THREE.Vector3();
+    let n = 0;
+    for (const p of this.prints) {
+      if (p.age >= p.life) continue;
+      p.age += dt;
+      q.setFromAxisAngle(THREE.Object3D.DEFAULT_UP, p.yaw);
+      mesh.setMatrixAt(n, m.compose(pos.set(p.x, p.y, p.z), q, sc));
+      fade.array[n++] = PR.opacity * (1 - Math.min(1, p.age / p.life));
+    }
+    mesh.count = n;
+    mesh.instanceMatrix.needsUpdate = true;
+    fade.needsUpdate = true;
   }
 
   #spawnDust() {

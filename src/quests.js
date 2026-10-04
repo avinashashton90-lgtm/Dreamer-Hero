@@ -63,6 +63,7 @@ export class Quests {
     this.ui = ui;
     this.horse = horse;
     this.boss = null; // set by main (the cave monster)
+    this.story = null; // set by main (the girl's scene, the desert ride)
     this.index = 0;
     this.time = 0;
     this.objectives = this.#buildObjectives();
@@ -86,6 +87,22 @@ export class Quests {
   reset() {
     this.index = 0;
     this.#show();
+  }
+
+  /** Hide the arrow and beacon (cutscenes); they come back with the next update. */
+  setVisible(on) {
+    this.hidden = !on;
+    if (!on) this.arrow.visible = this.beacon.visible = false;
+    else this.#show();
+  }
+
+  /** Jump to an objective by id (debug keys). */
+  goTo(id) {
+    const i = this.objectives.findIndex((o) => o.id === id);
+    if (i >= 0) {
+      this.index = i;
+      this.#show();
+    }
   }
 
   /** @param {import('./hero.js').Hero} hero */
@@ -197,8 +214,28 @@ export class Quests {
       {
         id: 'enterCave',
         text: DIALOGUE.quests.enterCave,
-        target: this.world.caveArch,
-        isDone: () => false, // the girl's cutscene comes next (Part 1 step 7)
+        target: () => this.boss?.girl?.position ?? this.world.caveArch, // the girl at the cave mouth
+        isDone: () => !!this.story?.girlJoined,
+      },
+      {
+        id: 'castle',
+        text: DIALOGUE.quests.castle,
+        doneText: DIALOGUE.quests.castleReached,
+        target: () => this.world.castlePosition,
+        // Distance left along the desert trail (plus the last bit to the castle).
+        distance: (h) => {
+          const t = this.world.desertTrack;
+          const c = this.world.castlePosition;
+          const end = t.at(t.length);
+          const s = (t.nearest(h.position.x, h.position.z, Q.trackSearch) ?? t.nearestGlobal(h.position.x, h.position.z)).s;
+          return t.length - s + Math.hypot(c.x - end.x, c.z - end.z);
+        },
+        arrowTarget: (h) => {
+          const t = this.world.desertTrack;
+          const s = (t.nearest(h.position.x, h.position.z, Q.trackSearch) ?? t.nearestGlobal(h.position.x, h.position.z)).s + Q.arrowLookahead;
+          return s >= t.length ? this.world.castlePosition : t.at(s);
+        },
+        isDone: () => this.story?.phase === 'ending' || this.story?.phase === 'done',
       },
     ];
   }

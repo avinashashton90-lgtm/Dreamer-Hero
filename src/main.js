@@ -17,6 +17,9 @@ import { Sound } from './audio.js';
 import { Combat } from './combat.js';
 import { Lives } from './lives.js';
 import { Boss } from './boss.js';
+import { Girl } from './girl.js';
+import { Cinematic } from './cinematic.js';
+import { Story } from './story.js';
 
 async function boot() {
   const app = document.getElementById('app');
@@ -70,6 +73,8 @@ async function boot() {
   await boss.init();
   combat.addTarget(boss);
   quests.boss = boss;
+  const girl = new Girl(world.scene, boss.girl);
+  await girl.init();
   const lives = new Lives({ onChange: (l) => ui.setLives(l.hearts, l.maxHearts, l.respawns, CONFIG.lives.respawns) });
 
   const gems = new Gems(world.scene, world, {
@@ -102,6 +107,13 @@ async function boot() {
     return true;
   };
   const state = new GameState(STATES.INTRO);
+
+  // Cinematic cutscenes and the end of Part 1 (girl's scene → desert ride → ending).
+  let cinematic = null;
+  cinematic = new Cinematic(cam, ui.cinematicView(() => cinematic.tap(), () => cinematic.skip()));
+  const story = new Story({ world, hero, horse, boss, girl, gems, abilities, combat, lives, quests, cinematic, state, cam, sound, ui, guide });
+  quests.story = story;
+  const NEUTRAL = { moveX: 0, moveY: 0, jumpPressed: false };
 
   // --- Hearts, death and respawn ---
   let dying = false;
@@ -144,18 +156,8 @@ async function boot() {
   state.onEnter(STATES.PLAY, (prev) => {
     if (prev === STATES.INTRO) {
       // New game: everything back to the start.
-      hero.reset();
-      horse.reset();
-      gems.reset();
-      abilities.reset();
-      combat.reset();
-      boss.reset();
-      lives.reset();
+      story.resetAll();
       ui.setGems(gems.counts, CONFIG.gems.needed);
-      quests.reset();
-      guide.reset();
-      cam.reset();
-      cam.snapTo(hero.position);
     } else if (prev === STATES.GAMEOVER) {
       // Retry: full hearts and respawns, back on the horse at the start of the ride.
       // Gems, unlocks and quest progress are kept.
@@ -178,9 +180,24 @@ async function boot() {
   });
   state.onExit(STATES.GAMEOVER, () => ui.showGameOver(false));
 
+  // Cutscenes: no controls and no HUD buttons.
+  state.onEnter(STATES.CUTSCENE, () => {
+    ui.showHud(false);
+    input.setEnabled(false);
+    quests.setVisible(false); // no quest arrow or beacon in the shot
+  });
+  state.onExit(STATES.CUTSCENE, () => quests.setVisible(true));
+
+  // Ending: title, then the summary. Play Again = a full reset, then the intro.
   state.onEnter(STATES.ENDING, () => {
     ui.showHud(false);
-    ui.showEnding(true, () => state.set(STATES.INTRO));
+    input.setEnabled(false);
+    quests.setVisible(false);
+    ui.showEnding(true, story.stats(), () => {
+      story.resetAll();
+      ui.setGems(gems.counts, CONFIG.gems.needed);
+      state.set(STATES.INTRO);
+    });
   });
   state.onExit(STATES.ENDING, () => ui.showEnding(false));
 
@@ -212,6 +229,9 @@ async function boot() {
       if (inp.debugGrantGems) gems.grantAll();
       if (inp.debugDamageHero) damageHero(CONFIG.lives.debugDamage, hero.position.x + Math.sin(hero.facing), hero.position.z + Math.cos(hero.facing));
       if (inp.debugKillBoss) boss.kill();
+      if (inp.debugCutscene) story.debugCutscene();
+      if (inp.debugDesert) story.debugDesert();
+      if (inp.debugEnding) story.debugEnding();
       if (inp.debugTeleportArena) {
         // Debug: on foot at the arena entrance, the horse waiting beside it.
         const [cx, cz] = CONFIG.cave.center;
@@ -247,17 +267,24 @@ async function boot() {
       input.setMountButton(canMount || horse.mode === 'riding', canMount ? DIALOGUE.mount : DIALOGUE.dismount);
       input.setGallopButton(horse.mode === 'riding', DIALOGUE.gallop, horse.stamina, horse.galloping);
       ui.showGems(quests.index >= 2); // from "Mount the horse" on
+    } else if (!state.paused && state.is(STATES.CUTSCENE)) {
+      // Cutscene: the world keeps moving (the horse slowing at the castle, the girl trembling).
+      horse.update(dt, NEUTRAL, cam.yaw, hero);
+      boss.update(dt, hero);
     } else {
       horse.update(dt, null, cam.yaw, hero);
     }
-    cam.update(dt, hero.position, { mounted: horse.mounted, speed: horse.speedRatio, gallop: horse.galloping, heading: horse.heading });
+    girl.update(dt, world.heightAt(CONFIG.boss.girl.shadow.x - 4, CONFIG.boss.girl.shadow.z));
+    story.update(dt, !state.paused && (state.is(STATES.PLAY) || state.is(STATES.CUTSCENE)));
+    if (cinematic.active) cinematic.update(state.paused ? 0 : realDt);
+    else cam.update(dt, hero.position, { mounted: horse.mounted, speed: horse.speedRatio, gallop: horse.galloping, heading: horse.heading });
     world.update(dt, cam.camera.position);
     world.updateFoliage(dt, cam.camera.position, cam.focus);
     renderer.render(world.scene, cam.camera);
   });
 
   // Exposed for debugging in the browser console (e.g. game.state.set('ending')).
-  window.game = { state, hero, cam, world, quests, horse, input, guide, gems, abilities, sound, combat, lives, boss, damageHero, lifeEvents, STATES };
+  window.game = { state, hero, cam, world, quests, horse, input, guide, gems, abilities, sound, combat, lives, boss, girl, story, cinematic, damageHero, lifeEvents, STATES };
 
   state.start();
 }

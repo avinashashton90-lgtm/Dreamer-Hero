@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { CONFIG } from './config.js';
 import { loadDizzyModel } from './combat.js';
 import { makeFadeMaterial, addFadeAttribute } from './world.js';
+import { loadGirlModel } from './girl.js';
 
 const B = CONFIG.boss;
 const CV = CONFIG.cave;
@@ -169,23 +170,6 @@ export async function loadShockwaveModel() {
   return ring;
 }
 
-/** Placeholder girl at the cave mouth: a capsule in a different colour with a head. */
-export async function loadGirlModel() {
-  const G = B.girl;
-  const group = new THREE.Group();
-  const dress = new THREE.Mesh(
-    new THREE.CapsuleGeometry(G.radius, G.height - G.radius * 2 - 0.3, 4, 10),
-    new THREE.MeshLambertMaterial({ color: G.color }),
-  );
-  dress.position.y = (G.height - 0.3) / 2;
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.17, 10, 8), new THREE.MeshLambertMaterial({ color: 0xf3d2b0 }));
-  head.position.y = G.height - 0.12;
-  const hair = new THREE.Mesh(new THREE.SphereGeometry(0.18, 10, 8, 0, Math.PI * 2, 0, Math.PI * 0.55), new THREE.MeshLambertMaterial({ color: 0x1c1026 }));
-  hair.position.y = G.height - 0.1;
-  group.add(dress, head, hair);
-  return group;
-}
-
 // ---------------------------------------------------------------------------
 // Boss
 // ---------------------------------------------------------------------------
@@ -274,6 +258,7 @@ export class Boss {
     for (const f of this.flames) f.age = f.life;
     this.defeated = false;
     this.girlTime = -1;
+    this.girlTaken = false; // she has left with the hero (Story)
     this.phase = 0;
     if (this.model) {
       this.model.visible = true;
@@ -335,6 +320,30 @@ export class Boss {
   /** The hero used a respawn: back to full health on guard (CONFIG.lives.bossResetsOnRespawn). */
   onHeroRespawn() {
     if (CONFIG.lives.bossResetsOnRespawn && !this.defeated) this.reset();
+  }
+
+  /** Debug: defeated already (no dying animation); the girl is at the cave mouth. */
+  debugDefeat() {
+    this.hp = 0;
+    this.defeated = true;
+    this.state = S.DEAD;
+    this.visited.add(S.DEAD);
+    if (this.model) this.model.visible = false;
+    if (this.warning) this.warning.visible = false;
+    if (this.fireCone) this.fireCone.visible = false;
+    this.girlTime = B.girl.appearTime;
+    this.placeGirl();
+  }
+
+  /** Put the girl at the cave mouth now (normally done each frame by update). */
+  placeGirl() {
+    if (!this.girl || this.girlTaken) return;
+    const [gx, gz] = B.girl.position;
+    const k = Math.min(1, Math.max(0, this.girlTime) / B.girl.appearTime);
+    this.girl.visible = this.girlTime >= 0;
+    this.girl.position.set(gx + (1 - k) * 4, this.world.heightAt(gx, gz), gz);
+    this.girl.rotation.set(0, B.girl.facing, 0);
+    this.girl.scale.setScalar(0.3 + 0.7 * k);
   }
 
   /** Debug: defeat it now. */
@@ -804,14 +813,7 @@ export class Boss {
     this.dizzy.position.set(0, B.height + 0.4, 0.6);
     if (this.dizzy.visible) this.dizzy.rotation.y += dt * 4;
 
-    // The girl steps out at the cave mouth after the victory.
-    this.girl.visible = this.girlTime >= 0;
-    if (this.girl.visible) {
-      const [gx, gz] = B.girl.position;
-      const k = Math.min(1, this.girlTime / B.girl.appearTime);
-      this.girl.position.set(gx + (1 - k) * 4, this.world.heightAt(gx, gz), gz);
-      this.girl.rotation.y = -Math.PI / 2;
-      this.girl.scale.setScalar(0.3 + 0.7 * k);
-    }
+    // The girl steps out at the cave mouth after the victory (until she leaves with the hero).
+    this.placeGirl();
   }
 }

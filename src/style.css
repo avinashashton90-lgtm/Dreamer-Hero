@@ -238,8 +238,34 @@ html, body {
 /* Screens */
 .screen { background: rgba(10, 8, 30, 0.75); gap: 16px; }
 .screen h1 { font-size: clamp(24px, 6vw, 48px); }
-.ending { background: #000; }
+.ending { background: rgba(20, 8, 30, 0.55); }
 .ending h1 { letter-spacing: 2px; }
+.end-title { opacity: 0; transform: scale(.9); transition: opacity 1.2s ease-out, transform 1.6s ease-out; color: #ffd9a0; text-shadow: 0 0 18px #ff8a3c, 3px 3px 0 #2a1430; }
+.end-title.show { opacity: 1; transform: none; }
+.summary { background: rgba(20, 16, 50, 0.85); border: 3px solid #ffd23f; border-radius: 18px; padding: 14px 26px; }
+.summary h2 { color: #ffd23f; margin-bottom: 8px; font-size: clamp(18px, 5vh, 26px); }
+.summary dl { display: grid; grid-template-columns: auto auto; gap: 4px 18px; text-align: left; font-size: clamp(14px, 4vh, 19px); margin-bottom: 12px; }
+.summary dt { opacity: 0.8; }
+.summary dd { font-weight: 900; }
+.end-buttons { display: flex; gap: 12px; justify-content: center; }
+.retry-btn:disabled { background: #555; border-color: #999; color: #ccc; opacity: 0.7; }
+
+/* Cinematic cutscenes */
+.cine { z-index: 20; justify-content: flex-end; padding: 0; }
+.cine .bar { position: absolute; left: 0; right: 0; height: 9vh; background: #000; }
+.cine .bar.top { top: 0; }
+.cine .bar.bottom { bottom: 0; }
+.cine .cine-skip { z-index: 2; }
+.dialogue {
+  position: absolute; left: 50%; transform: translateX(-50%);
+  bottom: calc(9vh + 8px); width: min(86vw, 760px);
+  background: rgba(14, 10, 30, 0.88); border: 3px solid #ffd23f; border-radius: 14px;
+  padding: 10px 18px 14px; text-align: left; color: #fff;
+}
+.dialogue .speaker { position: absolute; top: -15px; left: 16px; background: #ffd23f; color: #222; font-weight: 900; padding: 2px 12px; border-radius: 10px; font-size: clamp(12px, 3.4vh, 16px); }
+.dialogue .line { font-size: clamp(14px, 4.3vh, 20px); line-height: 1.3; min-height: 2.6em; margin-top: 6px; }
+.dialogue .more { position: absolute; right: 12px; bottom: 6px; color: #ffd23f; opacity: 0; }
+.dialogue.complete .more { opacity: 1; animation: blink 0.9s ease-in-out infinite; }
 .blink { animation: blink 1.2s ease-in-out infinite; }
 @keyframes blink { 50% { opacity: 0.3; } }
 
