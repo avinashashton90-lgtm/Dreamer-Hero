@@ -21,6 +21,7 @@ export class Input {
     this.jumpQueued = false;
     this.jumpHeld = false;
     this.mountQueued = false;
+    this.gallopId = null; // pointer holding the Gallop button
 
     this.#buildDom(overlayRoot);
     this.#bind();
@@ -56,6 +57,7 @@ export class Input {
       moveY: this.enabled ? my : 0,
       jumpPressed: this.enabled && this.jumpQueued,
       mountPressed: this.enabled && this.mountQueued,
+      gallop: this.enabled && (this.gallopId !== null || this.keys.has('ShiftLeft') || this.keys.has('ShiftRight')),
       lookDX: this.enabled ? this.lookDX : 0,
       lookDY: this.enabled ? this.lookDY : 0,
       lookSensitivity: this.lookSensitivity,
@@ -89,7 +91,16 @@ export class Input {
     this.mountBtn.style.display = 'none';
     this.mountBtn.style.bottom = `calc(max(28px, env(safe-area-inset-bottom) + 12px) + ${I.jumpButtonSize + 14}px)`;
 
-    this.controls.append(this.joyBase, this.jumpBtn, this.mountBtn);
+    // Gallop (hold): left of Jump, only while riding, with a small stamina bar.
+    this.gallopBtn = document.createElement('button');
+    this.gallopBtn.className = 'gallop-btn';
+    this.gallopBtn.style.display = 'none';
+    this.gallopBtn.style.width = this.gallopBtn.style.height = `${I.gallopButtonSize}px`;
+    this.gallopBtn.style.right = `calc(max(28px, env(safe-area-inset-right) + 12px) + ${I.jumpButtonSize + 16}px)`;
+    this.gallopBtn.innerHTML = `<span class="gallop-label"></span><span class="stamina"><i></i></span>`;
+    this.staminaFill = this.gallopBtn.querySelector('.stamina i');
+
+    this.controls.append(this.joyBase, this.jumpBtn, this.mountBtn, this.gallopBtn);
     root.appendChild(this.controls);
     this.#hideJoystick();
   }
@@ -125,6 +136,20 @@ export class Input {
       this.mountQueued = true;
     });
 
+    this.gallopBtn.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.gallopId = e.pointerId;
+      this.gallopBtn.classList.add('pressed');
+    });
+    const gallopUp = (e) => {
+      if (e.pointerId !== this.gallopId) return;
+      this.gallopId = null;
+      this.gallopBtn.classList.remove('pressed');
+    };
+    window.addEventListener('pointerup', gallopUp);
+    window.addEventListener('pointercancel', gallopUp);
+
     window.addEventListener('keydown', (e) => {
       if (e.code === 'KeyE' && !e.repeat) this.mountQueued = true;
       if (e.code === 'Space') {
@@ -135,6 +160,21 @@ export class Input {
     });
     window.addEventListener('keyup', (e) => this.keys.delete(e.code));
     window.addEventListener('blur', () => this.#releaseAll());
+  }
+
+  /**
+   * Gallop button: shown while riding. `stamina` 0..1 fills the bar; `active` lights it up;
+   * low stamina greys it out.
+   */
+  setGallopButton(visible, label, stamina = 1, active = false) {
+    const display = visible ? '' : 'none';
+    if (this.gallopBtn.style.display !== display) this.gallopBtn.style.display = display;
+    if (!visible) return;
+    const lbl = this.gallopBtn.firstElementChild;
+    if (lbl.textContent !== label) lbl.textContent = label;
+    this.staminaFill.style.transform = `scaleX(${stamina.toFixed(3)})`;
+    this.gallopBtn.classList.toggle('active', active);
+    this.gallopBtn.classList.toggle('tired', !active && stamina < CONFIG.horse.gallop.minToStart);
   }
 
   /** Shows/hides the Mount button and sets its label (Mount / Dismount). */
@@ -211,6 +251,8 @@ export class Input {
     this.jumpHeld = false;
     this.jumpId = null;
     this.mountQueued = false;
+    this.gallopId = null;
+    this.gallopBtn?.classList.remove('pressed');
     this.jumpBtn.classList.remove('pressed');
     this.#hideJoystick();
   }

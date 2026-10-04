@@ -11,7 +11,7 @@ npm install
 npm run dev        # http://localhost:5173 (also exposed on your LAN to test on a phone)
 npm run build      # production build in dist/
 npm run preview    # serve the build
-npm run test:route # headless check: jump route fair + completable, and the full horse ride (all gems, cave)
+npm run test:route # headless check: jump route fair + completable, and the full horse ride (jumps, all gems, ford, cave)
 ```
 
 ## Controls
@@ -22,6 +22,7 @@ npm run test:route # headless check: jump route fair + completable, and the full
 | Look | Drag on the right half | Mouse drag |
 | Jump | JUMP button (works while moving + looking) | Space |
 | Mount / dismount the horse | Mount button (appears near the horse) | E |
+| Gallop (hold, uses stamina) | Gallop button (while riding) | Shift |
 
 Portrait mode shows a "rotate your phone" message and pauses the game.
 
@@ -36,13 +37,14 @@ src/
   world.js      map layout, terrain, sky, river, buildings, trees, cave, colliders
   hero.js       hero movement & jumping
   camera.js     third-person follow camera with collision
-  input.js      joystick, camera drag, jump button, keyboard/mouse
+  input.js      joystick, camera drag, Jump/Mount/Gallop buttons, keyboard/mouse
   ui.js         HUD, rotate message, gameover & ending screens
   cutscene.js   slide cutscenes (intro)
   style.css     overlay/UI styles
   quests.js     objectives, objective arrow and beacon
   guides.js     landing ring and next-branch glow while jumping
-  horse.js      the horse: mount/dismount, riding, dust, ride checkpoints
+  horse.js      the horse: mount/dismount, riding, gallop, obstacles, dust & splashes, checkpoints
+  audio.js      sound placeholders (events only for now)
   gems.js       collectible gems (yellow/blue/pink) and ability unlocks
   abilities.js  unlocked abilities (the abilities themselves come later)
   boss.js       (stub for the cave boss)

@@ -5,6 +5,9 @@ import { pathZ, pathSlope, makeFadeMaterial, addFadeAttribute } from './world.js
 const HC = CONFIG.horse;
 const CP = CONFIG.checkpoints;
 const DUST = HC.dust;
+const GAL = HC.gallop;
+const SPL = HC.splash;
+const OBS = CONFIG.obstacles;
 const { clamp, lerp } = THREE.MathUtils;
 
 // ---------------------------------------------------------------------------
@@ -116,6 +119,22 @@ export async function loadDustModel(max) {
   return mesh;
 }
 
+/** Placeholder water splash: droplet pool + flat ripple-ring pool (per-instance opacity). */
+export async function loadSplashModels() {
+  const dropGeo = new THREE.IcosahedronGeometry(1, 0);
+  addFadeAttribute(dropGeo, SPL.maxDrops);
+  const drops = new THREE.InstancedMesh(dropGeo, makeFadeMaterial({ color: SPL.dropColor, emissive: 0x335566, depthWrite: false }), SPL.maxDrops);
+  const ringGeo = new THREE.RingGeometry(0.82, 1, 28).rotateX(-Math.PI / 2);
+  addFadeAttribute(ringGeo, SPL.maxRipples);
+  const ripples = new THREE.InstancedMesh(ringGeo, makeFadeMaterial({ color: SPL.rippleColor, emissive: 0x666666, depthWrite: false }), SPL.maxRipples);
+  for (const mesh of [drops, ripples]) {
+    mesh.frustumCulled = false;
+    mesh.renderOrder = 9;
+    mesh.count = 0;
+  }
+  return { drops, ripples };
+}
+
 /** Placeholder checkpoint marker: a pole with a pennant (flag colour shows reached/not). */
 export async function loadCheckpointModel() {
   const group = new THREE.Group();
@@ -175,6 +194,18 @@ export class Horse {
       return { position: new THREE.Vector3(px, world.heightAt(px, z), z), reached: i === 0 };
     });
     this.dust = [];
+    this.drops = [];
+    this.ripples = [];
+    this.stamina = 1; // 0..1, drains while galloping
+    this.galloping = false;
+    this.refillWait = 0;
+    this.stumble = 0; // seconds left of a stumble
+    this.stumbles = 0;
+    this.obstaclesCleared = 0;
+    this.inWater = false;
+    this.sound = null; // { play(name) } — see audio.js
+    this.onStumble = null;
+    this.legPrev = [0, 0, 0, 0];
   }
 
   #from;
@@ -190,8 +221,14 @@ export class Horse {
     return this.mode !== MODES.IDLE;
   }
 
+  /** Speed as a fraction of the normal top speed (up to ~2 while galloping). */
   get speedRatio() {
     return this.speed / HC.maxSpeed;
+  }
+
+  /** Body centre used for picking up gems while riding. */
+  get collectPoint() {
+    return new THREE.Vector3(this.position.x, this.position.y + 1.4, this.position.z);
   }
 
   async init() {
@@ -202,7 +239,8 @@ export class Horse {
     );
     this.shadow.rotation.x = -Math.PI / 2;
     this.dustMesh = await loadDustModel(DUST.max);
-    this.scene.add(this.model, this.shadow, this.dustMesh);
+    this.splash = await loadSplashModels();
+    this.scene.add(this.model, this.shadow, this.dustMesh, this.splash.drops, this.splash.ripples);
     this.markers = [];
     for (const cp of this.checkpoints.slice(1)) {
       const marker = await loadCheckpointModel();
@@ -225,7 +263,11 @@ export class Horse {
     this.lastCheckpoint = 0;
     this.checkpoints.forEach((cp, i) => (cp.reached = i === 0));
     this.markers?.forEach((m) => m.userData.flag.material.color.setHex(CP.flagColor));
-    for (const d of this.dust) d.age = d.life;
+    for (const d of [...this.dust, ...this.drops, ...this.ripples]) d.age = d.life;
+    this.stamina = 1;
+    this.galloping = false;
+    this.stumble = 0;
+    this.inWater = false;
     this.#syncModel(0);
   }
 
@@ -288,6 +330,7 @@ export class Horse {
       hero.grounded = this.grounded;
     }
     this.#updateDust(dt);
+    this.#updateSplash(dt);
   }
 
   /** After a fall: back on the horse at the last checkpoint reached. */
@@ -299,6 +342,8 @@ export class Horse {
     this.speed = 0;
     this.velocity.set(0, 0, 0);
     this.grounded = true;
+    this.galloping = false;
+    this.stumble = 0;
     this.mode = MODES.RIDING;
     this.everMounted = true;
     hero.startRiding();
@@ -314,51 +359,78 @@ export class Horse {
     const dirX = -sin * input.moveY + cos * input.moveX;
     const dirZ = -cos * input.moveY - sin * input.moveX;
     const mag = Math.min(1, Math.hypot(input.moveX, input.moveY));
+
+    // Gallop (held) while stamina lasts; stamina refills slowly after a short pause.
+    const wantGallop = !!input.gallop && mag > 0.05;
+    if (this.galloping && (!wantGallop || this.stamina <= 0)) {
+      this.galloping = false;
+      this.refillWait = GAL.refillDelay;
+    } else if (!this.galloping && wantGallop && this.stamina >= GAL.minToStart) {
+      this.galloping = true;
+      this.sound?.play('gallopStart');
+    }
+    if (this.galloping) this.stamina = Math.max(0, this.stamina - GAL.staminaDrain * dt);
+    else if ((this.refillWait -= dt) <= 0) this.stamina = Math.min(1, this.stamina + GAL.staminaRefill * dt);
+    this.stumble = Math.max(0, this.stumble - dt);
+
+    const top =
+      HC.maxSpeed *
+      (this.galloping ? GAL.speedMultiplier : 1) *
+      (this.inWater ? HC.waterSpeed : 1) *
+      (this.stumble > 0 ? OBS.stumbleSpeed : 1);
     let target = 0;
     if (mag > 0.05) {
       let diff = Math.atan2(dirX, dirZ) - this.heading;
       diff = Math.atan2(Math.sin(diff), Math.cos(diff));
-      const rate = lerp(HC.turnRateSlow, HC.turnRateFast, this.speedRatio);
+      const rate = lerp(HC.turnRateSlow, HC.turnRateFast, Math.min(1, this.speedRatio));
       this.heading += clamp(diff, -rate * dt, rate * dt);
       // Ease off while turning hard, so sharp turns don't throw you into the trees.
-      target = HC.maxSpeed * mag * clamp(Math.cos(diff), 0.25, 1);
+      target = top * mag * clamp(Math.cos(diff), 0.25, 1);
     }
-    const rate = target > this.speed ? HC.acceleration : HC.braking;
-    this.speed += clamp(target - this.speed, -rate * dt, rate * dt);
+    const accel = target > this.speed ? (this.galloping ? GAL.acceleration : HC.acceleration) : HC.braking;
+    this.speed += clamp(target - this.speed, -accel * dt, accel * dt);
 
     if (input.jumpPressed && this.grounded) {
       this.velocity.y = HC.hopVelocity;
       this.grounded = false;
     }
-    this.velocity.x = Math.sin(this.heading) * this.speed;
-    this.velocity.z = Math.cos(this.heading) * this.speed;
-    this.velocity.y -= HC.gravity * dt;
-    this.position.addScaledVector(this.velocity, dt);
 
+    // Move in small steps so a full gallop never tunnels through a trunk.
+    const steps = Math.max(1, Math.ceil((this.speed * dt) / HC.substep));
+    const h = dt / steps;
     const hw = CONFIG.world.width / 2 - 2;
     const hd = CONFIG.world.depth / 2 - 2;
-    this.position.x = clamp(this.position.x, -hw, hw);
-    this.position.z = clamp(this.position.z, -hd, hd);
+    let ground = null;
+    for (let i = 0; i < steps; i++) {
+      this.velocity.x = Math.sin(this.heading) * this.speed;
+      this.velocity.z = Math.cos(this.heading) * this.speed;
+      this.velocity.y -= HC.gravity * h;
+      this.position.addScaledVector(this.velocity, h);
+      this.position.x = clamp(this.position.x, -hw, hw);
+      this.position.z = clamp(this.position.z, -hd, hd);
 
-    // Follow the terrain: stick to it while galloping, land after a hop.
-    const reach = this.grounded ? HC.stepUp : 0;
-    const ground = this.world.groundAt(this.position.x, this.position.z, this.position.y + reach);
-    const gap = this.position.y - ground.y;
-    if (this.velocity.y <= 0 && (gap <= 0 || (this.grounded && gap < 1.0))) {
-      this.position.y = ground.y;
-      this.velocity.y = 0;
-      this.grounded = true;
-    } else this.grounded = false;
+      // Follow the terrain: stick to it while galloping, land after a hop.
+      const reach = this.grounded ? HC.stepUp : 0;
+      ground = this.world.groundAt(this.position.x, this.position.z, this.position.y + reach, 0, true);
+      const gap = this.position.y - ground.y;
+      if (this.velocity.y <= 0 && (gap <= 0 || (this.grounded && gap < 1.0))) {
+        this.position.y = ground.y;
+        this.velocity.y = 0;
+        this.grounded = true;
+      } else this.grounded = false;
 
-    this.world.collide(this.position, this.velocity, HC.radius, HC.height, HC.stepUp);
-    // Bumping into something takes the speed off along the heading.
-    this.speed = clamp(this.velocity.x * Math.sin(this.heading) + this.velocity.z * Math.cos(this.heading), 0, HC.maxSpeed);
+      this.world.collide(this.position, this.velocity, HC.radius, HC.height, HC.stepUp, true);
+      // Bumping into something takes the speed off along the heading.
+      this.speed = clamp(this.velocity.x * Math.sin(this.heading) + this.velocity.z * Math.cos(this.heading), 0, HC.maxSpeed * GAL.speedMultiplier);
+    }
 
     // Falls: the swamp, or off the world.
     if ((this.grounded && !ground.platform && this.world.isHazard(this.position.x)) || this.position.y < CONFIG.world.killY) {
       this.respawnAtCheckpoint(hero);
       return;
     }
+
+    this.#checkObstacles();
 
     // Checkpoints along the ride.
     this.checkpoints.forEach((cp, i) => {
@@ -371,10 +443,19 @@ export class Horse {
       }
     });
 
-    // Dust on sand and the dirt track.
+    // River: slower in the water, splash when stepping in or out.
     const surface = this.world.surfaceAt(this.position.x, this.position.z);
+    const wet = surface === 'water' && this.grounded;
+    if (wet !== this.inWater) {
+      this.inWater = wet;
+      this.#splashBurst(this.position.x, this.position.z, SPL.dropsOnEnter, 2);
+      this.sound?.play(wet ? 'splashEnter' : 'splashExit');
+    }
+
+    // Dust on sand and the dirt track (more while galloping).
     if (this.grounded && this.speed > DUST.minSpeed && (surface === 'sand' || surface === 'dirt')) {
-      this.dustDebt = (this.dustDebt ?? 0) + DUST.perSecond * this.speedRatio * dt;
+      const rate = DUST.perSecond * Math.min(1, this.speedRatio) * (this.galloping ? GAL.dustMultiplier : 1);
+      this.dustDebt = (this.dustDebt ?? 0) + rate * dt;
       while (this.dustDebt >= 1) {
         this.dustDebt -= 1;
         this.#spawnDust();
@@ -382,10 +463,35 @@ export class Horse {
     }
   }
 
+  /** Jumped cleanly over an obstacle, or stumbled into it (slow down briefly; no damage). */
+  #checkObstacles() {
+    for (const o of this.world.obstacles) {
+      const rx = this.position.x - o.cx;
+      const rz = this.position.z - o.cz;
+      const along = rx * o.dx + rz * o.dz;
+      const across = rx * o.nx + rz * o.nz;
+      const over = Math.abs(along) < o.depth / 2 + OBS.contactReach && Math.abs(across) < o.halfLength + 0.3;
+      if (!over) {
+        if (this.overObstacle === o) this.overObstacle = null;
+        continue;
+      }
+      if (this.overObstacle === o) continue;
+      this.overObstacle = o;
+      if (this.position.y >= o.top - OBS.clearMargin) this.obstaclesCleared++;
+      else {
+        this.stumble = OBS.stumbleTime;
+        this.speed *= OBS.stumbleSpeed;
+        this.stumbles++;
+        this.sound?.play('stumble');
+        this.onStumble?.();
+      }
+    }
+  }
+
   /** Places the model (with gallop / idle animation); returns the rider's seat (world). */
   #syncModel(dt) {
     const { body, legs, neck, tail, seat } = this.model.userData;
-    const s = this.speedRatio;
+    const s = Math.min(1.2, this.speedRatio); // animation amplitude (frequency still rises with speed)
     this.phase += dt * this.speed * HC.gallopStride * Math.PI * 2;
     const ph = this.phase;
     const airborne = !this.grounded;
@@ -397,9 +503,20 @@ export class Horse {
       const swing = airborne ? (front ? -0.6 : 0.5) : Math.sin(ph + off) * HC.legSwing * s;
       hip.rotation.x = swing;
       hip.userData.knee.rotation.x = airborne ? 0.9 : Math.max(0, -Math.sin(ph + off + 0.8)) * 1.1 * s;
+      // Footfall: the leg swings back through vertical → hoof hits the ground.
+      const now = Math.sin(ph + off);
+      if (this.legPrev[i] > 0 && now <= 0 && !airborne && this.inWater && this.speed > 1) {
+        const lx = hip.position.x;
+        const lz = hip.position.z;
+        const hx = this.position.x + Math.cos(this.heading) * lx + Math.sin(this.heading) * lz;
+        const hz = this.position.z - Math.sin(this.heading) * lx + Math.cos(this.heading) * lz;
+        this.#splashBurst(hx, hz, SPL.dropsPerStep, 1);
+        this.sound?.play('splashStep');
+      }
+      this.legPrev[i] = now;
     });
     body.position.y = Math.abs(Math.sin(ph)) * HC.bobHeight * s;
-    body.rotation.x = Math.sin(ph) * 0.05 * s;
+    body.rotation.x = Math.sin(ph) * 0.05 * s + (this.stumble > 0 ? Math.sin((this.stumble / OBS.stumbleTime) * Math.PI) * 0.3 : 0);
     const graze = this.mode === MODES.IDLE ? Math.max(0, Math.sin(this.time * 0.8)) : 0;
     neck.rotation.x = graze * 0.9 + Math.sin(ph) * 0.12 * s;
     tail.rotation.x = -0.2 - s * 0.6 + Math.sin(this.time * 3) * 0.08;
@@ -432,6 +549,71 @@ export class Horse {
     d.age = 0;
     d.life = DUST.life * (0.7 + Math.random() * 0.6);
     d.size = lerp(DUST.sizeMin, DUST.sizeMax, Math.random());
+  }
+
+  #splashBurst(x, z, drops, ripples) {
+    const y = this.world.river ? this.world.river.position.y : CONFIG.zones.waterY;
+    for (let i = 0; i < drops; i++) {
+      let d = this.drops.find((p) => p.age >= p.life);
+      if (!d) {
+        if (this.drops.length >= SPL.maxDrops) break;
+        d = { pos: new THREE.Vector3(), vel: new THREE.Vector3(), age: 0, life: 0 };
+        this.drops.push(d);
+      }
+      const a = Math.random() * Math.PI * 2;
+      const v = SPL.dropSpeed * (0.5 + Math.random() * 0.6);
+      d.pos.set(x + Math.cos(a) * 0.2, y + 0.05, z + Math.sin(a) * 0.2);
+      d.vel.set(Math.cos(a) * v * 0.45, v, Math.sin(a) * v * 0.45);
+      d.age = 0;
+      d.life = SPL.dropLife * (0.7 + Math.random() * 0.5);
+    }
+    for (let i = 0; i < ripples; i++) {
+      let r = this.ripples.find((p) => p.age >= p.life);
+      if (!r) {
+        if (this.ripples.length >= SPL.maxRipples) break;
+        r = { pos: new THREE.Vector3(), age: 0, life: 0 };
+        this.ripples.push(r);
+      }
+      r.pos.set(x, y + 0.03, z);
+      r.age = -i * 0.15; // staggered rings
+      r.life = SPL.rippleLife;
+    }
+  }
+
+  #updateSplash(dt) {
+    const m = new THREE.Matrix4();
+    const { drops, ripples } = this.splash;
+    let n = 0;
+    const df = drops.geometry.attributes.instanceFade;
+    for (const d of this.drops) {
+      if (d.age >= d.life) continue;
+      d.age += dt;
+      d.vel.y -= 14 * dt;
+      d.pos.addScaledVector(d.vel, dt);
+      const t = Math.min(1, d.age / d.life);
+      m.makeScale(SPL.dropSize, SPL.dropSize * 1.4, SPL.dropSize).setPosition(d.pos);
+      drops.setMatrixAt(n, m);
+      df.array[n++] = 1 - t;
+    }
+    drops.count = n;
+    drops.instanceMatrix.needsUpdate = true;
+    df.needsUpdate = true;
+
+    n = 0;
+    const rf = ripples.geometry.attributes.instanceFade;
+    for (const r of this.ripples) {
+      if (r.age >= r.life) continue;
+      r.age += dt;
+      if (r.age < 0) continue;
+      const t = Math.min(1, r.age / r.life);
+      const size = 0.2 + t * SPL.rippleSize;
+      m.makeScale(size, 1, size).setPosition(r.pos);
+      ripples.setMatrixAt(n, m);
+      rf.array[n++] = SPL.rippleOpacity * (1 - t);
+    }
+    ripples.count = n;
+    ripples.instanceMatrix.needsUpdate = true;
+    rf.needsUpdate = true;
   }
 
   #updateDust(dt) {

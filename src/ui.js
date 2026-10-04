@@ -11,15 +11,12 @@ export class UI {
       <div class="quest" style="display:none"><span class="quest-text"></span><span class="quest-dist"></span></div>
       <div class="hud-hint">${DIALOGUE.controlsHint}</div>
       <div class="gems" style="display:none"></div>
-      <div class="toast"></div>
-      <div class="banner"></div>`;
+      <div class="toast"></div>`;
     this.questEl = this.hud.querySelector('.quest');
     this.questText = this.hud.querySelector('.quest-text');
     this.questDist = this.hud.querySelector('.quest-dist');
     this.hintEl = this.hud.querySelector('.hud-hint');
     this.toastEl = this.hud.querySelector('.toast');
-    this.bannerEl = this.hud.querySelector('.banner');
-    this.bannerQueue = [];
     this.gemsEl = this.hud.querySelector('.gems');
     this.gemPills = {};
     for (const [color, hex] of Object.entries(CONFIG.gems.colors)) {
@@ -104,24 +101,13 @@ export class UI {
     if (this.gemsEl.style.display !== display) this.gemsEl.style.display = display;
   }
 
-  /** Big celebratory banner (e.g. "Batarang Unlocked!"); queued so none are missed. */
-  banner(text) {
-    this.bannerQueue.push(text);
-    if (this.bannerQueue.length === 1) this.#nextBanner();
-  }
-
-  #nextBanner() {
-    const text = this.bannerQueue[0];
-    if (text === undefined) return;
-    this.bannerEl.textContent = text;
-    this.bannerEl.classList.add('show');
-    setTimeout(() => {
-      this.bannerEl.classList.remove('show');
-      setTimeout(() => {
-        this.bannerQueue.shift();
-        this.#nextBanner();
-      }, 350);
-    }, CONFIG.ui.bannerMs);
+  /** Briefly pulses a gem counter (used when a colour's set completes). */
+  pulseGem(color) {
+    const pill = this.gemPills[color];
+    if (!pill) return;
+    pill.classList.remove('pulse');
+    void pill.offsetWidth;
+    pill.classList.add('pulse');
   }
 
   /** Quick dip to black, used when the hero respawns after a fall. */

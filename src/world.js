@@ -37,6 +37,50 @@ export function pathSlope(x) {
   return (pathZ(x + 0.5) - pathZ(x - 0.5)) / 1;
 }
 
+/** Unit direction of the path at x, as [dx, dz]. */
+export function pathDir(x) {
+  const sl = pathSlope(x);
+  const l = Math.hypot(1, sl);
+  return [1 / l, sl / l];
+}
+
+/** Side trails off the ride path (see CONFIG.world.spurs): straight segments from the path. */
+export function makeSpurs() {
+  return W.spurs.map((sp) => {
+    const [dx, dz] = pathDir(sp.x);
+    const a = Math.atan2(dz, dx) + sp.side * sp.angle;
+    const x0 = sp.x;
+    const z0 = pathZ(sp.x);
+    const ux = Math.cos(a);
+    const uz = Math.sin(a);
+    return { x0, z0, x1: x0 + ux * sp.length, z1: z0 + uz * sp.length, len: sp.length, ux, uz };
+  });
+}
+
+/** Distance from (x,z) to the nearest side trail (Infinity if none). */
+export function spurDistance(spurs, x, z) {
+  let best = Infinity;
+  for (const s of spurs) {
+    const t = clamp((x - s.x0) * s.ux + (z - s.z0) * s.uz, 0, s.len);
+    best = Math.min(best, Math.hypot(x - (s.x0 + s.ux * t), z - (s.z0 + s.uz * t)));
+  }
+  return best;
+}
+
+/** Obstacles on the ride path, in path order: each spans the path across its direction. */
+export function makeObstacles() {
+  const O = CONFIG.obstacles;
+  const list = [];
+  for (const g of O.groups) {
+    g.xs.forEach((x, i) => {
+      const type = g.types[i % g.types.length];
+      const [dx, dz] = pathDir(x);
+      list.push({ type, ...O.types[type], cx: x, cz: pathZ(x), dx, dz, nx: -dz, nz: dx, halfLength: O.halfLength });
+    });
+  }
+  return list.sort((a, b) => a.cx - b.cx);
+}
+
 /** Approximate perpendicular distance from (x,z) to the path centre line. */
 export function pathDistance(x, z) {
   const sl = pathSlope(x);
@@ -123,7 +167,7 @@ export function generateLayout(seed = W.seed) {
     fillers.push({ ...b, height, top: height + R.ledge, route: false });
   }
 
-  return { roofs, fillers, branches, townEndX, hazardEndX, rnd };
+  return { roofs, fillers, branches, townEndX, hazardEndX, spurs: makeSpurs(), obstacles: makeObstacles(), rnd };
 }
 
 // ---------------------------------------------------------------------------
@@ -147,8 +191,10 @@ export function createHeightFn(layout) {
     h = lerp(0, h, smoothstep(x, layout.hazardEndX - 0.5, layout.hazardEndX + 2));
 
     // River channel.
+    // River channel: shallow everywhere, shallower still at the ford on the ride path.
     const dr = Math.abs(x - riverCenterX(z));
-    h = lerp(Z.riverBedY, h, smoothstep(dr, Z.riverHalfWidth - 2, Z.riverHalfWidth + 1));
+    const ford = 1 - smoothstep(Math.abs(z - pathZ(x)), Z.fordHalfWidth - 2, Z.fordHalfWidth + 2);
+    h = lerp(lerp(Z.riverBedY, Z.fordBedY, ford), h, smoothstep(dr, Z.riverHalfWidth - 2, Z.riverHalfWidth + 1));
 
     // Boundary hills keep the player inside the map.
     const edge = Math.max(
@@ -156,6 +202,11 @@ export function createHeightFn(layout) {
       smoothstep(Math.abs(x), halfW - 10, halfW),
     );
     h += edge * W.edgeHillHeight * (0.7 + 0.3 * Math.sin(x * 0.11 + z * 0.07));
+
+    // Flat floor in front of and inside the giant cave mouth (no dunes poking into the tunnel).
+    const [ax, az] = CV.archPosition;
+    const cave = smoothstep(x, ax - 6, ax) * (1 - smoothstep(Math.abs(z - az), CV.archRadius - 1, CV.archRadius + 4));
+    h = lerp(h, 0, cave);
     return h;
   };
 }
@@ -185,7 +236,7 @@ export async function loadTerrainModel(heightAt, layout) {
     else c.copy(C.desert);
     // Visible dirt track along the ride path (sand bank → cave).
     if (x > layout.hazardEndX + 1 && x < Z.caveStart + 3) {
-      const d = pathDistance(x, z);
+      const d = Math.min(pathDistance(x, z), spurDistance(layout.spurs, x, z) + 0.6);
       if (d < W.pathDirtWidth + 1) c.lerp(C.dirt, 1 - smoothstep(d, W.pathDirtWidth - 1, W.pathDirtWidth + 1));
     }
     if (y < Z.riverBedY + 0.6 && x >= layout.hazardEndX) c.copy(C.riverBed);
@@ -472,26 +523,110 @@ export async function loadForestTreeModels(counts) {
 /** Placeholder cave mouth: a dark half-round opening framed by a rough stone arch, facing -X. */
 export async function loadCaveArchModel() {
   const group = new THREE.Group();
+  const R = CV.archRadius;
   const stone = new THREE.MeshLambertMaterial({ color: CV.archColor, flatShading: true });
-  const arch = new THREE.Mesh(new THREE.TorusGeometry(CV.archRadius, CV.archTube, 6, 14, Math.PI), stone);
+  const arch = new THREE.Mesh(new THREE.TorusGeometry(R, CV.archTube, 7, 18, Math.PI), stone);
   arch.rotation.y = Math.PI / 2;
-  const dark = new THREE.MeshBasicMaterial({ color: 0x050407 });
-  const mouth = new THREE.Mesh(new THREE.CircleGeometry(CV.archRadius - CV.archTube * 0.2, 20, 0, Math.PI), dark);
+  const dark = new THREE.MeshBasicMaterial({ color: 0x050407, side: THREE.DoubleSide });
+  const mouth = new THREE.Mesh(new THREE.CircleGeometry(R - CV.archTube * 0.2, 24, 0, Math.PI), dark);
   mouth.rotation.y = -Math.PI / 2;
-  mouth.position.x = 0.25;
-  // Half-round tunnel behind the mouth (axis along X), so nothing pokes out past the arch.
+  mouth.position.x = CV.tunnelDepth;
+  // Half-round tunnel behind the mouth (axis along X), fading into darkness.
   const tunnel = new THREE.Mesh(
-    new THREE.CylinderGeometry(CV.archRadius * 0.95, CV.archRadius * 0.95, 3, 16, 1, false, 0, Math.PI).rotateZ(Math.PI / 2).translate(1.7, 0, 0),
-    new THREE.MeshBasicMaterial({ color: 0x050407, side: THREE.DoubleSide }),
+    new THREE.CylinderGeometry(R * 0.97, R * 0.97, CV.tunnelDepth, 18, 1, true, 0, Math.PI).rotateZ(Math.PI / 2).translate(CV.tunnelDepth / 2, 0, 0),
+    new THREE.MeshLambertMaterial({ color: 0x1a1714, side: THREE.BackSide }),
   );
-  group.add(arch, mouth, tunnel);
-  // A few fallen stones at the foot of the arch.
-  const rubbleGeo = new THREE.DodecahedronGeometry(0.7, 0);
-  for (const [x, z, k] of [[-0.8, -CV.archRadius - 1.2, 1.2], [-1.2, CV.archRadius + 1.4, 0.9], [-1.6, CV.archRadius + 0.2, 0.6]]) {
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(CV.tunnelDepth, R * 2).rotateX(-Math.PI / 2).translate(CV.tunnelDepth / 2, 0.05, 0), dark);
+  group.add(arch, tunnel, mouth, floor);
+  // Fallen stones at the foot of the arch.
+  const rubbleGeo = new THREE.DodecahedronGeometry(1, 0);
+  for (const [x, z, k] of [[-2, -R - 4, 3], [-3, R + 4.5, 2.4], [-4.5, R + 1, 1.5], [-1.5, -R + 1, 1.2]]) {
     const r = new THREE.Mesh(rubbleGeo, stone);
-    r.position.set(x, 0.35 * k, z);
+    r.position.set(x, 0.4 * k, z);
     r.scale.setScalar(k);
     group.add(r);
+  }
+  return group;
+}
+
+/** Placeholder ride obstacles (instanced per kind): logs, low stone walls, hurdles. */
+export async function loadObstacleModels(obstacles) {
+  const group = new THREE.Group();
+  const m = new THREE.Matrix4();
+  const q = new THREE.Quaternion();
+  const s = new THREE.Vector3();
+  const p = new THREE.Vector3();
+  const across = new THREE.Vector3();
+  const X = new THREE.Vector3(1, 0, 0);
+  const logs = obstacles.filter((o) => o.type === 'log');
+  const walls = obstacles.filter((o) => o.type === 'wall');
+  const hurdles = obstacles.filter((o) => o.type === 'hurdle');
+  const T = CONFIG.obstacles.types;
+
+  if (logs.length) {
+    const mesh = new THREE.InstancedMesh(
+      paint(new THREE.CylinderGeometry(1, 1, 1, 9, 1).rotateZ(Math.PI / 2), (x, y, z, c) =>
+        c.set(T.log.color).offsetHSL(0, 0, Math.sin(Math.atan2(z, y) * 7) * 0.04 + (Math.abs(x) > 0.49 ? 0.15 : 0)),
+      ),
+      new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }),
+      logs.length,
+    );
+    logs.forEach((o, i) => {
+      const r = o.height / 2;
+      q.setFromUnitVectors(X, across.set(o.nx, 0, o.nz));
+      mesh.setMatrixAt(i, m.compose(p.set(o.cx, o.base + r, o.cz), q, s.set(o.halfLength * 2, r, r)));
+    });
+    group.add(mesh);
+  }
+  if (walls.length) {
+    const per = Math.ceil((CONFIG.obstacles.halfLength * 2) / 0.8);
+    const mesh = new THREE.InstancedMesh(
+      new THREE.DodecahedronGeometry(1, 0),
+      new THREE.MeshLambertMaterial({ color: T.wall.color, flatShading: true }),
+      walls.length * per * 2,
+    );
+    const col = new THREE.Color();
+    let k = 0;
+    walls.forEach((o) => {
+      for (let row = 0; row < 2; row++) {
+        for (let j = 0; j < per; j++) {
+          const t = -o.halfLength + (j + 0.5 + row * 0.5) * ((o.halfLength * 2) / (per + 0.5));
+          const size = row ? 0.38 : 0.48;
+          p.set(o.cx + o.nx * t, o.base + (row ? o.height - size * 0.7 : size * 0.8), o.cz + o.nz * t);
+          q.setFromAxisAngle(THREE.Object3D.DEFAULT_UP, j * 1.7 + row);
+          mesh.setMatrixAt(k, m.compose(p, q, s.set(size * 1.2, size, o.depth * 0.5)));
+          mesh.setColorAt(k++, col.set(T.wall.color).offsetHSL(0, 0, ((j * 37 + row * 11) % 10) * 0.012 - 0.05));
+        }
+      }
+    });
+    mesh.count = k;
+    group.add(mesh);
+  }
+  if (hurdles.length) {
+    const mesh = new THREE.InstancedMesh(
+      new THREE.BoxGeometry(1, 1, 1),
+      new THREE.MeshLambertMaterial({ color: 0xffffff }),
+      hurdles.length * 6,
+    );
+    const white = new THREE.Color(T.hurdle.color);
+    const red = new THREE.Color(0xd62828);
+    let k = 0;
+    hurdles.forEach((o) => {
+      q.setFromUnitVectors(X, across.set(o.nx, 0, o.nz));
+      for (const t of [-o.halfLength, 0, o.halfLength]) {
+        mesh.setMatrixAt(k, m.compose(p.set(o.cx + o.nx * t, o.base + o.height / 2, o.cz + o.nz * t), q, s.set(0.16, o.height, 0.16)));
+        mesh.setColorAt(k++, white);
+      }
+      for (const [y, c] of [[o.height - 0.08, red], [o.height * 0.55, white]]) {
+        mesh.setMatrixAt(k, m.compose(p.set(o.cx, o.base + y, o.cz), q, s.set(o.halfLength * 2, 0.1, 0.1)));
+        mesh.setColorAt(k++, c);
+      }
+      // Third slot: a striped middle rail segment for readability.
+      mesh.setMatrixAt(k, m.compose(p.set(o.cx, o.base + o.height - 0.08, o.cz), q, s.set(1.4, 0.12, 0.12)));
+      mesh.setColorAt(k++, white);
+    });
+    mesh.count = k;
+    group.add(mesh);
   }
   return group;
 }
@@ -565,6 +700,48 @@ function makeWater(color, opacity) {
   return new THREE.MeshLambertMaterial({ color, transparent: true, opacity, depthWrite: false });
 }
 
+/** Placeholder mist: big soft points hugging the base of the cliffs. */
+export async function loadMistModel(rnd, ax, az) {
+  const M = CV.mist;
+  const pos = new Float32Array(M.count * 3);
+  for (let i = 0; i < M.count; i++) {
+    const t = rnd();
+    let x;
+    let z;
+    if (i % 3 === 0) {
+      // along a side cliff
+      x = lerp(CV.center[0] - CV.radius, CV.cliff.faceX, t);
+      z = (rnd() < 0.5 ? -1 : 1) * (CV.cliff.sideZ - 6);
+    } else {
+      // along the main wall either side of the cave mouth (never in front of it)
+      x = CV.cliff.faceX - rnd.range(2, 10);
+      const side = rnd() < 0.5 ? -1 : 1;
+      z = az + side * (CV.archRadius + CV.archTube + 4 + t * (i % 3 === 1 ? 25 : 60));
+    }
+    pos.set([x, rnd.range(1.5, 6), z], i * 3);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  let map = null;
+  if (typeof document !== 'undefined') {
+    const c = document.createElement('canvas');
+    c.width = c.height = 64;
+    const ctx = c.getContext('2d');
+    const g = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+    g.addColorStop(0, 'rgba(255,255,255,0.8)');
+    g.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 64, 64);
+    map = new THREE.CanvasTexture(c);
+  }
+  const mist = new THREE.Points(
+    geo,
+    new THREE.PointsMaterial({ color: M.color, size: M.size, map, transparent: true, opacity: M.opacity, depthWrite: false, sizeAttenuation: true }),
+  );
+  mist.renderOrder = 8;
+  return mist;
+}
+
 /** Pushes pos out to distance `min` along (dx,dz) and removes velocity into the obstacle. */
 function pushOut(pos, vel, dx, dz, min) {
   const d2 = dx * dx + dz * dz;
@@ -624,6 +801,7 @@ export class World {
     await this.#buildTown();
     await this.#buildGiantTrees(rnd);
     await this.#buildForest(rnd);
+    await this.#buildObstacles();
     await this.#buildCave(rnd);
   }
 
@@ -632,6 +810,10 @@ export class World {
     this.time += dt;
     this.sky.position.copy(cameraPosition);
     this.river.position.y = Z.waterY + Math.sin(this.time * WATER.waveSpeed) * WATER.waveHeight;
+    if (this.mist) {
+      this.mist.position.x = Math.sin(this.time * 0.13) * CV.mist.drift * 3;
+      this.mist.position.z = Math.cos(this.time * 0.09) * CV.mist.drift * 4;
+    }
   }
 
   /**
@@ -713,9 +895,10 @@ export class World {
   /**
    * Highest standable surface under (x,z) whose top is at or below maxY.
    * `grace` widens platforms so standing half over an edge still counts.
+   * `ignoreObstacles` skips the ride obstacles (logs, walls, hurdles).
    * @returns {{y:number, platform:object|null}}
    */
-  groundAt(x, z, maxY, grace = 0) {
+  groundAt(x, z, maxY, grace = 0, ignoreObstacles = false) {
     let y = this.heightAt(x, z);
     let platform = null;
     for (const b of this.boxes) {
@@ -726,7 +909,7 @@ export class World {
       }
     }
     for (const b of this.beams) {
-      if (b.top > maxY || b.top <= y) continue;
+      if (b.top > maxY || b.top <= y || (ignoreObstacles && b.obstacle)) continue;
       const px = x - b.x0;
       const pz = z - b.z0;
       const along = px * b.ux + pz * b.uz;
@@ -743,9 +926,10 @@ export class World {
   /**
    * Pushes a vertical capsule (feet at pos.y) out of walls and solid cylinders.
    * Obstacles whose top is within `stepUp` of the feet are ignored (they are floor).
+   * `ignoreObstacles` skips the ride obstacles (the horse jumps / stumbles over them instead).
    * Velocity components into a wall are removed.
    */
-  collide(pos, vel, radius, height, stepUp) {
+  collide(pos, vel, radius, height, stepUp, ignoreObstacles = false) {
     const feet = pos.y;
     const head = pos.y + height;
     for (const b of this.boxes) {
@@ -782,7 +966,7 @@ export class World {
       pushOut(pos, vel, pos.x - c.x, pos.z - c.z, c.r + radius);
     }
     for (const b of this.beams) {
-      if (b.top <= feet + stepUp || b.bottom >= head) continue;
+      if (b.top <= feet + stepUp || b.bottom >= head || (ignoreObstacles && b.obstacle)) continue;
       const t = clamp(((pos.x - b.x0) * b.ux + (pos.z - b.z0) * b.uz) / b.len, 0, 1);
       const cx = b.x0 + b.ux * b.len * t;
       const cz = b.z0 + b.uz * b.len * t;
@@ -962,6 +1146,7 @@ export class World {
     };
     const clear = (x, z, k) =>
       pathDistance(x, z) > W.pathHalfWidth + 1.6 * k &&
+      spurDistance(this.layout.spurs, x, z) > W.spurHalfWidth + 1.2 * k &&
       Math.abs(x - riverCenterX(z)) > Z.riverHalfWidth + 2 &&
       Math.hypot(x - CONFIG.horse.position[0], z - CONFIG.horse.position[1]) > 8 &&
       Math.hypot(x - cx, z - cz) > CV.radius + 4 &&
@@ -1023,59 +1208,131 @@ export class World {
     });
   }
 
+  /** Ride obstacles: solid (walkable top) for the hero on foot; the horse jumps them. */
+  async #buildObstacles() {
+    this.obstacles = this.layout.obstacles;
+    for (const o of this.obstacles) {
+      o.base = this.heightAt(o.cx, o.cz);
+      o.top = o.base + o.height;
+      const hw = o.depth / 2;
+      const beam = makeBeam(o.cx - o.nx * o.halfLength, o.cz - o.nz * o.halfLength, o.cx + o.nx * o.halfLength, o.cz + o.nz * o.halfLength, o.top, hw, hw);
+      this.beams.push({ ...beam, bottom: o.base - 0.1, obstacle: o });
+    }
+    this.scene.add(await loadObstacleModels(this.obstacles));
+  }
+
+  /**
+   * The giant cave: a ring of boulders around the monster arena (opening west), a towering
+   * cliff wall with a huge cave mouth on the east side, side cliffs, rock pillars and mist.
+   */
   async #buildCave(rnd) {
     const [cx, cz] = CV.center;
-    const rocks = await loadRockModel(CV.rockCount + 3);
+    const C = CV.cliff;
+    const [ax, az] = CV.archPosition;
+    const ay = this.heightAt(ax, az);
+    const R = CV.archRadius;
     const m = new THREE.Matrix4();
-    const q = new THREE.Quaternion();
-    const s = new THREE.Vector3();
-    const p = new THREE.Vector3();
     const e = new THREE.Euler();
-    let k = 0;
+    const parts = []; // {p, q, s} transforms for one instanced rock mesh
+    const addRock = (x, y, z, sx, sy, sz, collider) => {
+      parts.push({ p: new THREE.Vector3(x, y, z), q: new THREE.Quaternion().setFromEuler(e.set(rnd() * 0.5, rnd() * Math.PI * 2, rnd() * 0.5)), s: new THREE.Vector3(sx, sy, sz) });
+      if (collider) this.cylinders.push(collider);
+    };
+
+    // Arena ring of boulders (opening west toward the forest, open east toward the cave).
     for (let i = 0; i < CV.rockCount; i++) {
       const a = (i / CV.rockCount) * Math.PI * 2;
       const fromWest = Math.abs(Math.atan2(Math.sin(a - Math.PI), Math.cos(a - Math.PI)));
-      if (fromWest < CV.openingHalfAngle) continue; // the arena opening faces the forest
-      const size = rnd.range(CV.rockSizeMin, CV.rockSizeMax);
+      if (fromWest < CV.openingHalfAngle) continue;
       const x = cx + Math.cos(a) * CV.radius;
       const z = cz + Math.sin(a) * CV.radius;
+      if (Math.cos(a) > 0 && Math.abs(z - az) < R + CV.archTube + 3) continue; // keep the cave mouth clear
+      const size = rnd.range(CV.rockSizeMin, CV.rockSizeMax);
       const y = this.heightAt(x, z);
-      p.set(x, y + size * 0.6, z);
-      q.setFromEuler(e.set(rnd() * 0.6, rnd() * Math.PI * 2, rnd() * 0.6));
-      s.set(size, size * 1.7, size);
-      rocks.setMatrixAt(k++, m.compose(p, q, s));
-      this.cylinders.push({ x, z, r: size * CV.colliderScale, top: y + size * 2.3, bottom: y - 1 });
+      addRock(x, y + size * 0.6, z, size, size * 1.7, size, { x, z, r: size * CV.colliderScale, top: y + size * 2.3, bottom: y - 1 });
     }
-    // Arch over the opening: two pillars and a lintel.
+    // Arena entrance: two pillars and a lintel over the west opening.
     const ox = cx - CV.radius;
     const gapHalf = Math.sin(CV.openingHalfAngle) * CV.radius;
     for (const side of [-1, 1]) {
       const z = cz + side * gapHalf;
       const y = this.heightAt(ox, z);
-      p.set(ox, y + 4, z);
-      q.identity();
-      s.set(2.2, 5, 2.2);
-      rocks.setMatrixAt(k++, m.compose(p, q, s));
-      this.cylinders.push({ x: ox, z, r: 2, top: y + 9, bottom: y - 1 });
+      parts.push({ p: new THREE.Vector3(ox, y + 6, z), q: new THREE.Quaternion(), s: new THREE.Vector3(3.2, 7.5, 3.2) });
+      this.cylinders.push({ x: ox, z, r: 3, top: y + 13, bottom: y - 1 });
     }
-    p.set(ox, this.heightAt(ox, cz) + 9.5, cz);
-    q.setFromEuler(e.set(0, Math.PI / 2, 0));
-    s.set(gapHalf + 2.5, 2, 2.4);
-    rocks.setMatrixAt(k++, m.compose(p, q, s));
-    rocks.count = k;
+    parts.push({ p: new THREE.Vector3(ox, this.heightAt(ox, cz) + 14, cz), q: new THREE.Quaternion().setFromEuler(e.set(0, Math.PI / 2, 0)), s: new THREE.Vector3(gapHalf + 3.5, 2.6, 3.2) });
+
+    // Main cliff wall (north–south) behind the arena; set back around the cave mouth.
+    const tunnelEnd = ax + CV.tunnelDepth;
+    for (let i = 0; i < C.count; i++) {
+      const z = lerp(-W.depth / 2, W.depth / 2, i / (C.count - 1)) + rnd.range(-2, 2);
+      const top = rnd.range(C.height[0], C.height[1]);
+      let y = this.heightAt(C.faceX, z) - 2;
+      let first = true;
+      while (y < top) {
+        const size = rnd.range(C.rockSize[0], C.rockSize[1]);
+        const nearMouth = Math.abs(z - az) < R + CV.archTube + size * 0.6 && y - size * 0.7 < R + CV.archTube;
+        const x = (nearMouth ? tunnelEnd : C.faceX) + size * 0.8 + rnd.range(0, 3);
+        addRock(x, y + size * 0.6, z, size, size * 1.3, size, first && !nearMouth ? { x, z, r: size * 0.85, top: top + 5, bottom: y - 3 } : null);
+        y += size * 1.4;
+        first = false;
+      }
+    }
+    // Above the cave mouth: the cliff continues down to the arch.
+    for (let k = -1; k <= 1; k++) {
+      const size = C.rockSize[1];
+      addRock(ax + size * 0.7, ay + R + CV.archTube + size * 0.9, az + k * size * 1.2, size, size, size, null);
+    }
+    // Side cliffs wrapping the arena (north and south).
+    for (const side of [-1, 1]) {
+      for (let i = 0; i < C.sideCount / 2; i++) {
+        const x = lerp(cx - CV.radius + 4, C.faceX + 4, i / (C.sideCount / 2 - 1));
+        const z = side * (C.sideZ + rnd.range(-3, 5));
+        const top = rnd.range(C.height[0] * 0.55, C.height[1] * 0.75);
+        let y = this.heightAt(x, z) - 2;
+        let first = true;
+        while (y < top) {
+          const size = rnd.range(C.rockSize[0] * 0.8, C.rockSize[1] * 0.9);
+          addRock(x, y + size * 0.6, z + side * size * 0.5, size, size * 1.3, size, first ? { x, z: z + side * size * 0.5, r: size * 0.85, top: top + 5, bottom: y - 3 } : null);
+          y += size * 1.4;
+          first = false;
+        }
+      }
+    }
+    // Tall rock pillars around the arena.
+    for (const [x, z, h] of CV.pillars) {
+      const y = this.heightAt(x, z);
+      const r = CV.pillarRadius;
+      for (let yy = 0; yy < h; yy += r * 2.6) {
+        const k = 1 - (yy / h) * 0.35;
+        addRock(x + rnd.range(-0.5, 0.5), y + yy + r * 1.3, z + rnd.range(-0.5, 0.5), r * k * 1.15, r * 1.6, r * k * 1.15, null);
+      }
+      this.cylinders.push({ x, z, r: r * 1.1, top: y + h, bottom: y - 1 });
+    }
+
+    const rocks = await loadRockModel(parts.length);
+    rocks.material.color.set(C.color);
+    const col = new THREE.Color();
+    parts.forEach((pt, i) => {
+      rocks.setMatrixAt(i, m.compose(pt.p, pt.q, pt.s));
+      rocks.setColorAt(i, col.setScalar(0.85 + ((i * 0.618) % 1) * 0.3));
+    });
+    rocks.count = parts.length;
     this.scene.add(rocks);
 
-    // Dark cave mouth at the far side of the arena (placeholder for the boss cave).
-    const [ax, az] = CV.archPosition;
-    const ay = this.heightAt(ax, az);
+    // Giant cave mouth.
     const arch = await loadCaveArchModel();
     arch.position.set(ax, ay, az);
     this.scene.add(arch);
     this.caveArch = new THREE.Vector3(ax, ay, az);
     for (const side of [-1, 1]) {
-      this.cylinders.push({ x: ax, z: az + side * CV.archRadius, r: CV.archTube, top: ay + CV.archRadius, bottom: ay - 1 });
+      this.cylinders.push({ x: ax, z: az + side * R, r: CV.archTube, top: ay + R + CV.archTube, bottom: ay - 1 });
     }
     // The mouth is solid for now (the cave interior comes with the boss).
-    this.boxes.push({ minX: ax + 0.1, maxX: ax + 3.2, minZ: az - CV.archRadius, maxZ: az + CV.archRadius, top: ay + CV.archRadius * 1.1, bottom: ay - 1, route: false });
+    this.boxes.push({ minX: ax + 0.4, maxX: tunnelEnd, minZ: az - R, maxZ: az + R, top: ay + R * 1.05, bottom: ay - 1, route: false });
+
+    // Mist drifting at the base of the cliffs.
+    this.mist = await loadMistModel(rnd, ax, az);
+    this.scene.add(this.mist);
   }
 }

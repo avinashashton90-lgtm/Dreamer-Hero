@@ -53,15 +53,17 @@ html, body {
   text-align: center; font-size: 11px; opacity: 0.8; transition: opacity 1s;
 }
 .hud-hint.hidden { opacity: 0; }
+/* Small toast in the top-left corner, under the quest panel (never mid-screen). */
 .toast {
-  position: absolute; left: 50%; top: 22%;
-  transform: translate(-50%, -10px) scale(0.9);
-  padding: 8px 20px; border-radius: 18px;
-  background: #ffd23f; color: #222; border: 3px solid #222; box-shadow: 4px 4px 0 #222;
-  font-weight: 900; font-size: clamp(16px, 4.5vh, 26px); text-shadow: none;
-  opacity: 0; transition: opacity .25s, transform .25s;
+  position: absolute;
+  left: max(12px, env(safe-area-inset-left));
+  top: calc(max(10px, env(safe-area-inset-top)) + clamp(34px, 9vh, 46px));
+  padding: 5px 12px; border-radius: 12px;
+  background: #ffd23f; color: #222; border: 2px solid #222; box-shadow: 3px 3px 0 #222;
+  font-weight: 900; font-size: clamp(12px, 3.2vh, 16px); text-shadow: none;
+  opacity: 0; transform: translateX(-12px); transition: opacity .25s, transform .25s;
 }
-.toast.show { opacity: 1; transform: translate(-50%, 0) scale(1); }
+.toast.show { opacity: 1; transform: none; }
 .fade { position: absolute; inset: 0; background: #000; opacity: 0; pointer-events: none; }
 
 /* Controls */
@@ -118,8 +120,27 @@ html, body {
   animation: mount-pulse 1.4s ease-in-out infinite;
 }
 @keyframes mount-pulse { 50% { transform: scale(1.06); } }
+.gallop-btn {
+  position: absolute;
+  bottom: max(34px, calc(env(safe-area-inset-bottom) + 18px));
+  border-radius: 50%;
+  border: 3px solid rgba(255, 255, 255, 0.8);
+  background: rgba(40, 110, 200, 0.6);
+  color: #fff;
+  font: inherit;
+  font-weight: bold;
+  font-size: 13px;
+  pointer-events: auto;
+  touch-action: none;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+}
+.gallop-btn.pressed, .gallop-btn.active { background: rgba(40, 140, 255, 0.9); transform: scale(0.94); }
+.gallop-btn.tired { opacity: 0.55; }
+.stamina { width: 60%; height: 6px; border-radius: 3px; background: rgba(0, 0, 0, 0.45); overflow: hidden; }
+.stamina i { display: block; width: 100%; height: 100%; background: #7dff8c; transform-origin: left; }
+.gallop-btn.tired .stamina i { background: #ff9d5c; }
 
-/* Gem counters + unlock banner */
+/* Gem counters */
 .gems {
   position: absolute;
   top: max(10px, env(safe-area-inset-top));
@@ -134,16 +155,14 @@ html, body {
 }
 .gem-pill i { width: 10px; height: 14px; clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); display: inline-block; }
 .gem-pill.done { box-shadow: 0 0 0 2px currentColor inset; }
-.banner {
-  position: absolute; left: 50%; top: 38%;
-  transform: translate(-50%, -50%) scale(0.6);
-  padding: 12px 28px; border-radius: 22px;
-  background: linear-gradient(180deg, #ffe680, #ffb300); color: #2a1a00;
-  border: 4px solid #222; box-shadow: 6px 6px 0 #222;
-  font-weight: 900; font-size: clamp(20px, 7vh, 40px); text-shadow: none; white-space: nowrap;
-  opacity: 0; transition: opacity .3s, transform .3s cubic-bezier(.2,1.6,.4,1);
+@keyframes gem-pulse {
+  0% { transform: scale(1); }
+  20% { transform: scale(1.25); box-shadow: 0 0 0 3px currentColor inset, 0 0 18px currentColor; }
+  45% { transform: scale(1); }
+  65% { transform: scale(1.15); box-shadow: 0 0 0 3px currentColor inset, 0 0 12px currentColor; }
+  100% { transform: scale(1); }
 }
-.banner.show { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+.gem-pill.pulse { animation: gem-pulse 1.4s ease-out 1; }
 
 /* Rotate */
 .rotate { background: #1b1638; z-index: 100; }

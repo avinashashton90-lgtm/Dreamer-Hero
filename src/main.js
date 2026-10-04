@@ -13,6 +13,7 @@ import { Horse } from './horse.js';
 import { JumpGuide } from './guides.js';
 import { Gems } from './gems.js';
 import { Abilities } from './abilities.js';
+import { Sound } from './audio.js';
 
 async function boot() {
   const app = document.getElementById('app');
@@ -30,7 +31,9 @@ async function boot() {
   const hero = new Hero(world.scene, world);
   await hero.init();
 
+  const sound = new Sound(); // placeholders: events only, no audio yet
   const horse = new Horse(world.scene, world);
+  horse.sound = sound;
   await horse.init();
 
   const cam = new FollowCamera(window.innerWidth / window.innerHeight, world);
@@ -44,9 +47,10 @@ async function boot() {
   const abilities = new Abilities(hero);
   const gems = new Gems(world.scene, world, {
     onCollect: () => ui.setGems(gems.counts, CONFIG.gems.needed),
-    onUnlock: (_color, ability) => {
+    onUnlock: (color, ability) => {
       abilities.unlock(ability); // recorded now; the ability itself comes later
-      ui.banner(DIALOGUE.unlocked(DIALOGUE.abilityNames[ability]));
+      ui.pulseGem(color);
+      ui.toast(DIALOGUE.unlocked(DIALOGUE.abilityNames[ability]));
     },
   });
   await gems.init();
@@ -135,23 +139,25 @@ async function boot() {
       if (inp.mountPressed) horse.toggle(hero);
       if (!horse.controlsHero) hero.update(dt, inp, cam.yaw);
       horse.update(dt, inp, cam.yaw, hero);
-      gems.update(dt, hero.position);
+      // Collect from the body centre: horse + rider when riding, the hero's chest on foot.
+      gems.update(dt, horse.controlsHero ? horse.collectPoint : hero.position.clone().setY(hero.position.y + 0.9));
       quests.update(dt, hero);
       guide.update(dt, hero);
       const canMount = horse.canMount(hero);
       input.setMountButton(canMount || horse.mode === 'riding', canMount ? DIALOGUE.mount : DIALOGUE.dismount);
+      input.setGallopButton(horse.mode === 'riding', DIALOGUE.gallop, horse.stamina, horse.galloping);
       ui.showGems(quests.index >= 2); // from "Mount the horse" on
     } else {
       horse.update(dt, null, cam.yaw, hero);
     }
-    cam.update(dt, hero.position, { mounted: horse.mounted, speed: horse.speedRatio });
+    cam.update(dt, hero.position, { mounted: horse.mounted, speed: horse.speedRatio, gallop: horse.galloping });
     world.update(dt, cam.camera.position);
     world.updateFoliage(dt, cam.camera.position, cam.focus);
     renderer.render(world.scene, cam.camera);
   });
 
   // Exposed for debugging in the browser console (e.g. game.state.set('ending')).
-  window.game = { state, hero, cam, world, quests, horse, input, guide, gems, abilities, STATES };
+  window.game = { state, hero, cam, world, quests, horse, input, guide, gems, abilities, sound, STATES };
 
   state.start();
 }

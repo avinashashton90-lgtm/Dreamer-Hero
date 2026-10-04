@@ -31,6 +31,14 @@ export const CONFIG = {
     pathStraightenX: [68, 86], // blend from winding to straight (z=0) between these x
     pathHalfWidth: 5.5,      // forest trees keep at least this far from the path centre line
     pathDirtWidth: 3.2,      // half width of the visible dirt track
+    // Short dead-end side trails off the ride path (gems at their ends).
+    spurs: [
+      // Steep angles so each trail peels away from the path and ends well clear of the
+      // obstacles either side of its entrance.
+      { x: 27, side: 1, angle: 1.25, length: 14 },
+      { x: 64, side: -1, angle: 1.25, length: 14 },
+    ],
+    spurHalfWidth: 3.2,      // trees keep clear of the trail
     colors: {
       street: 0x4a4d57,
       swamp: 0x2d4a3e,
@@ -48,7 +56,9 @@ export const CONFIG = {
     riverHalfWidth: 6,
     riverMeander: 4,
     riverFrequency: 0.03,
-    riverBedY: -1.6,
+    riverBedY: -1.25,        // shallow: the horse never sinks (water ~0.45 deep)
+    fordBedY: -1.05,         // the ford where the path crosses (water ~0.25 deep)
+    fordHalfWidth: 7,        // ford width either side of the path
     waterY: -0.8,
     forestStart: 8,
     caveStart: 84,
@@ -134,17 +144,38 @@ export const CONFIG = {
 
   cave: {
     center: [104, 0],
-    radius: 17,
-    rockCount: 34,
-    rockSizeMin: 2.4,
-    rockSizeMax: 4.2,
+    radius: 20,              // monster arena (ring of boulders, opening west)
+    rockCount: 42,
+    rockSizeMin: 3.2,
+    rockSizeMax: 5.6,
     openingHalfAngle: 0.45,  // radians; opening faces west toward the forest
     colliderScale: 0.8,
-    archPosition: [117, 0], // dark cave mouth at the far (east) side of the arena, facing west
-    archRadius: 4.4,
-    archTube: 1.2,
-    archColor: 0x4a4540,
-    reach: 9,                // "Ride to the cave" completes within this distance
+    // Giant cave mouth in a towering cliff at the far (east) side of the arena, facing west.
+    // ~10x the horse's height (2.6) → 26 tall.
+    archPosition: [126, 0],
+    archRadius: 26,
+    archTube: 5,
+    archColor: 0x3f3a36,
+    tunnelDepth: 22,
+    reach: 16,               // "Ride to the cave" completes within this distance
+    cliff: {
+      faceX: 128,            // the main wall runs north-south here
+      height: [82, 104],
+      rockSize: [12, 22],
+      count: 46,             // rocks in the main wall
+      sideCount: 30,         // rocks in the side cliffs wrapping the arena
+      sideZ: 42,             // side cliffs at about |z| = this
+      color: 0x5e5751,
+    },
+    pillars: [[92, -34, 50], [111, -40, 66], [97, 37, 58], [116, 44, 72], [84, -48, 44]], // x, z, height
+    pillarRadius: 4,
+    mist: {
+      count: 46,
+      size: 32,
+      opacity: 0.26,
+      color: 0xdfe6ee,
+      drift: 0.6,
+    },
   },
 
   sky: {
@@ -224,10 +255,14 @@ export const CONFIG = {
     minDistance: 0.6,           // only reached when the hero stands right against a trunk
     leafMinDistance: 1.8,       // leaf clusters closer than this to the hero fade instead of blocking
     releaseLerp: 3,
-    // Riding: pull back and widen the view with speed; back to normal when dismounted.
-    mountedDistanceScale: 1.2,
-    speedDistanceScale: 0.25, // extra distance at full gallop
-    speedFov: 10,             // extra degrees of FOV at full gallop
+    // Riding: close over-the-shoulder view behind and slightly above the rider.
+    rideDistance: 4.2,        // from the look-at point
+    rideHeight: 1.25,         // look-at point above the rider's seat
+    rideShoulder: 0.6,        // look-at point shifted right of the rider
+    ridePitchOffset: -0.06,   // a touch flatter than on foot
+    speedDistanceScale: 0.08, // subtle extra distance at full speed
+    speedFov: 4,              // subtle extra FOV at full speed...
+    gallopFov: 3,             // ...and a bit more while galloping
     rideBlend: 3,             // how quickly ride/speed effects follow             // ease back out slowly once the view is clear (snaps in instantly)
   },
 
@@ -235,6 +270,7 @@ export const CONFIG = {
     joystickRadius: 60,    // px, max knob travel
     joystickDeadZone: 0.12,
     jumpButtonSize: 84,    // px
+    gallopButtonSize: 76,  // px
   },
 
   cutscene: {
@@ -246,8 +282,7 @@ export const CONFIG = {
   ui: {
     rotateCheckMs: 250,
     hintHideMs: 8000,      // controls hint fades after this long
-    toastMs: 2200,
-    bannerMs: 2600,
+    toastMs: 2000,
   },
 
   horse: {
@@ -267,12 +302,38 @@ export const CONFIG = {
     braking: 16,
     turnRateSlow: 3.2,     // rad/s when slow...
     turnRateFast: 1.7,     // ...and at full gallop (gradual turns)
-    hopVelocity: 6.5,      // small hop on jump
+    hopVelocity: 9,        // hop on jump: ~1.6 high, clears every obstacle
     gravity: 25,
-    gallopStride: 0.42,    // leg cycles per unit travelled
+    gallopStride: 0.2,     // leg cycles per unit travelled (faster legs at higher speed)
     bobHeight: 0.2,        // gallop bob at full speed
     legSwing: 0.75,        // radians at full speed
     shadowSize: 2.6,
+    substep: 0.5,          // max distance per physics step (no tunnelling at full gallop)
+    // Gallop (hold the Gallop button / Shift): ~2x speed while stamina lasts.
+    gallop: {
+      speedMultiplier: 2,
+      acceleration: 16,
+      staminaDrain: 0.33,  // per second while galloping (~3 s from full)
+      staminaRefill: 0.12, // per second when not galloping (~8 s to refill)
+      refillDelay: 0.6,    // seconds after galloping before stamina refills
+      minToStart: 0.2,     // need at least this much to start a gallop
+      dustMultiplier: 2.2,
+    },
+    waterSpeed: 0.72,      // speed multiplier while in the river
+    splash: {
+      maxDrops: 90,
+      maxRipples: 24,
+      dropsPerStep: 4,     // per hoof landing in water
+      dropsOnEnter: 16,    // burst when stepping in or out
+      dropSpeed: 3.2,
+      dropSize: 0.09,
+      dropLife: 0.55,
+      dropColor: 0xe6f6ff,
+      rippleLife: 0.9,
+      rippleSize: 1.6,     // final radius
+      rippleColor: 0xffffff,
+      rippleOpacity: 0.55,
+    },
     dust: {
       max: 48,
       perSecond: 22,       // puffs per second at full speed
@@ -286,10 +347,32 @@ export const CONFIG = {
     },
   },
 
+  // Obstacles on the ride path (jump them on the horse). Each spans the path across its
+  // direction; groups give a clear line of approach.
+  obstacles: {
+    // Pairs 15 apart: a jump at full speed covers ~12.6, so each needs its own jump
+    // (at a gallop, one well-timed leap can clear a pair). Gaps between groups hold gems.
+    groups: [
+      { xs: [20, 35], types: ['log', 'wall'] },
+      { xs: [56, 71], types: ['hurdle', 'log'] },
+      { xs: [89, 103], types: ['wall', 'hurdle'] }, // in the arena, before the cave
+    ],
+    halfLength: 6.4,         // across the path
+    types: {
+      log: { height: 0.75, depth: 0.85, color: 0x6b4423 },
+      wall: { height: 0.85, depth: 1.0, color: 0x8a8378 },
+      hurdle: { height: 0.95, depth: 0.3, color: 0xd9c9a3 },
+    },
+    stumbleTime: 0.9,        // seconds slowed after hitting one without jumping
+    stumbleSpeed: 0.35,      // speed multiplier while stumbling
+    clearMargin: 0.15,       // hooves must be this close to the top (or above) to clear it
+    contactReach: 0.35,      // judged when the horse is this close to being over the obstacle
+  },
+
   // Ride checkpoints (x along the path; z follows the path). Falls/deaths after the first
   // mount respawn the hero on the horse at the last checkpoint reached.
   checkpoints: {
-    xs: [-12, 12, 34, 56, 78],
+    xs: [-12, 12, 45, 79],
     radius: 7,
     poleHeight: 3.2,
     flagColor: 0xd62828,
@@ -301,11 +384,15 @@ export const CONFIG = {
     perColor: 6,           // placed per colour (5 needed to unlock)
     needed: 5,
     abilities: { yellow: 'batarang', blue: 'smokeBomb', pink: 'flashMode' },
-    startX: -8,            // first gem (sand bank) ...
-    endX: 98,              // ... last gem (inside the cave arena)
-    height: 1.4,           // above the ground (or water surface)
-    lateral: 2.2,          // gentle side-to-side weave around the path centre
-    lateralPeriod: 5,      // gems per weave
+    // Layout: gems weave around the path (x, lateral offset), sit at the ends of the side
+    // trails, and float above some obstacles (jump to grab them). 18 in total.
+    // Ground gems stay out of the jump arcs (~7 either side of an obstacle at full speed).
+    pathGems: [[-8, 1.5], [-2, -2.5], [3, 0.5], [8, 3.2], [12, -3.4], [43, 3.5], [47.5, -3], [79, 3], [83, -2.5]],
+    airGemObstacles: [1, 3, 5], // obstacle indices (in path order) with a gem above them
+    spurGemTs: [0.45, 0.75, 1.0], // along each side trail
+    height: 1.4,             // ground gems: above the ground (or water surface)
+    airHeight: 3.9,          // air gems: above the ground — only reachable with a jump
+    collectHeight: 1.3,      // vertical reach from the collector's body centre
     collectRadius: 1.9,
     size: 0.45,
     haloSize: 2.4,
@@ -369,9 +456,10 @@ export const DIALOGUE = {
   gemNames: { yellow: 'Yellow', blue: 'Blue', pink: 'Pink' },
   abilityNames: { batarang: 'Batarang', smokeBomb: 'Smoke Bomb', flashMode: 'Flash Mode' },
   unlocked: (ability) => `${ability} Unlocked!`,
+  gallop: 'Gallop',
   objectiveComplete: 'Objective complete!',
   distanceUnit: 'm',
-  controlsHint: 'Left: move · Right: look · Jump / Mount buttons  —  Keys: WASD / Space / E / mouse drag',
+  controlsHint: 'Left: move · Right: look · Jump / Mount / Gallop buttons  —  Keys: WASD / Space / E / Shift / mouse drag',
 
   // Intro is told through pictures only. Add `caption: '...'` to a slide for one short comic line.
   intro: [

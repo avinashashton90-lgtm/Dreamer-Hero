@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { CONFIG } from './config.js';
 
 const C = CONFIG.camera;
-const { clamp, smoothstep } = THREE.MathUtils;
+const { clamp, smoothstep, lerp } = THREE.MathUtils;
 
 /**
  * Third-person orbit camera that follows a target. Yaw/pitch are driven by input deltas.
@@ -21,6 +21,8 @@ export class FollowCamera {
     this.distance = C.distance; // current (collision-smoothed) distance
     this.ride = 0; // 0 on foot … 1 mounted (smoothed)
     this.speed = 0; // 0 … 1 fraction of the horse's top speed (smoothed)
+    this.gallop = 0; // 0 … 1 while galloping (smoothed)
+    this.pivot = new THREE.Vector3(); // look-at point (shifted over the rider's shoulder)
     this.#dir = new THREE.Vector3();
   }
 
@@ -38,27 +40,29 @@ export class FollowCamera {
 
   snapTo(target) {
     this.focus.copy(target);
-    this.focus.y += C.height;
+    this.focus.y += lerp(C.height, C.rideHeight, this.ride);
     this.#place(0);
   }
 
   /**
    * @param {number} dt
    * @param {THREE.Vector3} target  point to follow (hero feet, or rider's seat)
-   * @param {{mounted?: boolean, speed?: number}} [ride]  speed = 0..1 of top gallop speed
+   * @param {{mounted?: boolean, speed?: number, gallop?: boolean}} [ride]
+   *   speed = fraction of the horse's normal top speed; gallop = Gallop held
    */
   update(dt, target, ride = {}) {
     const rk = 1 - Math.exp(-C.rideBlend * dt);
     this.ride += ((ride.mounted ? 1 : 0) - this.ride) * rk;
-    this.speed += ((ride.mounted ? ride.speed ?? 0 : 0) - this.speed) * rk;
-    const fov = CONFIG.render.fov + C.speedFov * this.speed;
+    this.speed += ((ride.mounted ? Math.min(1, ride.speed ?? 0) : 0) - this.speed) * rk;
+    this.gallop += ((ride.mounted && ride.gallop ? 1 : 0) - this.gallop) * rk;
+    const fov = CONFIG.render.fov + C.speedFov * this.speed + C.gallopFov * this.gallop;
     if (Math.abs(this.camera.fov - fov) > 0.01) {
       this.camera.fov = fov;
       this.camera.updateProjectionMatrix();
     }
     const k = 1 - Math.exp(-C.followLerp * dt);
     this.focus.x += (target.x - this.focus.x) * k;
-    this.focus.y += (target.y + C.height - this.focus.y) * k;
+    this.focus.y += (target.y + lerp(C.height, C.rideHeight, this.ride) - this.focus.y) * k;
     this.focus.z += (target.z - this.focus.z) * k;
     this.#place(dt);
   }
@@ -77,28 +81,30 @@ export class FollowCamera {
   /** @param {number} dt  0 = snap (no smoothing) */
   #place(dt) {
     const zone = this.treeZoneFactor(this.focus.x);
-    const pitch = this.pitch + zone * C.treeZonePitchBoost;
-    const maxDist =
-      C.distance *
-      (1 + zone * (C.treeZoneDistanceScale - 1)) *
-      (1 + this.ride * (C.mountedDistanceScale - 1) + this.speed * C.speedDistanceScale);
+    const pitch = this.pitch + zone * C.treeZonePitchBoost + this.ride * C.ridePitchOffset;
+    // On foot: normal (or tree-zone) distance. Riding: close over-the-shoulder view.
+    const footDist = C.distance * (1 + zone * (C.treeZoneDistanceScale - 1));
+    const maxDist = lerp(footDist, C.rideDistance, this.ride) * (1 + this.speed * C.speedDistanceScale);
     const cp = Math.cos(pitch);
     const dir = this.#dir.set(Math.sin(this.yaw) * cp, Math.sin(pitch), Math.cos(this.yaw) * cp);
+    // Shift the look-at point to the right so the camera sits over the rider's shoulder.
+    const shoulder = C.rideShoulder * this.ride;
+    this.pivot.set(this.focus.x + Math.cos(this.yaw) * shoulder, this.focus.y, this.focus.z - Math.sin(this.yaw) * shoulder);
 
     const free = Math.max(C.minDistance, this.#freeDistance(dir, maxDist));
     // Snap in front of anything in the way (never render from inside a trunk), ease back out.
     if (dt === 0 || free < this.distance) this.distance = free;
     else this.distance += (free - this.distance) * (1 - Math.exp(-C.releaseLerp * dt));
 
-    const p = this.camera.position.copy(this.focus).addScaledVector(dir, this.distance);
+    const p = this.camera.position.copy(this.pivot).addScaledVector(dir, this.distance);
     const minY = this.world.heightAt(p.x, p.z) + C.groundClearance;
     if (p.y < minY) p.y = minY;
-    this.camera.lookAt(this.focus);
+    this.camera.lookAt(this.pivot);
   }
 
   /** Distance along `dir` from the focus before hitting a solid or a leaf cluster. */
   #freeDistance(dir, maxDist) {
-    const o = this.focus;
+    const o = this.pivot;
     const pad = C.collisionPadding;
     let hit = maxDist;
     const reach = maxDist + pad;

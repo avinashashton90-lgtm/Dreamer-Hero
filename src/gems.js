@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { CONFIG } from './config.js';
-import { pathZ } from './world.js';
+import { pathZ, pathDir } from './world.js';
 
 const G = CONFIG.gems;
 const COLORS = Object.keys(G.colors); // ['yellow', 'blue', 'pink']
@@ -53,9 +53,10 @@ export async function loadGemModel(color, count) {
 }
 
 /**
- * Gems along the ride (river → cave): yellow, blue and pink, interleaved on a gentle weave
- * around the path. Collected by walking or riding through them. Counts and ability
- * unlocks persist through respawns; only `reset()` (new game) clears them.
+ * Gems along the ride (river → cave): yellow, blue and pink. Some weave around the path,
+ * some sit at the ends of side trails, and some float above obstacles (only reachable with a
+ * jump). Collected by walking or riding through them. Counts and ability unlocks persist
+ * through respawns; only `reset()` (new game) clears them.
  */
 export class Gems {
   /**
@@ -69,15 +70,36 @@ export class Gems {
     this.world = world;
     this.events = events;
     this.time = 0;
-    const total = G.perColor * COLORS.length;
-    this.gems = [];
-    for (let i = 0; i < total; i++) {
-      const x = THREE.MathUtils.lerp(G.startX, G.endX, i / (total - 1));
-      const z = pathZ(x) + G.lateral * Math.sin((i / G.lateralPeriod) * Math.PI * 2);
-      const base = Math.max(world.heightAt(x, z), CONFIG.zones.waterY);
-      const color = COLORS[i % COLORS.length];
-      this.gems.push({ color, index: Math.floor(i / COLORS.length), position: new THREE.Vector3(x, base + G.height, z), collected: false, pop: 0 });
+    const spots = [];
+    const ground = (x, z) => Math.max(world.heightAt(x, z), CONFIG.zones.waterY) + G.height;
+    // On the path, weaving left and right of the centre line.
+    for (const [x, lat] of G.pathGems) {
+      const [dx, dz] = pathDir(x);
+      const gx = x - dz * lat;
+      const gz = pathZ(x) + dx * lat;
+      spots.push({ kind: 'path', order: x, position: new THREE.Vector3(gx, ground(gx, gz), gz) });
     }
+    // Floating above obstacles: jump to grab them.
+    for (const i of G.airGemObstacles) {
+      const o = world.obstacles[i];
+      spots.push({ kind: 'air', order: o.cx, obstacle: o, position: new THREE.Vector3(o.cx, o.base + G.airHeight, o.cz) });
+    }
+    // Along the side trails.
+    world.layout.spurs.forEach((sp, si) => {
+      for (const t of G.spurGemTs) {
+        const x = sp.x0 + sp.ux * sp.len * t;
+        const z = sp.z0 + sp.uz * sp.len * t;
+        spots.push({ kind: 'spur', spur: si, order: sp.x0 + t * 0.1, position: new THREE.Vector3(x, ground(x, z), z) });
+      }
+    });
+    spots.sort((a, b) => a.order - b.order);
+    const perColor = {};
+    this.gems = spots.map((sp, i) => {
+      const color = COLORS[i % COLORS.length];
+      perColor[color] = (perColor[color] ?? 0) + 1;
+      return { ...sp, color, index: perColor[color] - 1, collected: false, pop: 0 };
+    });
+    this.perColor = perColor;
     this.counts = {};
     this.unlocked = new Set();
   }
@@ -85,7 +107,7 @@ export class Gems {
   async init() {
     this.models = {};
     for (const color of COLORS) {
-      const model = await loadGemModel(G.colors[color], G.perColor);
+      const model = await loadGemModel(G.colors[color], this.perColor[color]);
       this.models[color] = model;
       this.scene.add(model.mesh, model.halo);
     }
@@ -109,7 +131,7 @@ export class Gems {
 
   /**
    * @param {number} dt
-   * @param {THREE.Vector3} body  hero feet (on foot) or rider's seat (on the horse)
+   * @param {THREE.Vector3} body  collector's body centre (hero chest on foot, horse+rider middle when riding)
    */
   update(dt, body) {
     this.time += dt;
@@ -120,8 +142,8 @@ export class Gems {
       }
       const dx = g.position.x - body.x;
       const dz = g.position.z - body.z;
-      const dy = g.position.y - (body.y + 0.9);
-      if (dx * dx + dz * dz < G.collectRadius * G.collectRadius && Math.abs(dy) < 2.2) this.#collect(g);
+      const dy = g.position.y - body.y;
+      if (dx * dx + dz * dz < G.collectRadius * G.collectRadius && Math.abs(dy) < G.collectHeight) this.#collect(g);
     }
     this.#render();
   }
