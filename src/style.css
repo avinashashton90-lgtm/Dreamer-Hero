@@ -1,0 +1,109 @@
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #000;
+  color: #fff;
+  font-family: 'Comic Sans MS', 'Chalkboard SE', 'Trebuchet MS', sans-serif;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}
+
+#app, #app canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+
+#overlay { position: fixed; inset: 0; pointer-events: none; z-index: 10; }
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
+    max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+}
+
+/* HUD */
+.hud { position: absolute; top: max(8px, env(safe-area-inset-top)); left: 0; right: 0; text-align: center; pointer-events: none; text-shadow: 0 2px 3px #0008; }
+.hud-title { font-size: 18px; font-weight: bold; }
+.hud-hint { font-size: 11px; opacity: 0.8; }
+
+/* Controls */
+.controls { position: absolute; inset: 0; pointer-events: none; }
+.joy-base {
+  position: absolute;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.12);
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  opacity: 0.45;
+  pointer-events: none;
+  transition: opacity 0.15s;
+}
+.joy-base.active { opacity: 1; }
+.joy-knob {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 48%;
+  height: 48%;
+  margin: -24% 0 0 -24%;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.7);
+}
+.jump-btn {
+  position: absolute;
+  right: max(28px, calc(env(safe-area-inset-right) + 12px));
+  bottom: max(28px, calc(env(safe-area-inset-bottom) + 12px));
+  border-radius: 50%;
+  border: 3px solid rgba(255, 255, 255, 0.8);
+  background: rgba(214, 40, 40, 0.65);
+  color: #fff;
+  font: inherit;
+  font-weight: bold;
+  font-size: 15px;
+  pointer-events: auto;
+  touch-action: none;
+}
+.jump-btn.pressed { transform: scale(0.92); background: rgba(214, 40, 40, 0.9); }
+
+/* Rotate */
+.rotate { background: #1b1638; z-index: 100; }
+.rotate-icon { display: inline-block; font-size: 64px; margin-bottom: 12px; animation: tilt 1.6s ease-in-out infinite; }
+@keyframes tilt { 0%, 30% { transform: rotate(0); } 60%, 100% { transform: rotate(-90deg); } }
+
+/* Screens */
+.screen { background: rgba(10, 8, 30, 0.75); gap: 16px; }
+.screen h1 { font-size: clamp(24px, 6vw, 48px); }
+.ending { background: #000; }
+.ending h1 { letter-spacing: 2px; }
+.blink { animation: blink 1.2s ease-in-out infinite; }
+@keyframes blink { 50% { opacity: 0.3; } }
+
+/* Cutscene */
+.cutscene { background: #f7f0de; color: #222; gap: 8px; }
+.slide { height: 68vh; aspect-ratio: 16 / 9; max-width: 92vw; opacity: 0; transition: opacity ease-out; }
+.slide.in { opacity: 1; }
+.slide-art, .slide-art svg { width: 100%; height: 100%; display: block; border-radius: 12px; border: 4px solid #222; background: #fff; }
+.caption { font-size: clamp(14px, 3.4vh, 22px); max-width: 90vw; }
+.tap-hint { font-size: 12px; opacity: 0.7; }
+.skip-btn {
+  position: absolute;
+  top: max(12px, env(safe-area-inset-top));
+  right: max(12px, env(safe-area-inset-right));
+  padding: 8px 16px;
+  border-radius: 20px;
+  border: 2px solid #222;
+  background: #fff;
+  color: #222;
+  font: inherit;
+  font-weight: bold;
+}
