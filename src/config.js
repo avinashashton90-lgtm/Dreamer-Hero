@@ -56,16 +56,18 @@ export const CONFIG = {
   rooftops: {
     startX: -142,            // west edge of the first roof
     count: 8,
-    widthMin: 5.5,           // along X
-    widthMax: 8,
+    widthMin: 5,             // along X
+    widthMax: 7,
     depthMin: 7,             // along Z
     depthMax: 10,
-    gapMin: 1.8,             // horizontal gap between roofs
-    gapMax: 3.2,
-    gapUpMax: 2.4,           // max gap when the next roof is higher
+    // Gaps scale with the hero's reach (~6.05 level, ~5.1 jumping up 1) so jumps stay a
+    // challenge without being punishing on a phone; skipping a roof is never possible.
+    gapMin: 2.2,             // horizontal gap between roofs
+    gapMax: 3.8,
+    gapUpMax: 2.9,           // max gap when the next roof is higher
     startHeight: 9,
     stepMin: -1.6,           // height change between consecutive roofs
-    stepMax: 1.0,
+    stepMax: 1.2,
     minHeight: 6,
     maxHeight: 13,
     zWiggle: 2.5,
@@ -80,29 +82,41 @@ export const CONFIG = {
     windowColor: 0x2c3550,
   },
 
+  // Giant trees in the swamp. Each route platform is a thick horizontal branch that grows
+  // sideways out of a trunk and then runs along the route (an L-shaped limb).
   treeRoute: {
     count: 7,
-    padRadiusMin: 2.0,
-    padRadiusMax: 2.6,
-    gapMin: 1.8,             // edge-to-edge gap between pads
-    gapMax: 2.8,
-    endHeight: 1.6,          // last pad is low enough to hop down onto the sand
+    halfLengthMin: 1.9,      // half length of the walkable limb along the route
+    halfLengthMax: 2.4,
+    gapMin: 2.2,             // tip-to-base gap between consecutive limbs
+    gapMax: 3.3,
+    endHeight: 1.6,          // last branch is low enough to hop down onto the sand
     zWiggle: 2.5,
-    trunkRadius: 0.7,
-    canopyRadius: 3.4,
-    canopyLift: 5.5,         // canopy centre above the pad
-    padThickness: 0.5,
-    trunkColor: 0x6b4423,
-    padColor: 0x8a5a2b,
-    canopyColor: 0x2f8a3c,
+    baseHalfWidth: 0.95,     // walkable half width where the limb meets the elbow
+    tipHalfWidth: 0.6,       // ... and at the tip
+    trunkOffset: 1.9,        // trunk axis sits this far to the side of the limb
+    trunkRadius: 0.95,       // trunk radius at branch height (it flares to ~2x at the roots)
+    trunkBend: 0.55,         // sideways bow of the trunk, in trunk radii
+    trunkAbove: 6.5,         // trunk continues this far above the branch into the crown
+    twigsPerBranch: 3,
+    leafBlobs: 9,            // leaf clusters per tree (around and above the branch)
+    leafLiftMin: 3.0,        // leaf blobs stay at least this far above the walkable top
+    backgroundCount: 14,     // non-route giant trees in the swamp
+    barkColor: 0x6b4a2f,
+    barkDark: 0x3f2a19,
+    leafColors: [0x2f7a35, 0x3f9a3f, 0x5bb04a],
   },
 
+  // Forest and background trees: three species with per-instance size and tint.
   forest: {
     count: 170,
     trunkRadius: 0.35,       // collider radius at scale 1
-    scaleMin: 0.9,
-    scaleMax: 1.8,
+    scaleMin: 0.8,
+    scaleMax: 1.9,
     edgeCount: 60,           // extra trees scattered along the map edges
+    // Relative share of each species: conifer, broadleaf (oak), birch.
+    speciesWeights: [0.45, 0.35, 0.2],
+    tintVariation: 0.12,     // +/- brightness per tree
   },
 
   cave: {
@@ -153,8 +167,12 @@ export const CONFIG = {
     acceleration: 40,      // how quickly velocity reaches target
     airControl: 0.6,       // fraction of acceleration while airborne
     turnSpeed: 12,         // how quickly the model faces move direction
-    jumpVelocity: 9,
+    // Jump: ~1.94 high and ~6 units long on level ground (both +20% over the original
+    // 9 / 25 / walk 7). Gravity is unchanged so the arc doesn't feel floaty; the extra
+    // distance comes from a small horizontal boost while airborne.
+    jumpVelocity: 9.86,
     gravity: 25,
+    airSpeedBoost: 1.095,  // horizontal speed multiplier while airborne (applied at take-off)
     maxFallSpeed: 40,
     // Jump assist so touch controls feel fair:
     coyoteTime: 0.15,      // seconds you can still jump after running off a ledge

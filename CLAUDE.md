@@ -26,24 +26,27 @@ An average, bored schoolboy falls asleep at his desk and dreams he is a **masked
 - Game states: `intro`, `play`, `cutscene`, `gameover`, `ending` (see `src/state.js`). Only valid transitions are allowed.
 - Falling (touching the town streets or the swamp under the trees, or dropping below `CONFIG.world.killY`) → respawn at the last safe platform with a quick fade. Gameover is reserved for later (e.g. the boss); gameover → tap to retry.
 - Jump assist (phone fairness): coyote time, jump buffering, ledge assist (snap up onto ledges just above the feet while falling) and edge grace (platform edges count a little past their border). All in `CONFIG.hero`.
-- Every jump on the route is generated within the hero's reach: ~4 units jumping up 1, ~5 level (walk speed 7, jump 9, gravity 25).
-
-## Map (≈300×200, linear route along +X)
-Town rooftops (x≈-142…-67) → tree canopy pads (…≈-22) → sand bank with the horse → river (x≈0, meandering) → forest (8…84, trees keep clear of the wiggly ground path `pathZ(x)`) → cave arena (84…124, rock ring opening west) → desert (124…150, empty for now). Boundary hills on all edges.
-- Layout is generated deterministically from `CONFIG.world.seed` in `world.js` (`generateLayout`). Terrain height is analytic: `world.heightAt(x,z)`.
-- Colliders in `world.js`: `boxes` (buildings: standable tops + walls), `discs` (tree pads), `cylinders` (trunks, rocks). Hero uses `world.groundAt()` and `world.collide()`.
-- Repeated objects use `InstancedMesh` (buildings, roofs, tree trunks/pads/canopies, forest trees, rocks, clouds). Building windows are drawn in-shader in world space.
-- Quests (`quests.js`): ordered objectives with a target + completion test, HUD text with distance, a floating arrow above the hero, and a light beacon at the target. Current: "Jump across the rooftops" → "Leap through the trees" → "Find the horse".
+- Jump: ~1.94 high, ~6.0 units long on level ground, ~5.1 jumping up 1 (walk 7 × air boost 1.095, jump velocity 9.86, gravity 25 — unchanged so it isn't floaty).
+- Every gap on the route is generated within reach and uses ~35–56% of it; skipping a platform (jumping straight to the one after next) is impossible. Re-run `npm run test:route` after any jump, gap or layout change.
 - Controls (touch): left-half virtual joystick moves; right-half drag rotates camera; Jump button (multi-touch: move + look + jump at once).
 - Controls (keyboard fallback): WASD / arrows move, Space jumps, mouse drag rotates camera.
 - Portrait orientation shows a "rotate your phone" overlay and pauses the game.
+
+## Map (≈300×200, linear route along +X)
+Town rooftops (x≈-142…-72) → giant swamp trees with walkable branches (…≈-24) → sand bank with the horse → river (x≈0, meandering) → forest (8…84, trees keep clear of the wiggly ground path `pathZ(x)`) → cave arena (84…124, rock ring opening west) → desert (124…150, empty for now). Boundary hills on all edges.
+- Layout is generated deterministically from `CONFIG.world.seed` in `world.js` (`generateLayout`). Terrain height is analytic: `world.heightAt(x,z)`.
+- Colliders in `world.js`: `boxes` (buildings: standable tops + walls), `beams` (horizontal branches: flat walkable top that tapers base→tip, solid sides), `cylinders` (trunks, rocks, forest trees). Hero uses `world.groundAt()` and `world.collide()`.
+- Tree-leaping zone: each route platform is a thick limb that grows sideways out of a bowed, root-flared trunk (an elbow) and then runs along the route, wide base facing the previous platform. Twigs angle outward off the path; leaf clusters (3 greens) stay ≥ `leafLiftMin` above the walkable top. Background giant trees frame the swamp. No floating platforms.
+- Forest/edge trees: three species (conifer, broadleaf, birch) with varied size, stretch and tint, one InstancedMesh each.
+- Repeated objects use `InstancedMesh` (buildings, roofs, giant-tree trunks/limbs/twigs/leaves, forest species, rocks, clouds). Building windows are drawn in-shader in world space.
+- Quests (`quests.js`): ordered objectives with a target + completion test, HUD text with distance, a floating arrow above the hero, and a light beacon at the target. Current: "Jump across the rooftops" → "Leap through the trees" → "Find the horse".
 
 ## Architecture (one file per system, all in `/src`)
 | File | Responsibility |
 |---|---|
 | `config.js` | **All tunable numbers** + the `DIALOGUE` object (all text/dialogue). |
 | `state.js` | Game state machine (`intro/play/cutscene/gameover/ending`) with enter/exit listeners. |
-| `world.js` | Map layout, terrain (`heightAt`), sky, river, buildings, trees, cave rocks, colliders; `loadTerrainModel()`, `loadBuildingModels()`, `loadTreeRouteModels()`, `loadTreeModel()`, `loadRockModel()`. |
+| `world.js` | Map layout, terrain (`heightAt`), sky, river, buildings, trees, cave rocks, colliders; `loadTerrainModel()`, `loadBuildingModels()`, `loadGiantTreeModels()`, `loadForestTreeModels()`, `loadRockModel()`. |
 | `hero.js` | Hero movement, gravity, jump assist, platform/wall collision, respawn at last safe spot, `loadHeroModel()`. |
 | `camera.js` | Third-person follow camera with yaw/pitch orbit. |
 | `input.js` | Joystick, camera drag, jump button, keyboard & mouse; unified input state. |
@@ -77,4 +80,5 @@ Town rooftops (x≈-142…-67) → tree canopy pads (…≈-22) → sand bank wi
 
 ## Commands
 - `npm install` · `npm run dev` (use `--host` to test on a phone on the LAN) · `npm run build` · `npm run preview`
+- `npm run test:route` — headless physics test: gap fairness vs. reach, every hop (early + coyote-late jumps), no platform skippable, full autopilot run, branch collision.
 - Deploy: pushing to `main` runs `.github/workflows/deploy.yml` (npm ci + build → GitHub Pages).

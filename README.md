@@ -11,6 +11,7 @@ npm install
 npm run dev        # http://localhost:5173 (also exposed on your LAN to test on a phone)
 npm run build      # production build in dist/
 npm run preview    # serve the build
+npm run test:route # headless check that the whole jump route is fair and completable
 ```
 
 ## Controls

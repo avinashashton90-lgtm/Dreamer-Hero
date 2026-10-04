@@ -127,9 +127,9 @@ export class Quests {
   #buildObjectives() {
     const { layout } = this.world;
     const lastRoof = layout.roofs[layout.roofs.length - 1];
-    const lastPad = layout.pads[layout.pads.length - 1];
+    const lastBranch = layout.branches[layout.branches.length - 1];
     const [hx, hz] = CONFIG.horse.position;
-    const landing = lastPad.x + lastPad.r + 4;
+    const landing = lastBranch.x1 + 4;
     return [
       {
         id: 'rooftops',
@@ -141,7 +141,7 @@ export class Quests {
       {
         id: 'trees',
         text: DIALOGUE.quests.trees,
-        target: new THREE.Vector3(landing, this.world.heightAt(landing, lastPad.z), lastPad.z),
+        target: new THREE.Vector3(landing, this.world.heightAt(landing, lastBranch.z1), lastBranch.z1),
         isDone: (h) => h.grounded && !h.platform && h.position.x >= layout.hazardEndX,
       },
       {

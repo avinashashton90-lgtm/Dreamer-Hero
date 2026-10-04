@@ -104,10 +104,11 @@ export class Hero {
     const dirZ = -cos * input.moveY - sin * input.moveX;
     const mag = Math.min(1, Math.hypot(input.moveX, input.moveY));
 
+    const speed = H.walkSpeed * (this.grounded ? 1 : H.airSpeedBoost);
     const accel = H.acceleration * (this.grounded ? 1 : H.airControl);
     const k = 1 - Math.exp((-accel * dt) / H.walkSpeed);
-    this.velocity.x += (dirX * H.walkSpeed - this.velocity.x) * k;
-    this.velocity.z += (dirZ * H.walkSpeed - this.velocity.z) * k;
+    this.velocity.x += (dirX * speed - this.velocity.x) * k;
+    this.velocity.z += (dirZ * speed - this.velocity.z) * k;
 
     if (mag > 0.05) {
       const targetYaw = Math.atan2(dirX, dirZ);
@@ -123,6 +124,8 @@ export class Hero {
 
     if (this.jumpBuffered > 0 && this.coyote > 0) {
       this.velocity.y = H.jumpVelocity;
+      this.velocity.x *= H.airSpeedBoost;
+      this.velocity.z *= H.airSpeedBoost;
       this.grounded = false;
       this.coyote = 0;
       this.jumpBuffered = 0;
