@@ -223,6 +223,10 @@ export class Horse {
     this.lean = 0;
     this.trackS = 0; // progress along the track (nearest point)
     this.wallContacts = 0;
+    this.nearCave = false; // inside CONFIG.boss.dismountRange of the arena
+    this.autoStop = false; // braking to let the hero off at the arena
+    this.arrivedAtCave = false;
+    this.onArrive = null; // () => void when the hero is let off at the arena
   }
 
   #from;
@@ -285,6 +289,9 @@ export class Horse {
     this.velocity.set(0, 0, 0);
     this.mode = MODES.IDLE;
     this.everMounted = false;
+    this.arrivedAtCave = false;
+    this.autoStop = false;
+    this.nearCave = false;
     this.lastCheckpoint = 0;
     this.checkpoints.forEach((cp, i) => (cp.reached = i === 0));
     this.markers?.forEach((m) => m.userData.flag.material.color.setHex(CP.flagColor));
@@ -383,6 +390,8 @@ export class Horse {
     this.stumble = 0;
     this.mode = MODES.RIDING;
     this.everMounted = true;
+    this.nearCave = this.#nearCave();
+    this.autoStop = false;
     hero.startRiding();
     const seat = this.#syncModel(0);
     hero.setRidingPose(seat, this.heading);
@@ -465,8 +474,16 @@ export class Horse {
       (this.inWater ? HC.waterSpeed : 1) *
       (this.stumble > 0 ? OBS.stumbleSpeed : 1) *
       hill;
-    const target = braking || mag < 0.05 ? 0 : top * mag * (1 - HC.turnSlowdown * Math.abs(this.steer));
-    const accel = target > this.speed ? (this.galloping ? GAL.acceleration : HC.acceleration) : this.inWater ? HC.waterBraking : HC.braking;
+    // Near the cave arena: slow down and let the hero off (once per arrival).
+    const atCave = this.#nearCave();
+    if (atCave && !this.nearCave) {
+      this.autoStop = true;
+      this.galloping = false;
+    }
+    this.nearCave = atCave;
+    const target = braking || mag < 0.05 || this.autoStop ? 0 : top * mag * (1 - HC.turnSlowdown * Math.abs(this.steer));
+    const accel =
+      target > this.speed ? (this.galloping ? GAL.acceleration : HC.acceleration) : this.autoStop ? CONFIG.boss.autoBrake : this.inWater ? HC.waterBraking : HC.braking;
     this.speed += clamp(target - this.speed, -accel * dt, accel * dt);
 
     if (input.jumpPressed && this.grounded) {
@@ -520,6 +537,14 @@ export class Horse {
 
     this.#checkObstacles();
 
+    if (this.autoStop && this.speed < CONFIG.boss.dismountSpeed && this.grounded) {
+      this.autoStop = false;
+      this.arrivedAtCave = true;
+      this.toggle(hero); // dismount; the horse waits here
+      this.onArrive?.();
+      return;
+    }
+
     // Checkpoints along the ride.
     this.checkpoints.forEach((cp, i) => {
       if (cp.reached || i <= this.lastCheckpoint) return;
@@ -549,6 +574,11 @@ export class Horse {
         this.#spawnDust();
       }
     }
+  }
+
+  #nearCave() {
+    const [cx, cz] = CONFIG.cave.center;
+    return Math.hypot(this.position.x - cx, this.position.z - cz) < CONFIG.boss.dismountRange;
   }
 
   /** Signed speed across the trail (+ = toward the right of the trail's direction). */

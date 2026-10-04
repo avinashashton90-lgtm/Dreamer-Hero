@@ -62,6 +62,7 @@ export class Quests {
     this.world = world;
     this.ui = ui;
     this.horse = horse;
+    this.boss = null; // set by main (the cave monster)
     this.index = 0;
     this.time = 0;
     this.objectives = this.#buildObjectives();
@@ -182,7 +183,22 @@ export class Quests {
           const s = this.#trackS(h) + Q.arrowLookahead;
           return s >= track.length ? this.world.caveArch : track.at(s);
         },
-        isDone: (h) => Math.hypot(h.position.x - this.world.caveArch.x, h.position.z - this.world.caveArch.z) < CONFIG.cave.reach,
+        // Done when the horse lets the hero off at the arena (or the hero reaches the mouth).
+        isDone: (h) =>
+          this.horse.arrivedAtCave || Math.hypot(h.position.x - this.world.caveArch.x, h.position.z - this.world.caveArch.z) < CONFIG.cave.reach,
+      },
+      {
+        id: 'cave',
+        text: DIALOGUE.quests.boss,
+        doneText: DIALOGUE.quests.bossDone,
+        target: () => this.boss?.position ?? this.world.caveArch,
+        isDone: () => !!this.boss?.defeated,
+      },
+      {
+        id: 'enterCave',
+        text: DIALOGUE.quests.enterCave,
+        target: this.world.caveArch,
+        isDone: () => false, // the girl's cutscene comes next (Part 1 step 7)
       },
     ];
   }

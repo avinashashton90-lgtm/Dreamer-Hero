@@ -9,7 +9,6 @@ import { Horse } from '../src/horse.js';
 import { Combat } from '../src/combat.js';
 import { Abilities } from '../src/abilities.js';
 import { Lives } from '../src/lives.js';
-import { TrainingDummy } from '../src/dummy.js';
 
 const world = new World(); await world.init();
 const scene = world.scene;
@@ -19,7 +18,21 @@ const hits = [];
 const combat = new Combat(scene, hero, { onHit: (e) => hits.push(e) }); await combat.init();
 const abilities = new Abilities(hero, scene, world, combat); await abilities.init();
 combat.abilities = abilities;
-const dummy = new TrainingDummy(scene, world); await dummy.init();
+// A simple 200 HP target on the river sand (stands in for any enemy).
+const TARGET_HP = 200;
+class TestTarget {
+  constructor() {
+    const x = -12, z = -9;
+    this.position = new THREE.Vector3(x, world.heightAt(x, z), z);
+    this.radius = 0.45; this.height = 1.9; this.maxHp = TARGET_HP; this.reset();
+    world.cylinders.push({ x, z, r: this.radius, top: this.position.y + this.height, bottom: this.position.y - 1 });
+  }
+  reset() { this.hp = this.maxHp; this.alive = true; this.paralyzed = 0; this.smokeExposure = 0; }
+  takeHit({ amount }) { if (!this.alive) return 0; const d = Math.min(this.hp, Math.round(amount)); this.hp -= d; if (this.hp <= 0) this.alive = false; return d; }
+  paralyze(s) { this.paralyzed = s; }
+  update(dt) { this.paralyzed = Math.max(0, this.paralyzed - dt); }
+}
+const dummy = new TestTarget();
 combat.addTarget(dummy);
 const CB = CONFIG.combat, AB = CONFIG.abilities, dt = 1 / 60;
 let failed = false;
@@ -56,7 +69,7 @@ const faceDummy = (d = 1.5, angle = 0) => {
   step(secs(0.3));
   step(1, { attackPressed: true }); steps.push(combat.step); // still within the window → kick
   step(secs(CB.combo[2].duration) + 2);
-  const dmg = CONFIG.dummy.hp - dummy.hp;
+  const dmg = TARGET_HP - dummy.hp;
   const expected = CB.combo.reduce((a, s) => a + s.damage, 0);
   check(steps.join(',') === '0,1,2' && hits.length === 3, `combo steps ${steps.join(',')} with ${hits.length} hits`);
   check(dmg === expected && hits[2].heavy && !hits[0].heavy && hits[2].hitStop === CB.hitStop, `combo damage ${dmg} (expected ${expected}), third hit heavy with hit-stop ${hits[2].hitStop}`);
@@ -110,7 +123,7 @@ const faceDummy = (d = 1.5, angle = 0) => {
   check(!abilities.use('batarang'), 'no second batarang while one is out');
   let caughtAt = -1;
   for (let i = 0; i < secs(AB.batarang.maxTime + 1); i++) { step(1); if (!abilities.batarang) { caughtAt = i * dt; break; } }
-  check(abilities.stats.batarangHits === s0.batarangHits + 1 && dummy.hp === CONFIG.dummy.hp - AB.batarang.damage, `batarang hit the dummy (hp ${dummy.hp})`);
+  check(abilities.stats.batarangHits === s0.batarangHits + 1 && dummy.hp === TARGET_HP - AB.batarang.damage, `batarang hit the dummy (hp ${dummy.hp})`);
   check(caughtAt > 0 && caughtAt < AB.batarang.maxTime, `batarang came back and was caught after ${caughtAt.toFixed(2)}s`);
   // Thrown at nothing (facing away over open sand).
   step(secs(AB.batarang.cooldown));
@@ -171,8 +184,8 @@ const faceDummy = (d = 1.5, angle = 0) => {
   hits.length = 0;
   step(1, { attackPressed: true }); step(secs(0.4));
   const dmg = hits[0]?.amount;
-  check(dmg === CONFIG.dummy.hp * AB.flashMode.damageFraction && hits[0].flash && hits[0].hitStop === CB.flashHitStop && !abilities.armed && abilities.energy < 0.2,
-    `flash punch dealt ${dmg} (50% of ${CONFIG.dummy.hp}) with hit-stop ${hits[0]?.hitStop}; disarmed, bar ${abilities.energy.toFixed(2)}`);
+  check(dmg === TARGET_HP * AB.flashMode.damageFraction && hits[0].flash && hits[0].hitStop === CB.flashHitStop && !abilities.armed && abilities.energy < 0.2,
+    `flash punch dealt ${dmg} (50% of ${TARGET_HP}) with hit-stop ${hits[0]?.hitStop}; disarmed, bar ${abilities.energy.toFixed(2)}`);
 }
 
 // 6) Lives: 5 hearts, 3 respawns. Zero hearts → respawn on the horse at the last checkpoint with

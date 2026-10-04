@@ -16,7 +16,7 @@ import { Abilities } from './abilities.js';
 import { Sound } from './audio.js';
 import { Combat } from './combat.js';
 import { Lives } from './lives.js';
-import { TrainingDummy } from './dummy.js';
+import { Boss } from './boss.js';
 
 async function boot() {
   const app = document.getElementById('app');
@@ -47,7 +47,7 @@ async function boot() {
   const cutscene = new Cutscene(overlay);
   const quests = new Quests(world.scene, world, ui, horse);
   await quests.init();
-  // Combat: melee combo + lock-on, abilities, hearts/respawns, training dummy.
+  // Combat: melee combo + lock-on, abilities, hearts/respawns, the cave monster.
   let hitStop = 0; // seconds of frozen action left (heavy hits)
   const combat = new Combat(world.scene, hero, {
     onHit: (e) => {
@@ -61,9 +61,15 @@ async function boot() {
   const abilities = new Abilities(hero, world.scene, world, combat);
   await abilities.init();
   combat.abilities = abilities;
-  const dummy = new TrainingDummy(world.scene, world);
-  await dummy.init();
-  combat.addTarget(dummy);
+  let damageHero = () => false; // defined below (needs the state machine)
+  const boss = new Boss(world.scene, world, {
+    onHitHero: (hearts, x, z) => damageHero(hearts, x, z),
+    onSlam: () => cam.shake(CONFIG.boss.slam.shake, CONFIG.combat.shake.time * 1.6),
+    onDefeat: () => ui.banner(DIALOGUE.victory),
+  });
+  await boss.init();
+  combat.addTarget(boss);
+  quests.boss = boss;
   const lives = new Lives({ onChange: (l) => ui.setLives(l.hearts, l.maxHearts, l.respawns, CONFIG.lives.respawns) });
 
   const gems = new Gems(world.scene, world, {
@@ -99,9 +105,12 @@ async function boot() {
 
   // --- Hearts, death and respawn ---
   let dying = false;
-  const lifeEvents = { onRespawn: null }; // e.g. the boss resets (CONFIG.lives.bossResetsOnRespawn)
+  const lifeEvents = {
+    // Dying at the boss: it resets to full health (CONFIG.lives.bossResetsOnRespawn).
+    onRespawn: () => boss.onHeroRespawn(),
+  };
   /** The hero takes `n` hearts of damage from (fromX, fromZ). */
-  const damageHero = (n, fromX, fromZ) => {
+  damageHero = (n, fromX, fromZ) => {
     if (dying || hero.invincible || !state.is(STATES.PLAY)) return false;
     hero.hurt(fromX, fromZ);
     cam.shake(CONFIG.combat.shake.heavy, CONFIG.combat.shake.time);
@@ -140,7 +149,7 @@ async function boot() {
       gems.reset();
       abilities.reset();
       combat.reset();
-      dummy.reset();
+      boss.reset();
       lives.reset();
       ui.setGems(gems.counts, CONFIG.gems.needed);
       quests.reset();
@@ -202,6 +211,24 @@ async function boot() {
       cam.rotate(inp.lookDX, inp.lookDY, inp.lookSensitivity);
       if (inp.debugGrantGems) gems.grantAll();
       if (inp.debugDamageHero) damageHero(CONFIG.lives.debugDamage, hero.position.x + Math.sin(hero.facing), hero.position.z + Math.cos(hero.facing));
+      if (inp.debugKillBoss) boss.kill();
+      if (inp.debugTeleportArena) {
+        // Debug: on foot at the arena entrance, the horse waiting beside it.
+        const [cx, cz] = CONFIG.cave.center;
+        const x = cx - CONFIG.cave.radius - 4;
+        if (horse.controlsHero) horse.toggle(hero);
+        horse.mode = 'idle';
+        hero.riding = false;
+        hero.shadow.visible = true;
+        horse.position.set(x - 4, world.heightAt(x - 4, cz + 3), cz + 3);
+        horse.everMounted = horse.arrivedAtCave = true;
+        horse.lastCheckpoint = horse.checkpoints.length - 1;
+        hero.lastSafe.set(x, world.heightAt(x, cz), cz);
+        hero.respawn();
+        hero.facing = Math.PI / 2;
+        cam.yaw = -Math.PI / 2;
+        cam.snapTo(hero.position);
+      }
       if (inp.mountPressed) horse.toggle(hero);
       hero.lastDt = dt;
       if (!horse.controlsHero) hero.update(dt, inp, cam.yaw);
@@ -209,7 +236,8 @@ async function boot() {
       combat.update(dt, inp, { mounted: horse.controlsHero });
       if (inp.ability) abilities.use(inp.ability);
       abilities.update(dt);
-      dummy.update(dt);
+      boss.update(dt, hero);
+      ui.setBossBar(boss.active, boss.hp / boss.maxHp, DIALOGUE.bossName);
       input.setCombatButtons(horse.controlsHero, abilities);
       // Collect from the body centre: horse + rider when riding, the hero's chest on foot.
       gems.update(dt, horse.controlsHero ? horse.collectPoint : hero.position.clone().setY(hero.position.y + 0.9));
@@ -221,7 +249,6 @@ async function boot() {
       ui.showGems(quests.index >= 2); // from "Mount the horse" on
     } else {
       horse.update(dt, null, cam.yaw, hero);
-      dummy.update(dt);
     }
     cam.update(dt, hero.position, { mounted: horse.mounted, speed: horse.speedRatio, gallop: horse.galloping, heading: horse.heading });
     world.update(dt, cam.camera.position);
@@ -230,7 +257,7 @@ async function boot() {
   });
 
   // Exposed for debugging in the browser console (e.g. game.state.set('ending')).
-  window.game = { state, hero, cam, world, quests, horse, input, guide, gems, abilities, sound, combat, lives, dummy, damageHero, lifeEvents, STATES };
+  window.game = { state, hero, cam, world, quests, horse, input, guide, gems, abilities, sound, combat, lives, boss, damageHero, lifeEvents, STATES };
 
   state.start();
 }

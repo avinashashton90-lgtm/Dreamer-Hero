@@ -544,6 +544,28 @@ export function placeObstacles(track, heightAt) {
   return list.sort((a, b) => a.s - b.s);
 }
 
+/**
+ * Placeholder giant cave (swap for a glTF later): the towering cliff wall, side cliffs,
+ * pillars and arena boulders (one instanced rock mesh from the placed transforms `parts`)
+ * plus the cave mouth arch at `mouth` (~10x the horse's height). Colliders stay in World.
+ */
+export async function loadCaveModel(parts, mouth) {
+  const group = new THREE.Group();
+  const m = new THREE.Matrix4();
+  const rocks = await loadRockModel(parts.length);
+  rocks.material.color.set(CV.cliff.color);
+  const col = new THREE.Color();
+  parts.forEach((pt, i) => {
+    rocks.setMatrixAt(i, m.compose(pt.p, pt.q, pt.s));
+    rocks.setColorAt(i, col.setScalar(0.85 + ((i * 0.618) % 1) * 0.3));
+  });
+  rocks.count = parts.length;
+  const arch = await loadCaveArchModel();
+  arch.position.copy(mouth);
+  group.add(rocks, arch);
+  return group;
+}
+
 /** Placeholder cave mouth: a dark half-round opening framed by a rough stone arch, facing -X. */
 export async function loadCaveArchModel() {
   const group = new THREE.Group();
@@ -1348,6 +1370,7 @@ export class World {
    * cliff wall with a huge cave mouth on the east side, side cliffs, rock pillars and mist.
    */
   async #buildCave(rnd) {
+    this.arenaRocks = [];
     const [cx, cz] = CV.center;
     const C = CV.cliff;
     const [ax, az] = CV.archPosition;
@@ -1371,7 +1394,9 @@ export class World {
       if (Math.cos(a) > 0 && Math.abs(z - az) < R + CV.archTube + 3) continue; // keep the cave mouth clear
       const size = rnd.range(CV.rockSizeMin, CV.rockSizeMax);
       const y = this.heightAt(x, z);
-      addRock(x, y + size * 0.6, z, size, size * 1.7, size, { x, z, r: size * CV.colliderScale, top: y + size * 2.3, bottom: y - 1 });
+      const collider = { x, z, r: size * CV.colliderScale, top: y + size * 2.3, bottom: y - 1, arena: true };
+      addRock(x, y + size * 0.6, z, size, size * 1.7, size, collider);
+      this.arenaRocks.push(collider); // the boss is stunned by charging into these
     }
     // Arena entrance: two pillars and a lintel over the west opening.
     const ox = cx - CV.radius;
@@ -1380,7 +1405,9 @@ export class World {
       const z = cz + side * gapHalf;
       const y = this.heightAt(ox, z);
       parts.push({ p: new THREE.Vector3(ox, y + 6, z), q: new THREE.Quaternion(), s: new THREE.Vector3(3.2, 7.5, 3.2) });
-      this.cylinders.push({ x: ox, z, r: 3, top: y + 13, bottom: y - 1 });
+      const pillar = { x: ox, z, r: 3, top: y + 13, bottom: y - 1, arena: true };
+      this.cylinders.push(pillar);
+      this.arenaRocks.push(pillar);
     }
     parts.push({ p: new THREE.Vector3(ox, this.heightAt(ox, cz) + 14, cz), q: new THREE.Quaternion().setFromEuler(e.set(0, Math.PI / 2, 0)), s: new THREE.Vector3(gapHalf + 3.5, 2.6, 3.2) });
 
@@ -1432,20 +1459,9 @@ export class World {
       this.cylinders.push({ x, z, r: r * 1.1, top: y + h, bottom: y - 1 });
     }
 
-    const rocks = await loadRockModel(parts.length);
-    rocks.material.color.set(C.color);
-    const col = new THREE.Color();
-    parts.forEach((pt, i) => {
-      rocks.setMatrixAt(i, m.compose(pt.p, pt.q, pt.s));
-      rocks.setColorAt(i, col.setScalar(0.85 + ((i * 0.618) % 1) * 0.3));
-    });
-    rocks.count = parts.length;
-    this.scene.add(rocks);
-
-    // Giant cave mouth.
-    const arch = await loadCaveArchModel();
-    arch.position.set(ax, ay, az);
-    this.scene.add(arch);
+    // The giant cave: cliffs, arena boulders and the cave mouth (one swappable model).
+    this.cave = await loadCaveModel(parts, new THREE.Vector3(ax, ay, az));
+    this.scene.add(this.cave);
     this.caveArch = new THREE.Vector3(ax, ay, az);
     for (const side of [-1, 1]) {
       this.cylinders.push({ x: ax, z: az + side * R, r: CV.archTube, top: ay + R + CV.archTube, bottom: ay - 1 });

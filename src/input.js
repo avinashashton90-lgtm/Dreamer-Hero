@@ -27,7 +27,7 @@ export class Input {
     this.attackQueued = false;
     this.dodgeQueued = false;
     this.abilityQueued = null; // 'batarang' | 'smokeBomb' | 'flashMode'
-    this.debugQueued = { grantGems: false, damageHero: false };
+    this.debugQueued = { grantGems: false, damageHero: false, teleportArena: false, killBoss: false };
 
     this.#buildDom(overlayRoot);
     this.#bind();
@@ -69,6 +69,8 @@ export class Input {
       ability: this.enabled ? this.abilityQueued : null,
       debugGrantGems: this.enabled && this.debugQueued.grantGems,
       debugDamageHero: this.enabled && this.debugQueued.damageHero,
+      debugTeleportArena: this.enabled && this.debugQueued.teleportArena,
+      debugKillBoss: this.enabled && this.debugQueued.killBoss,
       lookDX: this.enabled ? this.lookDX : 0,
       lookDY: this.enabled ? this.lookDY : 0,
       lookSensitivity: this.lookSensitivity,
@@ -78,7 +80,7 @@ export class Input {
     this.attackQueued = false;
     this.dodgeQueued = false;
     this.abilityQueued = null;
-    this.debugQueued.grantGems = this.debugQueued.damageHero = false;
+    for (const k of Object.keys(this.debugQueued)) this.debugQueued[k] = false;
     this.lookDX = 0;
     this.lookDY = 0;
     return out;
@@ -212,6 +214,8 @@ export class Input {
         if (e.code === 'Digit3') this.abilityQueued = 'flashMode';
         if (e.code === I.debugKeys.grantGems) this.debugQueued.grantGems = true;
         if (e.code === I.debugKeys.damageHero) this.debugQueued.damageHero = true;
+        if (e.code === I.debugKeys.teleportArena) this.debugQueued.teleportArena = true;
+        if (e.code === I.debugKeys.killBoss) this.debugQueued.killBoss = true;
       }
       if (e.code === 'Space') {
         e.preventDefault();

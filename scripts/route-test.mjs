@@ -256,7 +256,7 @@ function cameraCheck(cam) {
   const ride = ({ gallop = false, jump = true, check = false } = {}) => {
     horse.lastCheckpoint = 0; horse.checkpoints.forEach((c, i) => (c.reached = i === 0));
     horse.respawnAtCheckpoint(hero); horse.stamina = 1; rideFalls = 0; checkpoints = 0;
-    gems.reset(); abilities.reset?.();
+    gems.reset(); abilities.reset?.(); horse.arrivedAtCave = false;
     const stumbles0 = horse.stumbles, cleared0 = horse.obstaclesCleared;
     cam.reset(); cam.snapTo(hero.position);
     let t = 0, bestS = 0, since = 0, stuck = false, stuckAt = '', topSpeed = 0, maxLat = 0, wobble = 0, prevSteer = 0;
@@ -265,7 +265,7 @@ function cameraCheck(cam) {
     while (t < 200) {
       const n = track.nearest(horse.position.x, horse.position.z, 30) ?? track.nearestGlobal(horse.position.x, horse.position.z);
       if (n.s > bestS + 1) { bestS = n.s; since = 0; } else if ((since += dt) > 4 && n.s < track.length - 3) { stuck = true; stuckAt = `s ${n.s.toFixed(0)} (${horse.position.x.toFixed(0)},${horse.position.z.toFixed(0)})`; break; }
-      atCave = Math.hypot(hero.position.x - arch.x, hero.position.z - arch.z) < CONFIG.cave.reach;
+      atCave = horse.arrivedAtCave || Math.hypot(hero.position.x - arch.x, hero.position.z - arch.z) < CONFIG.cave.reach;
       if (atCave) break;
       let tx, tz;
       if (n.s > track.length - 6) { tx = arch.x - 4; tz = arch.z; }

@@ -13,6 +13,7 @@ npm run build      # production build in dist/
 npm run preview    # serve the build
 npm run test:route # headless check: jump route fair + completable, and the full horse ride (jumps, all gems, ford, walls, cave)
 npm run test:combat # headless check: combo, dodge, Batarang, Smoke Bomb, Flash Mode, hearts/respawns/Game Over
+npm run test:boss   # headless check: every boss state, boulder stun, paralysis, Flash, death + respawn, defeat
 ```
 
 ## Controls
@@ -26,7 +27,7 @@ npm run test:combat # headless check: combo, dodge, Batarang, Smoke Bomb, Flash 
 | Attack (3-hit combo) | Attack button (large, bottom-right) | J |
 | Dodge roll | Dodge button | K |
 | Batarang / Smoke Bomb / Flash Mode | Small ability buttons around Attack (unlock with 5 gems of a colour) | 1 / 2 / 3 |
-| Debug: all gems / hurt the hero | — | G / H |
+| Debug: all gems / hurt the hero / teleport to the arena / kill the boss | — | G / H / T / B |
 | Mount / dismount the horse | Mount button (appears near the horse) | E |
 | Gallop (hold, uses stamina) | Gallop button (while riding) | Shift |
 
@@ -56,15 +57,14 @@ src/
   abilities.js  Batarang, Smoke Bomb, Flash Mode (unlocked by gems)
   combat.js     melee combo, lock-on, hit feedback
   lives.js      hearts and respawns
-  dummy.js      training dummy
-  boss.js       (stub for the cave boss)
+  boss.js       the cave monster fight (and the girl at the cave mouth)
 ```
 
 Placeholder models are built in `loadXModel()` functions (`loadHeroModel`, `loadTerrainModel`, `loadHorseModel`, …) so real glTF assets can be swapped in later.
 
 The forest ride follows one trail spline: a 14-wide, ~1544-long dirt trail (at least `CONFIG.trailLength` = 1500; about 94 s at normal speed, ~64 s galloping) from the river to the cave, with wide curves, a hill climb and descent, a river ford half way, 6 jumpable logs/walls on straights, and 60 gems in rows and arcs along the centre lane. Trees stay outside a 22-wide corridor behind a continuous line of bushes and boulders, and invisible side walls keep the horse on the trail (it slides along them).
 
-The hero has 5 hearts and 3 respawns: losing all hearts puts you back on the horse at the last checkpoint; after the third respawn it's Game Over (Retry restarts the ride). A training dummy stands on the river sand south of the horse.
+The hero has 5 hearts and 3 respawns: losing all hearts puts you back on the horse at the last checkpoint; after the third respawn it's Game Over (Retry restarts the ride). At the end of the ride the hero gets off at the cave arena and fights the cave monster (slam, charge into boulders, faster below 40% HP); defeat it and a girl appears at the cave mouth.
 
 Debug from the browser console: `game.state.set('ending')`, `game.hero.position`, etc.
 

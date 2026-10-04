@@ -12,9 +12,14 @@ export class UI {
       <div class="hud-hint">${DIALOGUE.controlsHint}</div>
       <div class="vitals"><div class="hearts"></div><div class="lives"></div></div>
       <div class="gems" style="display:none"></div>
+      <div class="boss-bar" style="display:none"><span class="boss-name"></span><div class="boss-hp"><i></i></div></div>
+      <div class="banner"></div>
       <div class="toast"></div>`;
     this.heartsEl = this.hud.querySelector('.hearts');
     this.livesEl = this.hud.querySelector('.lives');
+    this.bossBar = this.hud.querySelector('.boss-bar');
+    this.bossFill = this.hud.querySelector('.boss-hp i');
+    this.bannerEl = this.hud.querySelector('.banner');
     this.questEl = this.hud.querySelector('.quest');
     this.questText = this.hud.querySelector('.quest-text');
     this.questDist = this.hud.querySelector('.quest-dist');
@@ -143,6 +148,27 @@ export class UI {
       void this.heartsEl.offsetWidth;
       this.heartsEl.classList.add('hit');
     }
+  }
+
+  /** Boss health bar (top centre). */
+  setBossBar(visible, fraction = 1, name = '') {
+    const d = visible ? '' : 'none';
+    if (this.bossBar.style.display !== d) this.bossBar.style.display = d;
+    if (!visible) return;
+    const nameEl = this.bossBar.firstElementChild;
+    if (nameEl.textContent !== name) nameEl.textContent = name;
+    this.bossFill.style.transform = `scaleX(${Math.max(0, fraction).toFixed(3)})`;
+    this.bossBar.classList.toggle('low', fraction <= CONFIG.boss.enrageAt);
+  }
+
+  /** Big story banner (e.g. "Victory!"), shown briefly near the top. */
+  banner(text, ms = CONFIG.boss.victoryMs) {
+    this.bannerEl.textContent = text;
+    this.bannerEl.classList.remove('show');
+    void this.bannerEl.offsetWidth;
+    this.bannerEl.classList.add('show');
+    clearTimeout(this.bannerTimer);
+    this.bannerTimer = setTimeout(() => this.bannerEl.classList.remove('show'), ms);
   }
 
   /** Floating damage number at screen position (px). kind: '' | 'heavy' | 'flash'. */

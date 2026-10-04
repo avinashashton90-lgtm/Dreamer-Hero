@@ -256,14 +256,31 @@ export const CONFIG = {
     debugDamage: 1,            // hearts lost per debug-damage key press
   },
 
-  // Training dummy near the river sand (for trying out combat).
-  dummy: {
-    position: [-12, -9],
-    hp: 200,
-    radius: 0.45,
-    height: 1.9,
-    respawnTime: 3,        // after being knocked down, it stands back up at full HP
-    color: 0xd9b26f,
+  // The cave monster (boss.js). Arena = CONFIG.cave.center / radius.
+  boss: {
+    hp: 100,
+    height: 5.4,             // ~3x the hero
+    radius: 1.7,             // body (hit / push) radius
+    guard: [114, 0],         // waits here, in front of the cave mouth, until the hero enters the arena
+    walkSpeed: 3.4,
+    turnRate: 2.6,           // rad/s
+    keepInside: 3.5,         // stays this far inside the arena edge (boulders are its boundary)
+    slam: { range: 4.6, windup: 0.8, reach: 2.4, radius: 3.6, damage: 1, impact: 0.3, shake: 0.5 },
+    charge: { minRange: 7, chaseBefore: 1.6, windup: 1, speed: 17, maxTime: 1.8, damage: 1, hitPad: 0.5, stun: 2, knockback: 9 },
+    recover: 1.3,            // pause after every attack (the hero's chance to hit back)
+    enrageAt: 0.4,           // below this fraction of HP...
+    enrageTime: 0.65,        // ...wind-ups and recovery take this fraction of the time...
+    enrageWalk: 1.35,        // ...and it walks faster
+    paralyzedBonus: 1.5,     // damage multiplier while paralyzed (Smoke Bomb)
+    stunnedBonus: 1.5,       // ...and while stunned (charged into a boulder)
+    dying: { stumble: 0.7, fall: 0.9, fade: 1.2 },
+    dismountRange: 30,       // riding this close to the arena: the horse slows and the hero gets off
+    autoBrake: 26,           // how hard the horse stops there
+    dismountSpeed: 1.5,      // ...and the hero dismounts once it is this slow
+    colors: { skin: 0x5b3f78, belly: 0x9c7fb5, horn: 0xe8dcc0, eye: 0xff2a2a },
+    warningColor: 0xff2020,
+    girl: { position: [119, 0], color: 0x8a4fd0, height: 1.6, radius: 0.32, appearTime: 1.2 },
+    victoryMs: 3200,
   },
 
   cave: {
@@ -281,7 +298,7 @@ export const CONFIG = {
     archTube: 5,
     archColor: 0x3f3a36,
     tunnelDepth: 22,
-    reach: 16,               // "Ride to the cave" completes within this distance
+    reach: 16,               // "Ride to the cave" also completes within this distance of the mouth
     cliff: {
       faceX: 128,            // the main wall runs north-south here
       height: [82, 104],
@@ -405,7 +422,7 @@ export const CONFIG = {
     mountButtonBottomRiding: 176, // ...and lower while riding (Dodge is hidden then)
     // Ability buttons in an arc around Attack: angle 0 = left, 90 = up (degrees).
     abilityArc: { radius: 166, angles: [22, 48, 74], size: 52 },
-    debugKeys: { grantGems: 'KeyG', damageHero: 'KeyH' },
+    debugKeys: { grantGems: 'KeyG', damageHero: 'KeyH', teleportArena: 'KeyT', killBoss: 'KeyB' },
   },
 
   cutscene: {
@@ -612,6 +629,9 @@ export const DIALOGUE = {
     mount: 'Mount the horse',
     ride: 'Ride to the cave',
     caveReached: 'You reached the cave!',
+    boss: 'Defeat the monster',
+    bossDone: 'The monster is defeated!',
+    enterCave: 'Enter the cave',
   },
   mount: 'Mount',
   dismount: 'Dismount',
@@ -629,7 +649,8 @@ export const DIALOGUE = {
   abilityShort: { batarang: '★', smokeBomb: '☁', flashMode: '⚡' },
   gameOverTitle: 'Game Over',
   retryRide: 'Retry',
-  dummyName: 'Training dummy',
+  bossName: 'Cave Monster',
+  victory: 'Victory!',
 
   // Intro is told through pictures only. Add `caption: '...'` to a slide for one short comic line.
   intro: [

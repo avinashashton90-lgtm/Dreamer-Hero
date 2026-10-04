@@ -37,7 +37,7 @@ export async function loadDizzyModel() {
  * toward it when attacking. Flash Mode (abilities.js) turns the next landed punch into a
  * 50%-of-max-HP blow.
  *
- * Targets (training dummy, boss…) implement: position, radius, height, hp, maxHp, alive,
+ * Targets (the boss…) implement: position, radius, height, hp, maxHp, alive,
  * takeHit({ amount, dirX, dirZ, knockback, heavy, flash, source }) → damage dealt.
  * Feedback goes out through `events.onHit({ target, amount, position, heavy, flash, shake, hitStop })`.
  */
