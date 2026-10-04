@@ -6,6 +6,7 @@ const AB = CONFIG.abilities;
 const BT = AB.batarang;
 const SB = AB.smokeBomb;
 const FM = AB.flashMode;
+const TH = AB.throw;
 
 // ---------------------------------------------------------------------------
 // Swappable placeholder models
@@ -71,6 +72,8 @@ export class Abilities {
     this.combat = combat;
     this.unlocked = new Set();
     this.batarang = null; // in-flight state
+    this.pending = null; // { name, t } — a throw animation running; the item leaves the hand at TH.release
+    this.lastSpawn = null; // { name, position, hand } (tests / debugging)
     this.bombs = []; // smoke bombs in flight
     this.clouds = []; // active smoke clouds
     this.cooldowns = { batarang: 0, smokeBomb: 0 };
@@ -110,6 +113,8 @@ export class Abilities {
   /** Drops everything in flight (respawn); unlocks and energy are kept. */
   clear() {
     this.batarang = null;
+    this.pending = null;
+    this.hero.throwAnim = null;
     this.bombs = [];
     this.clouds = [];
     this.cooldowns.batarang = this.cooldowns.smokeBomb = 0;
@@ -128,9 +133,15 @@ export class Abilities {
     return this.has('flashMode') && this.energy >= 1 && this.charging <= 0 && !this.armed;
   }
 
+  /** A Batarang is being thrown, flying, or on its way back. */
+  get batarangOut() {
+    return !!this.batarang || this.pending?.name === 'batarang';
+  }
+
   /** Can this ability be used right now? */
   ready(name) {
     if (!this.has(name)) return false;
+    if ((name === 'batarang' || name === 'smokeBomb') && this.pending) return false; // mid-throw
     if (name === 'batarang') return !this.batarang && this.cooldowns.batarang <= 0;
     if (name === 'smokeBomb') return this.cooldowns.smokeBomb <= 0 && !this.hero.riding;
     if (name === 'flashMode') return this.flashReady && !this.hero.riding;
@@ -139,7 +150,7 @@ export class Abilities {
 
   /** Cooldown fraction left (0 = ready) for the button overlay. */
   cooldownFraction(name) {
-    if (name === 'batarang') return this.batarang ? 1 : this.cooldowns.batarang / BT.cooldown;
+    if (name === 'batarang') return this.batarangOut ? 1 : this.cooldowns.batarang / BT.cooldown;
     if (name === 'smokeBomb') return this.cooldowns.smokeBomb / SB.cooldown;
     return 0;
   }
@@ -147,9 +158,13 @@ export class Abilities {
   /** Use an ability (button / key). Returns true if it fired. */
   use(name) {
     if (!this.ready(name)) return false;
-    if (name === 'batarang') this.#throwBatarang();
-    else if (name === 'smokeBomb') this.#throwSmoke();
-    else if (name === 'flashMode') {
+    if (name === 'batarang' || name === 'smokeBomb') {
+      // Throw pose first; the item leaves the hand at the release point (see update).
+      this.pending = { name, t: 0 };
+      this.hero.throwAnim = { kind: 'throw', t: 0 };
+      this.cooldowns[name] = name === 'batarang' ? BT.cooldown : SB.cooldown;
+      this.#faceTarget();
+    } else if (name === 'flashMode') {
       this.energy = 0;
       this.charging = FM.chargeTime;
     }
@@ -173,8 +188,32 @@ export class Abilities {
       if (this.charging === 0) this.armed = true;
     }
     this.hero.glow = this.charging > 0 ? 1 - this.charging / FM.chargeTime : this.armed ? 0.75 + 0.25 * Math.sin(performance.now() * 0.012) : 0;
+    // Throw / catch poses.
+    const anim = this.hero.throwAnim;
+    if (anim) {
+      anim.t += dt;
+      if (anim.t >= (anim.kind === 'throw' ? TH.duration : TH.catchTime)) this.hero.throwAnim = null;
+    }
+    if (this.pending) {
+      this.pending.t += dt;
+      if (this.pending.t >= TH.release) {
+        const hand = this.hero.handPosition();
+        if (this.pending.name === 'batarang') this.#throwBatarang(hand);
+        else this.#throwSmoke(hand);
+        this.lastSpawn = { name: this.pending.name, position: hand.clone(), hand: this.hero.handPosition() };
+        this.pending = null;
+      }
+    }
     this.#updateBatarang(dt);
     this.#updateSmoke(dt);
+  }
+
+  /** On foot, turn to the lock-on target before throwing. */
+  #faceTarget() {
+    const t = this.combat?.lockTarget;
+    const hero = this.hero;
+    if (!t || !t.alive || hero.riding) return;
+    hero.facing = Math.atan2(t.position.x - hero.position.x, t.position.z - hero.position.z);
   }
 
   // --- Batarang ---
@@ -190,9 +229,8 @@ export class Abilities {
     return f;
   }
 
-  #throwBatarang() {
-    const hero = this.hero;
-    const start = new THREE.Vector3(hero.position.x, hero.position.y + BT.height, hero.position.z);
+  #throwBatarang(hand) {
+    const start = hand.clone();
     const end = this.#aimPoint(BT.range);
     // Curve out to one side: control point off the straight line.
     const dx = end.x - start.x;
@@ -200,7 +238,6 @@ export class Abilities {
     const len = Math.hypot(dx, dz) || 1;
     const ctrl = new THREE.Vector3((start.x + end.x) / 2 - (dz / len) * BT.arc, (start.y + end.y) / 2 + 0.4, (start.z + end.z) / 2 + (dx / len) * BT.arc);
     this.batarang = { phase: 'out', u: 0, len: len + BT.arc, start, ctrl, end, pos: start.clone(), age: 0, hit: null };
-    this.cooldowns.batarang = BT.cooldown;
     this.stats.batarangThrows++;
     if (this.batModel) {
       this.batModel.visible = true;
@@ -213,7 +250,7 @@ export class Abilities {
     if (!b) return;
     const hero = this.hero;
     b.age += dt;
-    const hand = new THREE.Vector3(hero.position.x, hero.position.y + BT.height, hero.position.z);
+    const hand = hero.handPosition(); // it comes back to the hand
     if (b.phase === 'out') {
       b.u = Math.min(1, b.u + (BT.speed * dt) / b.len);
       const u = b.u;
@@ -249,6 +286,7 @@ export class Abilities {
   #catchBatarang() {
     this.batarang = null;
     this.stats.batarangCatches++;
+    if (!this.pending) this.hero.throwAnim = { kind: 'catch', t: 0 };
     if (this.batModel) this.batModel.visible = false;
     this.onEvent?.('batarangCatch');
   }
@@ -284,13 +322,12 @@ export class Abilities {
 
   // --- Smoke Bomb ---
 
-  #throwSmoke() {
+  #throwSmoke(hand) {
     const hero = this.hero;
-    const start = new THREE.Vector3(hero.position.x, hero.position.y + 1.3, hero.position.z);
+    const start = hand.clone();
     const aim = this.#aimPoint(SB.throwRange);
     const end = new THREE.Vector3(aim.x, this.world ? this.world.groundAt(aim.x, aim.z, aim.y + 2).y : hero.position.y, aim.z);
     this.bombs.push({ start, end, t: 0 });
-    this.cooldowns.smokeBomb = SB.cooldown;
   }
 
   #updateSmoke(dt) {

@@ -63,7 +63,7 @@ async function boot() {
   combat.abilities = abilities;
   let damageHero = () => false; // defined below (needs the state machine)
   const boss = new Boss(world.scene, world, {
-    onHitHero: (hearts, x, z) => damageHero(hearts, x, z),
+    onHitHero: (hearts, x, z, opts) => damageHero(hearts, x, z, opts),
     onSlam: () => cam.shake(CONFIG.boss.slam.shake, CONFIG.combat.shake.time * 1.6),
     onDefeat: () => ui.banner(DIALOGUE.victory),
   });
@@ -109,10 +109,10 @@ async function boot() {
     // Dying at the boss: it resets to full health (CONFIG.lives.bossResetsOnRespawn).
     onRespawn: () => boss.onHeroRespawn(),
   };
-  /** The hero takes `n` hearts of damage from (fromX, fromZ). */
-  damageHero = (n, fromX, fromZ) => {
+  /** The hero takes `n` hearts of damage from (fromX, fromZ); opts.knockback false for e.g. fire. */
+  damageHero = (n, fromX, fromZ, opts = {}) => {
     if (dying || hero.invincible || !state.is(STATES.PLAY)) return false;
-    hero.hurt(fromX, fromZ);
+    hero.hurt(fromX, fromZ, opts.knockback !== false);
     cam.shake(CONFIG.combat.shake.heavy, CONFIG.combat.shake.time);
     if (lives.damage(n)) {
       // Out of hearts: fade out, then use a respawn (on the horse at the last checkpoint) or Game Over.

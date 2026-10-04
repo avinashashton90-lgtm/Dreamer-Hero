@@ -24,7 +24,7 @@ combat.abilities = abilities;
 const lives = new Lives();
 let heroHits = 0, defeated = 0, slams = 0;
 const boss = new Boss(scene, world, {
-  onHitHero: (n, x, z) => { if (hero.invincible) return; heroHits++; hero.hurt(x, z); lives.damage(n); },
+  onHitHero: (n, x, z, opts = {}) => { if (hero.invincible) return; heroHits++; hero.hurt(x, z, opts.knockback !== false); lives.damage(n); },
   onSlam: () => slams++,
   onDefeat: () => defeated++,
 });
@@ -126,6 +126,64 @@ const runUntil = (pred, maxS, opts) => { let t = 0; while (t < maxS) { step(1, {
   check(lives.hearts === h2, 'slam misses a hero outside the circle');
 }
 
+// 3b) A proper slam: both fists come down onto the warning circle (no jump, no push).
+{
+  placeHero(cx, cz, Math.PI / 2);
+  freshBoss(cx + 3.5, cz, -Math.PI / 2, S.CHASE);
+  runUntil(() => boss.state === S.SLAM_WINDUP, 2);
+  step(secs(BC.slam.windup * 0.95));
+  boss.model.updateMatrixWorld(true);
+  const fist = (i) => boss.model.userData.arms[i].elbow.children[1].getWorldPosition(new THREE.Vector3());
+  const raised = Math.min(fist(0).y, fist(1).y) - boss.position.y;
+  const feet0 = boss.position.clone();
+  runUntil(() => boss.state === S.SLAM, 1);
+  step(secs(BC.slam.smash) + 1);
+  boss.model.updateMatrixWorld(true);
+  const f = [fist(0), fist(1)];
+  const onGround = f.every((p) => p.y - world.heightAt(p.x, p.z) < 0.8);
+  const inCircle = f.every((p) => Math.hypot(p.x - boss.slamAt.x, p.z - boss.slamAt.z) < BC.slam.radius * 0.5);
+  check(raised > BC.height && onGround && inCircle && boss.shock.visible, `slam: fists raised ${raised.toFixed(1)} high, then both on the ground inside the circle (${f.map((p) => Math.hypot(p.x - boss.slamAt.x, p.z - boss.slamAt.z).toFixed(2)).join(', ')} from its centre), shockwave shown`);
+  check(boss.position.distanceTo(feet0) < 0.01, 'slam: the monster stays planted (no jump or lunge)');
+  const u = boss.model.userData;
+  check(u.head && u.jaw && u.arms.length === 2 && u.arms.every((a) => a.shoulder && a.elbow) && u.legs.length === 2 && u.legs.every((l) => l.hip && l.knee), 'monster model has a head, a hinged jaw, two jointed arms and two jointed legs');
+  runUntil(() => boss.state === S.CHASE, 3);
+}
+
+// 3c) Fire Breath: 1 s warning (head back, glowing mouth, red cone), then 2 s of fire;
+// damage over time inside the cone; a sideways dodge gets out of it.
+{
+  lives.reset();
+  placeHero(cx - 7, cz, Math.PI / 2);
+  freshBoss(cx + 1, cz, -Math.PI / 2, S.CHASE);
+  boss.stateTime = BC.fire.chaseBefore;
+  runUntil(() => boss.state === S.FIRE_WINDUP, 2);
+  step(secs(0.6));
+  const u = boss.model.userData;
+  const warn = boss.fireCone.visible && u.head.rotation.x < -0.3 && u.mouth.visible && u.mouth.material.opacity > 0.4 && u.jaw.rotation.x > 0.2;
+  const tFire = runUntil(() => boss.state === S.FIRE, 2) + 0.6;
+  const h0 = lives.hearts, hits0 = boss.stats.fireHits;
+  const tEnd = runUntil(() => boss.state !== S.FIRE, 3);
+  const flames = boss.fireMesh.count;
+  check(warn && Math.abs(tFire - BC.fire.windup) < 0.06, `fire wind-up ${tFire.toFixed(2)}s: head back, mouth glowing, jaw open, red cone on the ground`);
+  check(Math.abs(tEnd - BC.fire.duration) < 0.06 && boss.state === S.RECOVER, `fire lasts ${tEnd.toFixed(2)}s, then recover`);
+  check(boss.stats.fireHits - hits0 >= 2 && lives.hearts <= h0 - 2, `standing in the fire: ${boss.stats.fireHits - hits0} burns, hearts ${h0} → ${lives.hearts}`);
+  check(flames > 20 || boss.flames.length > 20, `fire particles (${boss.flames.length} spawned)`);
+  // Dodge sideways out of the cone as the fire starts: no damage.
+  lives.reset();
+  placeHero(cx - 7, cz, Math.PI / 2);
+  freshBoss(cx + 1, cz, -Math.PI / 2, S.CHASE);
+  boss.stateTime = BC.fire.chaseBefore;
+  runUntil(() => boss.state === S.FIRE, 3);
+  const inBefore = boss.inFireCone(hero.position.x, hero.position.z);
+  hero.dodge(0, 1); // roll sideways (+Z, across the cone)
+  step(secs(CONFIG.combat.dodge.duration + 0.1));
+  const outAfter = !boss.inFireCone(hero.position.x, hero.position.z);
+  const h1 = lives.hearts;
+  runUntil(() => boss.state !== S.FIRE, 3);
+  check(inBefore && outAfter && lives.hearts === CONFIG.lives.hearts && h1 === CONFIG.lives.hearts, `sideways dodge clears the cone (in ${inBefore} → out ${outAfter}), hearts kept ${lives.hearts}`);
+  check(boss.fireCooldown > 0, 'fire breath has a cooldown before it can be used again');
+}
+
 // 4) Charge: head down 1 s, rush; into a boulder → stunned 2 s (bonus damage), then Recover.
 {
   lives.reset();
@@ -205,7 +263,7 @@ const runUntil = (pred, maxS, opts) => { let t = 0; while (t < maxS) { step(1, {
   placeHero(cx - 9, cz, Math.PI / 2);
   step(2, {}, { each: () => { boss.state = S.RECOVER; boss.stateTime = 0; } });
   abilities.use('batarang');
-  runUntil(() => !abilities.batarang, 4, { each: () => { boss.state = S.RECOVER; boss.stateTime = 0; } });
+  runUntil(() => !abilities.batarangOut, 4, { each: () => { boss.state = S.RECOVER; boss.stateTime = 0; } });
   check(hb - boss.hp === CONFIG.abilities.batarang.damage, `batarang hit the boss for ${hb - boss.hp} and came back`);
 }
 
@@ -251,6 +309,7 @@ const runUntil = (pred, maxS, opts) => { let t = 0; while (t < maxS) { step(1, {
 }
 
 const all = Object.values(S).filter((s) => !boss.visited.has(s) && s !== S.GUARD);
+// (guard is the starting state; checked in step 2)
 check(all.length === 0, `every boss state reached (${Object.values(S).join(', ')})${all.length ? ' — missing ' + all.join(', ') : ''}`);
 console.log(failed ? 'BOSS TEST FAILED' : 'boss test passed');
 process.exit(failed ? 1 : 0);

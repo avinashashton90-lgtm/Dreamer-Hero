@@ -227,6 +227,9 @@ export const CONFIG = {
 
   // Abilities (unlocked by gems; see abilities.js).
   abilities: {
+    // Throw pose (Batarang, Smoke Bomb): the arm winds back, swings forward and the item leaves
+    // the hand at `release`; a short catch pose when the Batarang comes back.
+    throw: { windup: 0.14, release: 0.24, duration: 0.42, catchTime: 0.32 },
     batarang: {
       damage: 8, range: 14, speed: 20, returnSpeed: 24, arc: 3, // sideways bulge of the flight
       radius: 0.5, catchRadius: 1.2, maxTime: 3, cooldown: 1.5, chaseFactor: 2, // returns faster than the hero (even galloping)
@@ -265,7 +268,18 @@ export const CONFIG = {
     walkSpeed: 3.4,
     turnRate: 2.6,           // rad/s
     keepInside: 3.5,         // stays this far inside the arena edge (boulders are its boundary)
-    slam: { range: 4.6, windup: 0.8, reach: 2.4, radius: 3.6, damage: 1, impact: 0.3, shake: 0.5 },
+    // Slam: rears up with both fists overhead (0.8 s, red circle on the ground), then smashes
+    // them into the ground in front — damage inside the circle, a shockwave ring, screen shake.
+    slam: { range: 4.6, windup: 0.8, reach: 2.4, radius: 3.6, damage: 1, impact: 0.4, smash: 0.1, shake: 0.5, shockTime: 0.35, impactShoulder: -0.62, impactInward: 0.34, crouch: 0 },
+    // Fire Breath: head back with a glowing mouth and a red cone on the ground (1 s), then a
+    // 2 s cone of fire. Damage over time inside it (a heart every `tick`); dodge sideways out.
+    fire: {
+      minRange: 4.6, maxRange: 10, chaseBefore: 0.8, cooldown: 6,
+      windup: 1, duration: 2, range: 11, halfAngle: 0.42, trackRate: 0.9,
+      tick: 0.5, damage: 1, firstTick: 0.2,
+      particles: 160, rate: 95, speed: 11, life: 0.85, size: [0.35, 1.1],
+      colors: [0xffe14d, 0xff8a1c, 0xff3a14], coneColor: 0xff2020, mouthColor: 0xff7b1c,
+    },
     charge: { minRange: 7, chaseBefore: 1.6, windup: 1, speed: 17, maxTime: 1.8, damage: 1, hitPad: 0.5, stun: 2, knockback: 9 },
     recover: 1.3,            // pause after every attack (the hero's chance to hit back)
     enrageAt: 0.4,           // below this fraction of HP...
@@ -413,6 +427,7 @@ export const CONFIG = {
   input: {
     joystickRadius: 60,    // px, max knob travel
     joystickDeadZone: 0.12,
+    buttonHitScale: 1.3,   // touch hit circles are this much larger than the drawn buttons
     // Right-hand buttons (px from the bottom-right corner, button centres).
     attackButton: { size: 104, right: 76, bottom: 76 },
     jumpButton: { size: 76, right: 196, bottom: 54 },

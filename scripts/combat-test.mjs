@@ -121,25 +121,42 @@ const faceDummy = (d = 1.5, angle = 0) => {
   step(2);
   check(abilities.use('batarang'), 'batarang thrown');
   check(!abilities.use('batarang'), 'no second batarang while one is out');
+  // Throw pose: wind back, swing forward, the Batarang leaves the hand at the release point.
+  const TH = AB.throw;
+  const notYet = !abilities.batarang && hero.throwAnim?.kind === 'throw';
+  const arm = hero.model.userData.arms[1].shoulder.rotation;
+  step(secs(TH.windup) - 1);
+  const back = arm.x;
+  const before = !abilities.batarang;
+  let swing = 0;
+  for (let i = 0; i < 30 && !abilities.batarang; i++) { step(1); swing = arm.x; } // the frame it leaves the hand
+  step(1); swing = Math.min(swing, arm.x);
+  const sp = abilities.lastSpawn;
+  const body = hero.position.clone().setY(hero.position.y + 1.0);
+  check(notYet && before && abilities.batarang && back > 0.6 && swing < -1, `throw pose: nothing thrown until release, arm wound back (${back.toFixed(2)}) then swung forward (${swing.toFixed(2)})`);
+  check(sp && sp.name === 'batarang' && sp.position.distanceTo(sp.hand) < 0.01 && sp.position.distanceTo(body) > 0.3, `batarang spawned at the hand (${sp.position.distanceTo(body).toFixed(2)} from the body centre)`);
   let caughtAt = -1;
-  for (let i = 0; i < secs(AB.batarang.maxTime + 1); i++) { step(1); if (!abilities.batarang) { caughtAt = i * dt; break; } }
+  for (let i = 0; i < secs(AB.batarang.maxTime + 1); i++) { step(1); if (!abilities.batarangOut) { caughtAt = i * dt; break; } }
   check(abilities.stats.batarangHits === s0.batarangHits + 1 && dummy.hp === TARGET_HP - AB.batarang.damage, `batarang hit the dummy (hp ${dummy.hp})`);
   check(caughtAt > 0 && caughtAt < AB.batarang.maxTime, `batarang came back and was caught after ${caughtAt.toFixed(2)}s`);
+  check(hero.throwAnim?.kind === 'catch', 'catch pose when it comes back');
+  step(secs(AB.throw.catchTime) + 1);
+  check(!hero.throwAnim, 'catch pose ends');
   // Thrown at nothing (facing away over open sand).
   step(secs(AB.batarang.cooldown));
   hero.facing += Math.PI; combat.lockTarget = null; combat.removeTarget(dummy);
   abilities.use('batarang');
-  let t = 0; while (abilities.batarang && t < AB.batarang.maxTime + 1) { step(1); t += dt; }
-  check(!abilities.batarang && t < AB.batarang.maxTime, `batarang thrown at nothing returned after ${t.toFixed(2)}s`);
+  let t = 0; while (abilities.batarangOut && t < AB.batarang.maxTime + 1) { step(1); t += dt; }
+  check(!abilities.batarangOut && t < AB.batarang.maxTime, `batarang thrown at nothing returned after ${t.toFixed(2)}s`);
   // Thrown while moving fast (hero carried at gallop speed away from it).
   step(secs(AB.batarang.cooldown));
   abilities.use('batarang');
   t = 0;
-  while (abilities.batarang && t < AB.batarang.maxTime + 1) {
+  while (abilities.batarangOut && t < AB.batarang.maxTime + 1) {
     hero.position.x += 35 * dt; hero.prevPos.x = hero.position.x - 35 * dt; hero.moveSpeed = 35;
     abilities.update(dt); t += dt;
   }
-  check(!abilities.batarang && t < AB.batarang.maxTime, `batarang caught while galloping after ${t.toFixed(2)}s`);
+  check(!abilities.batarangOut && t < AB.batarang.maxTime, `batarang caught while galloping after ${t.toFixed(2)}s`);
   combat.addTarget(dummy);
   check(abilities.stats.batarangCatches === abilities.stats.batarangThrows, `every batarang caught (${abilities.stats.batarangCatches}/${abilities.stats.batarangThrows})`);
 }
@@ -151,8 +168,9 @@ const faceDummy = (d = 1.5, angle = 0) => {
   check(!abilities.use('smokeBomb'), 'smoke bomb on cooldown');
   let parAt = -1, t = 0;
   while (t < 4 && parAt < 0) { step(1); t += dt; if (dummy.paralyzed > 0) parAt = t; }
-  const expect = AB.smokeBomb.flightTime + AB.smokeBomb.exposure;
-  check(parAt > 0 && Math.abs(parAt - expect) < 0.1, `paralyzed after ${parAt.toFixed(2)}s (flight ${AB.smokeBomb.flightTime} + exposure ${AB.smokeBomb.exposure})`);
+  const expect = AB.throw.release + AB.smokeBomb.flightTime + AB.smokeBomb.exposure;
+  check(abilities.lastSpawn?.name === 'smokeBomb' && abilities.lastSpawn.position.distanceTo(abilities.lastSpawn.hand) < 0.01, 'smoke bomb thrown from the hand at release');
+  check(parAt > 0 && Math.abs(parAt - expect) < 0.1, `paralyzed after ${parAt.toFixed(2)}s (release ${AB.throw.release} + flight ${AB.smokeBomb.flightTime} + exposure ${AB.smokeBomb.exposure})`);
   const p0 = dummy.paralyzed;
   step(secs(AB.smokeBomb.paralyze - 0.5));
   const still = dummy.paralyzed > 0;

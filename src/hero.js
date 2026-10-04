@@ -134,7 +134,8 @@ export async function loadHeroModel() {
   cloakPivot.add(cloak);
   spine.add(cloakPivot);
 
-  root.userData = { rig, pelvis, spine, head, legs, arms, cloak, cloakPivot, daggerHip, daggerHand, mats };
+  const handLocal = new THREE.Vector3(0, -0.29, 0); // the right fist, in the elbow's frame
+  root.userData = { rig, pelvis, spine, head, legs, arms, cloak, cloakPivot, daggerHip, daggerHand, mats, handLocal };
   return root;
 }
 
@@ -176,6 +177,7 @@ export class Hero {
     this.iframes = 0; // invincible while > 0 (dodge or just hurt)
     this.hurtT = 0; // blink after being hurt
     this.glow = 0; // 0..1 gold glow (Flash Mode)
+    this.throwAnim = null; // { kind: 'throw' | 'catch', t } (driven by Abilities)
     this.phase = 0; // walk cycle
     this.time = 0;
     this.moveSpeed = 0; // measured horizontal speed (smoothed; riding included) for the cloak
@@ -199,6 +201,7 @@ export class Hero {
     this.riding = false;
     this.shadow.visible = true;
     this.attack = null;
+    this.throwAnim = null;
     this.dodgeT = this.dodgeCooldown = this.iframes = this.hurtT = this.glow = 0;
     const first = this.world.boxes[0];
     this.lastSafe.copy(first.safe);
@@ -257,11 +260,11 @@ export class Hero {
     return true;
   }
 
-  /** Knocked back after taking damage (Lives decides the hearts). */
-  hurt(fromX, fromZ) {
+  /** Knocked back after taking damage (Lives decides the hearts). No knockback for e.g. fire. */
+  hurt(fromX, fromZ, knockback = true) {
     this.iframes = Math.max(this.iframes, CB.hurtInvincible);
     this.hurtT = CB.hurtInvincible;
-    if (this.riding) return;
+    if (this.riding || !knockback) return;
     const dx = this.position.x - fromX;
     const dz = this.position.z - fromZ;
     const d = Math.hypot(dx, dz) || 1;
@@ -269,6 +272,19 @@ export class Hero {
     this.velocity.z = (dz / d) * CB.hurtKnockback;
     this.velocity.y = Math.max(this.velocity.y, 3);
     this.grounded = false;
+  }
+
+  /** World position of the right hand (where thrown items leave and are caught). */
+  handPosition(out = new THREE.Vector3()) {
+    const u = this.model.userData;
+    if (!u.arms) return out.set(this.position.x, this.position.y + 1.2, this.position.z);
+    this.model.updateMatrixWorld(true);
+    out.copy(u.handLocal).applyMatrix4(u.arms[1].elbow.matrixWorld);
+    // If the model lags the physics position this frame, carry the hand along with the body.
+    out.x += this.position.x - this.model.position.x;
+    out.y += this.position.y - this.model.position.y;
+    out.z += this.position.z - this.model.position.z;
+    return out;
   }
 
   /** World-space point in front of the hero (for hits and throws). */
@@ -492,7 +508,38 @@ export class Hero {
         spine.rotation.y = (right ? -1 : 1) * 0.45 * p;
       }
     }
-    daggerHand.visible = this.daggerDrawn && !this.riding;
+    // Throw: wind the right arm back, swing it over and forward (release), follow through.
+    // Catch: the right arm reaches up and forward and gives a little.
+    const th = this.throwAnim;
+    if (th) {
+      const TH = CONFIG.abilities.throw;
+      const a = arms[1];
+      if (th.kind === 'throw') {
+        const t = th.t;
+        if (t < TH.windup) {
+          const p = t / TH.windup;
+          a.shoulder.rotation.set(1.1 * p, 0, -0.35 * p);
+          a.elbow.rotation.x = -1.3 * p;
+          spine.rotation.y = 0.45 * p;
+        } else if (t < TH.release) {
+          const p = (t - TH.windup) / (TH.release - TH.windup);
+          a.shoulder.rotation.set(lerp(1.1, -1.75, p), 0, lerp(-0.35, 0, p));
+          a.elbow.rotation.x = lerp(-1.3, -0.15, p);
+          spine.rotation.y = lerp(0.45, -0.35, p);
+        } else {
+          const p = Math.min(1, (t - TH.release) / (TH.duration - TH.release));
+          a.shoulder.rotation.set(lerp(-1.75, -0.9, p), 0, 0);
+          a.elbow.rotation.x = lerp(-0.15, -0.5, p);
+          spine.rotation.y = lerp(-0.35, 0, p);
+        }
+      } else {
+        const p = Math.min(1, th.t / TH.catchTime);
+        const give = Math.sin(p * Math.PI) * 0.35;
+        a.shoulder.rotation.set(-2.1 + give, 0, -0.25);
+        a.elbow.rotation.x = -0.5 - give;
+      }
+    }
+    daggerHand.visible = this.daggerDrawn && !this.riding && !th;
     daggerHip.visible = !daggerHand.visible;
 
     // Cloak: swings back and ripples more the faster we move.

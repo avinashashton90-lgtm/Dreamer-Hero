@@ -3,6 +3,121 @@ import { CONFIG, DIALOGUE } from './config.js';
 const I = CONFIG.input;
 
 /**
+ * Routes touches by their `Touch.identifier` (no DOM; unit-tested in scripts/input-test.mjs).
+ * A new touch goes to the nearest button whose (enlarged) hit circle contains it, else the
+ * joystick (left half) or the camera drag (right half). Once a touch belongs to something it
+ * stays there until that same identifier ends or is cancelled, so the joystick, camera drag
+ * and buttons never steal each other's touches. Every tap on a button is a new press (there
+ * is no "held" flag that can get stuck); `sync(activeIds)` drops touches whose end event was lost.
+ */
+export class TouchRouter {
+  /**
+   * @param {() => Array<{name:string, x:number, y:number, r:number, hold?:boolean}>} getButtons
+   *   visible buttons (screen px centres and radii)
+   * @param {() => number} getWidth  screen width (left half = joystick)
+   */
+  constructor(getButtons, getWidth) {
+    this.getButtons = getButtons;
+    this.getWidth = getWidth;
+    this.owners = new Map(); // touch id → 'joy' | 'look' | 'button:<name>'
+    this.joy = { id: null, ox: 0, oy: 0, x: 0, y: 0 };
+    this.look = { id: null, lx: 0, ly: 0, dx: 0, dy: 0 };
+    this.pressed = new Set(); // button names tapped since the last consume()
+    this.held = new Map(); // button name → touch id (hold buttons, e.g. Gallop)
+    this.onButton = null; // (name, down) for visuals
+  }
+
+  /** @returns {string|null} what the touch was given to */
+  start(id, x, y) {
+    if (this.owners.has(id)) this.end(id); // identifier reused without an end: start over
+    let best = null;
+    let bestD = Infinity;
+    for (const b of this.getButtons()) {
+      const d = Math.hypot(x - b.x, y - b.y);
+      if (d <= b.r * I.buttonHitScale && d < bestD) {
+        best = b;
+        bestD = d;
+      }
+    }
+    let role = null;
+    if (best) {
+      role = `button:${best.name}`;
+      this.pressed.add(best.name);
+      if (best.hold) this.held.set(best.name, id);
+      this.onButton?.(best.name, true);
+    } else if (x < this.getWidth() / 2) {
+      if (this.joy.id === null) {
+        role = 'joy';
+        Object.assign(this.joy, { id, ox: x, oy: y, x: 0, y: 0 });
+      }
+    } else if (this.look.id === null) {
+      role = 'look';
+      Object.assign(this.look, { id, lx: x, ly: y });
+    }
+    if (role) this.owners.set(id, role);
+    return role;
+  }
+
+  move(id, x, y) {
+    const role = this.owners.get(id);
+    if (role === 'joy') {
+      let dx = x - this.joy.ox;
+      let dy = y - this.joy.oy;
+      const r = I.joystickRadius;
+      const len = Math.hypot(dx, dy);
+      if (len > r) {
+        dx = (dx / len) * r;
+        dy = (dy / len) * r;
+      }
+      let nx = dx / r;
+      let ny = -dy / r; // screen up = forward
+      if (Math.hypot(nx, ny) < I.joystickDeadZone) nx = ny = 0;
+      this.joy.x = nx;
+      this.joy.y = ny;
+      this.joy.kx = dx;
+      this.joy.ky = dy;
+    } else if (role === 'look') {
+      this.look.dx += x - this.look.lx;
+      this.look.dy += y - this.look.ly;
+      this.look.lx = x;
+      this.look.ly = y;
+    }
+  }
+
+  /** Touch ended or was cancelled. */
+  end(id) {
+    const role = this.owners.get(id);
+    if (!role) return;
+    this.owners.delete(id);
+    if (role === 'joy') Object.assign(this.joy, { id: null, x: 0, y: 0 });
+    else if (role === 'look') this.look.id = null;
+    else {
+      const name = role.slice(7);
+      if (this.held.get(name) === id) this.held.delete(name);
+      this.onButton?.(name, false);
+    }
+  }
+
+  /** Drop touches that are no longer on the screen (their end event never arrived). */
+  sync(activeIds) {
+    for (const id of [...this.owners.keys()]) if (!activeIds.has(id)) this.end(id);
+  }
+
+  endAll() {
+    for (const id of [...this.owners.keys()]) this.end(id);
+    this.look.dx = this.look.dy = 0;
+    this.pressed.clear();
+  }
+
+  /** Taps since the last call (and clears them). */
+  consume() {
+    const out = new Set(this.pressed);
+    this.pressed.clear();
+    return out;
+  }
+}
+
+/**
  * Unified input: floating joystick (left half), camera drag (right half), jump button,
  * keyboard (WASD/arrows/Space) and mouse drag. Every touch is tracked by pointerId so
  * moving, looking and jumping all work simultaneously.
@@ -13,17 +128,16 @@ export class Input {
     this.enabled = false;
 
     this.keys = new Set();
-    this.joy = { id: null, ox: 0, oy: 0, x: 0, y: 0 };
-    this.look = { id: null, lx: 0, ly: 0 };
+    // Touch: every finger is tracked by its Touch.identifier (see TouchRouter).
+    this.touch = new TouchRouter(() => this.#buttonCircles(), () => window.innerWidth);
+    this.touch.onButton = (name, down) => this.#buttonEl(name)?.classList.toggle('pressed', down);
+    this.mouseLook = null; // { lx, ly } while the mouse drags to look
     this.lookDX = 0;
     this.lookDY = 0;
     this.lookSensitivity = CONFIG.camera.dragSensitivity;
     this.jumpQueued = false;
-    this.jumpHeld = false;
     this.mountQueued = false;
-    this.attackQueued = this.dodgeQueued = false;
-    this.abilityQueued = null;
-    this.gallopId = null; // pointer holding the Gallop button
+    this.mouseGallop = false;
     this.attackQueued = false;
     this.dodgeQueued = false;
     this.abilityQueued = null; // 'batarang' | 'smokeBomb' | 'flashMode'
@@ -43,10 +157,17 @@ export class Input {
   read() {
     let mx = 0;
     let my = 0;
-    if (this.joy.id !== null) {
-      mx = this.joy.x;
-      my = this.joy.y;
+    const T = this.touch;
+    if (T.joy.id !== null) {
+      mx = T.joy.x;
+      my = T.joy.y;
+      this.joyKnob.style.transform = `translate(${T.joy.kx ?? 0}px, ${T.joy.ky ?? 0}px)`;
     }
+    this.lookDX += T.look.dx;
+    this.lookDY += T.look.dy;
+    T.look.dx = T.look.dy = 0;
+    if (T.look.id !== null) this.lookSensitivity = CONFIG.camera.dragSensitivity;
+    for (const name of T.consume()) this.#press(name);
     const k = this.keys;
     if (k.has('KeyA') || k.has('ArrowLeft')) mx -= 1;
     if (k.has('KeyD') || k.has('ArrowRight')) mx += 1;
@@ -63,7 +184,7 @@ export class Input {
       moveY: this.enabled ? my : 0,
       jumpPressed: this.enabled && this.jumpQueued,
       mountPressed: this.enabled && this.mountQueued,
-      gallop: this.enabled && (this.gallopId !== null || this.keys.has('ShiftLeft') || this.keys.has('ShiftRight')),
+      gallop: this.enabled && (this.touch.held.has('gallop') || this.mouseGallop || this.keys.has('ShiftLeft') || this.keys.has('ShiftRight')),
       attackPressed: this.enabled && this.attackQueued,
       dodgePressed: this.enabled && this.dodgeQueued,
       ability: this.enabled ? this.abilityQueued : null,
@@ -149,60 +270,59 @@ export class Input {
 
   #bind() {
     const s = this.surface;
-    s.addEventListener('pointerdown', (e) => this.#onDown(e));
-    window.addEventListener('pointermove', (e) => this.#onMove(e));
-    window.addEventListener('pointerup', (e) => this.#onUp(e));
-    window.addEventListener('pointercancel', (e) => this.#onUp(e));
-    s.addEventListener('contextmenu', (e) => e.preventDefault());
-
-    this.jumpBtn.addEventListener('pointerdown', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      if (!this.jumpHeld) this.jumpQueued = true;
-      this.jumpHeld = true;
-      this.jumpBtn.classList.add('pressed');
-      this.jumpId = e.pointerId;
-    });
-    const jumpUp = (e) => {
-      if (e.pointerId !== this.jumpId) return;
-      this.jumpHeld = false;
-      this.jumpId = null;
-      this.jumpBtn.classList.remove('pressed');
+    // Touch: one handler for every finger, keyed by Touch.identifier.
+    const opts = { passive: false };
+    const touches = (e, fn) => {
+      if (!this.enabled) return;
+      for (const t of e.changedTouches) fn(t);
+      // Anything we track that is no longer on the screen lost its end event: drop it.
+      const active = new Set([...e.touches].map((t) => t.identifier));
+      this.touch.sync(active);
+      if (e.cancelable) e.preventDefault();
+      this.#syncJoystickVisual();
     };
-    window.addEventListener('pointerup', jumpUp);
-    window.addEventListener('pointercancel', jumpUp);
+    window.addEventListener('touchstart', (e) => touches(e, (t) => this.touch.start(t.identifier, t.clientX, t.clientY)), opts);
+    window.addEventListener('touchmove', (e) => touches(e, (t) => this.touch.move(t.identifier, t.clientX, t.clientY)), opts);
+    window.addEventListener('touchend', (e) => touches(e, (t) => this.touch.end(t.identifier)), opts);
+    window.addEventListener('touchcancel', (e) => touches(e, (t) => this.touch.end(t.identifier)), opts);
 
-    const tap = (el, fn) =>
-      el.addEventListener('pointerdown', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        fn();
-        el.classList.add('pressed');
-        setTimeout(() => el.classList.remove('pressed'), 110);
-      });
-    tap(this.attackBtn, () => (this.attackQueued = true));
-    tap(this.dodgeBtn, () => (this.dodgeQueued = true));
-    for (const [name, b] of Object.entries(this.abilityBtns)) tap(b, () => (this.abilityQueued = name));
-
-    this.mountBtn.addEventListener('pointerdown', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      this.mountQueued = true;
+    // Mouse (desktop): drag on the canvas to look, click the buttons.
+    s.addEventListener('pointerdown', (e) => {
+      if (e.pointerType !== 'mouse' || !this.enabled) return;
+      this.mouseLook = { lx: e.clientX, ly: e.clientY };
+      this.lookSensitivity = CONFIG.camera.mouseSensitivity;
     });
-
-    this.gallopBtn.addEventListener('pointerdown', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      this.gallopId = e.pointerId;
-      this.gallopBtn.classList.add('pressed');
+    window.addEventListener('pointermove', (e) => {
+      if (e.pointerType !== 'mouse' || !this.mouseLook) return;
+      this.lookDX += e.clientX - this.mouseLook.lx;
+      this.lookDY += e.clientY - this.mouseLook.ly;
+      this.mouseLook.lx = e.clientX;
+      this.mouseLook.ly = e.clientY;
     });
-    const gallopUp = (e) => {
-      if (e.pointerId !== this.gallopId) return;
-      this.gallopId = null;
+    const mouseUp = (e) => {
+      if (e.pointerType !== 'mouse') return;
+      this.mouseLook = null;
+      this.mouseGallop = false;
       this.gallopBtn.classList.remove('pressed');
     };
-    window.addEventListener('pointerup', gallopUp);
-    window.addEventListener('pointercancel', gallopUp);
+    window.addEventListener('pointerup', mouseUp);
+    window.addEventListener('pointercancel', mouseUp);
+    s.addEventListener('contextmenu', (e) => e.preventDefault());
+    for (const [name, el] of Object.entries(this.#buttons())) {
+      el.addEventListener('pointerdown', (e) => {
+        e.stopPropagation();
+        if (e.pointerType !== 'mouse' || !this.enabled) return; // touches go through TouchRouter
+        e.preventDefault();
+        this.#press(name);
+        if (name === 'gallop') {
+          this.mouseGallop = true;
+          el.classList.add('pressed');
+        } else {
+          el.classList.add('pressed');
+          setTimeout(() => el.classList.remove('pressed'), 110);
+        }
+      });
+    }
 
     window.addEventListener('keydown', (e) => {
       if (e.code === 'KeyE' && !e.repeat) this.mountQueued = true;
@@ -225,6 +345,7 @@ export class Input {
     });
     window.addEventListener('keyup', (e) => this.keys.delete(e.code));
     window.addEventListener('blur', () => this.#releaseAll());
+    document.addEventListener('visibilitychange', () => document.hidden && this.#releaseAll());
   }
 
   /**
@@ -289,78 +410,60 @@ export class Input {
     if (visible && this.mountBtn.textContent !== label) this.mountBtn.textContent = label;
   }
 
-  #onDown(e) {
-    if (!this.enabled) return;
-    const isMouse = e.pointerType === 'mouse';
-    const leftHalf = e.clientX < window.innerWidth / 2;
-
-    // Touch on left half → joystick. Mouse anywhere / touch on right half → camera look.
-    if (!isMouse && leftHalf && this.joy.id === null) {
-      this.joy.id = e.pointerId;
-      this.joy.ox = e.clientX;
-      this.joy.oy = e.clientY;
-      this.joy.x = this.joy.y = 0;
-      this.#showJoystick(e.clientX, e.clientY);
-    } else if (this.look.id === null && (isMouse || !leftHalf)) {
-      this.look.id = e.pointerId;
-      this.look.lx = e.clientX;
-      this.look.ly = e.clientY;
-      this.lookSensitivity = isMouse ? CONFIG.camera.mouseSensitivity : CONFIG.camera.dragSensitivity;
-    } else {
-      return;
-    }
-    e.preventDefault();
+  /** All on-screen buttons by name. */
+  #buttons() {
+    return {
+      attack: this.attackBtn,
+      jump: this.jumpBtn,
+      dodge: this.dodgeBtn,
+      mount: this.mountBtn,
+      gallop: this.gallopBtn,
+      ...this.abilityBtns,
+    };
   }
 
-  #onMove(e) {
-    if (e.pointerId === this.joy.id) {
-      let dx = e.clientX - this.joy.ox;
-      let dy = e.clientY - this.joy.oy;
-      const r = I.joystickRadius;
-      const len = Math.hypot(dx, dy);
-      if (len > r) {
-        dx = (dx / len) * r;
-        dy = (dy / len) * r;
-      }
-      this.joyKnob.style.transform = `translate(${dx}px, ${dy}px)`;
-      let nx = dx / r;
-      let ny = -dy / r; // screen up = forward
-      const mag = Math.hypot(nx, ny);
-      if (mag < I.joystickDeadZone) nx = ny = 0;
-      this.joy.x = nx;
-      this.joy.y = ny;
-    } else if (e.pointerId === this.look.id) {
-      this.lookDX += e.clientX - this.look.lx;
-      this.lookDY += e.clientY - this.look.ly;
-      this.look.lx = e.clientX;
-      this.look.ly = e.clientY;
-    }
+  #buttonEl(name) {
+    return this.#buttons()[name];
   }
 
-  #onUp(e) {
-    if (e.pointerId === this.joy.id) {
-      this.joy.id = null;
-      this.joy.x = this.joy.y = 0;
-      this.#hideJoystick();
+  /** Visible buttons as screen circles (for touch hit-testing; hit areas are enlarged). */
+  #buttonCircles() {
+    const out = [];
+    for (const [name, el] of Object.entries(this.#buttons())) {
+      if (el.style.display === 'none' || !el.isConnected) continue;
+      const r = el.getBoundingClientRect();
+      if (!r.width) continue;
+      out.push({ name, x: r.left + r.width / 2, y: r.top + r.height / 2, r: Math.max(r.width, r.height) / 2, hold: name === 'gallop' });
     }
-    if (e.pointerId === this.look.id) this.look.id = null;
+    return out;
+  }
+
+  /** A button was tapped (touch or mouse). */
+  #press(name) {
+    if (name === 'jump') this.jumpQueued = true;
+    else if (name === 'attack') this.attackQueued = true;
+    else if (name === 'dodge') this.dodgeQueued = true;
+    else if (name === 'mount') this.mountQueued = true;
+    else if (name in this.abilityBtns) this.abilityQueued = name;
+  }
+
+  #syncJoystickVisual() {
+    const j = this.touch.joy;
+    if (j.id !== null && !this.joyBase.classList.contains('active')) this.#showJoystick(j.ox, j.oy);
+    else if (j.id === null && this.joyBase.classList.contains('active')) this.#hideJoystick();
   }
 
   #releaseAll() {
     this.keys.clear();
-    this.joy.id = null;
-    this.joy.x = this.joy.y = 0;
-    this.look.id = null;
+    this.touch?.endAll();
+    this.mouseLook = null;
+    this.mouseGallop = false;
     this.lookDX = this.lookDY = 0;
     this.jumpQueued = false;
-    this.jumpHeld = false;
-    this.jumpId = null;
     this.mountQueued = false;
     this.attackQueued = this.dodgeQueued = false;
     this.abilityQueued = null;
-    this.gallopId = null;
-    this.gallopBtn?.classList.remove('pressed');
-    this.jumpBtn.classList.remove('pressed');
+    for (const el of Object.values(this.#buttons())) el?.classList.remove('pressed');
     this.#hideJoystick();
   }
 

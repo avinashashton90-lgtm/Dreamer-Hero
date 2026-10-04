@@ -13,7 +13,8 @@ npm run build      # production build in dist/
 npm run preview    # serve the build
 npm run test:route # headless check: jump route fair + completable, and the full horse ride (jumps, all gems, ford, walls, cave)
 npm run test:combat # headless check: combo, dodge, Batarang, Smoke Bomb, Flash Mode, hearts/respawns/Game Over
-npm run test:boss   # headless check: every boss state, boulder stun, paralysis, Flash, death + respawn, defeat
+npm run test:boss   # headless check: every boss state (slam, fire breath, charge…), boulder stun, paralysis, Flash, death + respawn, defeat
+npm run test:input  # headless check: multi-touch routing (joystick + camera + buttons at once)
 ```
 
 ## Controls
@@ -64,7 +65,7 @@ Placeholder models are built in `loadXModel()` functions (`loadHeroModel`, `load
 
 The forest ride follows one trail spline: a 14-wide, ~1544-long dirt trail (at least `CONFIG.trailLength` = 1500; about 94 s at normal speed, ~64 s galloping) from the river to the cave, with wide curves, a hill climb and descent, a river ford half way, 6 jumpable logs/walls on straights, and 60 gems in rows and arcs along the centre lane. Trees stay outside a 22-wide corridor behind a continuous line of bushes and boulders, and invisible side walls keep the horse on the trail (it slides along them).
 
-The hero has 5 hearts and 3 respawns: losing all hearts puts you back on the horse at the last checkpoint; after the third respawn it's Game Over (Retry restarts the ride). At the end of the ride the hero gets off at the cave arena and fights the cave monster (slam, charge into boulders, faster below 40% HP); defeat it and a girl appears at the cave mouth.
+The hero has 5 hearts and 3 respawns: losing all hearts puts you back on the horse at the last checkpoint; after the third respawn it's Game Over (Retry restarts the ride). At the end of the ride the hero gets off at the cave arena and fights the cave monster (fist slam, fire breath, charge into boulders, faster below 40% HP); defeat it and a girl appears at the cave mouth.
 
 Debug from the browser console: `game.state.set('ending')`, `game.hero.position`, etc.
 
