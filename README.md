@@ -11,7 +11,7 @@ npm install
 npm run dev        # http://localhost:5173 (also exposed on your LAN to test on a phone)
 npm run build      # production build in dist/
 npm run preview    # serve the build
-npm run test:route # headless check: jump route fair + completable, and the full horse ride (jumps, all gems, ford, cave)
+npm run test:route # headless check: jump route fair + completable, and the full ~90 s horse ride (jumps, all gems, ford, cave)
 ```
 
 ## Controls
@@ -19,6 +19,7 @@ npm run test:route # headless check: jump route fair + completable, and the full
 | Action | Phone (landscape) | Desktop |
 |---|---|---|
 | Move | Drag on the left half (virtual joystick) | WASD / arrow keys |
+| Ride | Joystick left/right steers, push to go, pull back to brake | A/D steer, W go, S brake |
 | Look | Drag on the right half | Mouse drag |
 | Jump | JUMP button (works while moving + looking) | Space |
 | Mount / dismount the horse | Mount button (appears near the horse) | E |
@@ -34,7 +35,8 @@ src/
   main.js       bootstrap + game loop
   config.js     all tunable numbers + DIALOGUE text
   state.js      state machine: intro / play / cutscene / gameover / ending
-  world.js      map layout, terrain, sky, river, buildings, trees, cave, colliders
+  world.js      map layout, terrain, sky, river, buildings, trees, trail edges, obstacles, cave, colliders
+  track.js      the forest ride trail: curve, sampling, nearest-point queries
   hero.js       hero movement & jumping
   camera.js     third-person follow camera with collision
   input.js      joystick, camera drag, Jump/Mount/Gallop buttons, keyboard/mouse
@@ -51,6 +53,8 @@ src/
 ```
 
 Placeholder models are built in `loadXModel()` functions (`loadHeroModel`, `loadTerrainModel`, `loadHorseModel`, …) so real glTF assets can be swapped in later.
+
+The forest ride is a ~1480-long dirt trail (about 90 s at normal speed, ~55 s galloping) from the river to the cave: wide curves, a hill climb and descent, a river ford half way, 6 jumpable logs/walls on straights, and 45 gems in rows and arcs along the centre lane.
 
 Debug from the browser console: `game.state.set('ending')`, `game.hero.position`, etc.
 

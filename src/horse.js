@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { CONFIG } from './config.js';
-import { pathZ, pathSlope, makeFadeMaterial, addFadeAttribute } from './world.js';
+import { makeFadeMaterial, addFadeAttribute } from './world.js';
 
 const HC = CONFIG.horse;
 const CP = CONFIG.checkpoints;
@@ -8,6 +8,8 @@ const DUST = HC.dust;
 const GAL = HC.gallop;
 const SPL = HC.splash;
 const OBS = CONFIG.obstacles;
+const TR = CONFIG.track;
+const W = CONFIG.world;
 const { clamp, lerp } = THREE.MathUtils;
 
 // ---------------------------------------------------------------------------
@@ -187,11 +189,17 @@ export class Horse {
     this.#from = new THREE.Vector3();
     this.#to = new THREE.Vector3();
     this.#seat = new THREE.Vector3();
-    this.checkpoints = CP.xs.map((x, i) => {
-      const [hx, hz] = HC.position;
-      const z = i === 0 ? hz : pathZ(x);
-      const px = i === 0 ? hx : x;
-      return { position: new THREE.Vector3(px, world.heightAt(px, z), z), reached: i === 0 };
+    // Checkpoints every 25% along the track (moved forward off the river if one lands in it).
+    const track = world.track;
+    this.checkpoints = CP.fractions.map((f, i) => {
+      if (i === 0) {
+        const [hx, hz] = HC.position;
+        return { s: 0, position: new THREE.Vector3(hx, world.heightAt(hx, hz), hz), heading: track.headingAt(0), reached: true };
+      }
+      let s = f * track.length;
+      while (world.surfaceAt(track.at(s).x, track.at(s).z) === 'water') s += CP.dryStep;
+      const p = track.at(s);
+      return { s, position: new THREE.Vector3(p.x, world.heightAt(p.x, p.z), p.z), heading: track.headingAt(s), reached: false };
     });
     this.dust = [];
     this.drops = [];
@@ -206,6 +214,10 @@ export class Horse {
     this.sound = null; // { play(name) } — see audio.js
     this.onStumble = null;
     this.legPrev = [0, 0, 0, 0];
+    this.steer = 0; // smoothed steering, -1 (left) … 1 (right)
+    this.yawRate = 0; // rad/s, for the lean
+    this.lean = 0;
+    this.trackS = 0; // progress along the track (nearest point)
   }
 
   #from;
@@ -228,7 +240,7 @@ export class Horse {
 
   /** Body centre used for picking up gems while riding. */
   get collectPoint() {
-    return new THREE.Vector3(this.position.x, this.position.y + 1.4, this.position.z);
+    return new THREE.Vector3(this.position.x, this.position.y + CONFIG.gems.riderReach, this.position.z);
   }
 
   async init() {
@@ -244,7 +256,11 @@ export class Horse {
     this.markers = [];
     for (const cp of this.checkpoints.slice(1)) {
       const marker = await loadCheckpointModel();
-      marker.position.copy(cp.position).add(new THREE.Vector3(0, 0, CONFIG.world.pathHalfWidth - 0.8));
+      // On the trail's right edge, inside the bushes.
+      const { tx, tz } = this.world.track.at(cp.s);
+      const mx = cp.position.x - tz * (TR.halfWidth + CP.edgeOffset);
+      const mz = cp.position.z + tx * (TR.halfWidth + CP.edgeOffset);
+      marker.position.set(mx, this.world.heightAt(mx, mz), mz);
       this.scene.add(marker);
       this.markers.push(marker);
     }
@@ -257,6 +273,10 @@ export class Horse {
     this.position.set(x, this.world.heightAt(x, z), z);
     this.heading = HC.facing;
     this.speed = 0;
+    this.steer = 0;
+    this.yawRate = 0;
+    this.lean = 0;
+    this.trackS = 0;
     this.velocity.set(0, 0, 0);
     this.mode = MODES.IDLE;
     this.everMounted = false;
@@ -326,7 +346,7 @@ export class Horse {
         }
       }
     } else if (this.mode === MODES.RIDING) {
-      hero.setRidingPose(seat, this.heading);
+      hero.setRidingPose(seat, this.heading, this.lean);
       hero.grounded = this.grounded;
     }
     this.#updateDust(dt);
@@ -335,11 +355,14 @@ export class Horse {
 
   /** After a fall: back on the horse at the last checkpoint reached. */
   respawnAtCheckpoint(hero) {
-    const cp = this.checkpoints[this.lastCheckpoint].position;
+    const { position: cp, heading, s } = this.checkpoints[this.lastCheckpoint];
     this.position.copy(cp);
     this.position.y = this.world.heightAt(cp.x, cp.z);
-    this.heading = Math.atan2(1, pathSlope(cp.x)); // face along the path
+    this.heading = heading; // face along the trail
+    this.trackS = s;
     this.speed = 0;
+    this.steer = 0;
+    this.yawRate = 0;
     this.velocity.set(0, 0, 0);
     this.grounded = true;
     this.galloping = false;
@@ -352,16 +375,19 @@ export class Horse {
     this.onRespawn?.(hero.position);
   }
 
+  // Steering is horse-relative: stick left/right turns, forward (or any push) goes, pulled
+  // back brakes. Steering is smoothed and dies away when the stick is centred (the horse
+  // holds its line); turns are slower at speed. Near the trail a gentle assist nudges the
+  // heading along it and a soft edge turns the horse back before the bushes.
   #ride(dt, input, cameraYaw, hero) {
-    // Joystick → desired direction (camera-relative, like the hero on foot).
-    const sin = Math.sin(cameraYaw);
-    const cos = Math.cos(cameraYaw);
-    const dirX = -sin * input.moveY + cos * input.moveX;
-    const dirZ = -cos * input.moveY - sin * input.moveX;
     const mag = Math.min(1, Math.hypot(input.moveX, input.moveY));
+    const braking = input.moveY < HC.brakeStick && Math.abs(input.moveX) < -input.moveY;
+    const stick = braking || Math.abs(input.moveX) < HC.steerDeadzone ? 0 : input.moveX;
+    const k = 1 - Math.exp(-(stick === 0 ? HC.straighten : HC.steerSmoothing) * dt);
+    this.steer += (stick - this.steer) * k;
 
     // Gallop (held) while stamina lasts; stamina refills slowly after a short pause.
-    const wantGallop = !!input.gallop && mag > 0.05;
+    const wantGallop = !!input.gallop && mag > 0.05 && !braking;
     if (this.galloping && (!wantGallop || this.stamina <= 0)) {
       this.galloping = false;
       this.refillWait = GAL.refillDelay;
@@ -373,21 +399,60 @@ export class Horse {
     else if ((this.refillWait -= dt) <= 0) this.stamina = Math.min(1, this.stamina + GAL.staminaRefill * dt);
     this.stumble = Math.max(0, this.stumble - dt);
 
+    // Turning: slower the faster it goes, slower again while galloping.
+    const prevHeading = this.heading;
+    const rate =
+      lerp(HC.turnRateSlow, HC.turnRateFast, Math.min(1, this.speedRatio)) * (this.galloping ? HC.gallopTurnFactor : 1);
+    this.heading -= this.steer * rate * dt; // + steer = right = heading decreases
+
+    // Trail guidance (only while moving and near the trail).
+    const near = this.speed > 1 ? this.world.track.nearest(this.position.x, this.position.z, TR.softEdge.band) : null;
+    if (near) {
+      this.trackS = near.s;
+      let along = Math.atan2(near.tx, near.tz);
+      let diff = wrap(along - this.heading);
+      if (Math.abs(diff) > Math.PI / 2) {
+        // Riding the trail backwards: guide along it the other way.
+        along += Math.PI;
+        diff = wrap(along - this.heading);
+      }
+      // Path assist: with the stick (nearly) centred, ease the heading along the trail.
+      const A = TR.assist;
+      const free = 1 - Math.min(1, Math.abs(this.steer) / A.deadzone);
+      if (free > 0 && Math.abs(diff) < A.maxAngle) this.heading += diff * (1 - Math.exp(-A.rate * free * dt));
+      // Soft edge: past `start` from the centre, turn back toward the trail (stronger further out).
+      const E = TR.softEdge;
+      const out = Math.abs(near.lateral) - E.start;
+      const away = Math.sign(near.lateral) * Math.sign(this.#lateralVelocity(near)) > 0;
+      if (out > 0 && away) {
+        const push = Math.min(1, out / (E.band - E.start));
+        // Turn so the outward drift shrinks (works riding either way along the trail).
+        const dLat = Math.cos(this.heading) * -near.tz - Math.sin(this.heading) * near.tx;
+        this.heading -= Math.sign(near.lateral) * Math.sign(dLat) * E.turn * push * dt;
+        // ...and bleed the outward drift so the bushes are never hit hard.
+        const nx = -near.tz * Math.sign(near.lateral);
+        const nz = near.tx * Math.sign(near.lateral);
+        this.position.x -= nx * E.strength * push * push * dt;
+        this.position.z -= nz * E.strength * push * push * dt;
+      }
+    }
+    this.heading = wrap(this.heading);
+    this.yawRate = wrap(this.heading - prevHeading) / Math.max(dt, 1e-4);
+
+    // Hills: slower climbing, a little quicker downhill.
+    const fx = Math.sin(this.heading);
+    const fz = Math.cos(this.heading);
+    const slope = this.world.heightAt(this.position.x + fx, this.position.z + fz) - this.world.heightAt(this.position.x, this.position.z);
+    const hill = clamp(1 - slope * TR.uphillDrag, TR.hillSpeed[0], TR.hillSpeed[1]);
+
     const top =
       HC.maxSpeed *
       (this.galloping ? GAL.speedMultiplier : 1) *
       (this.inWater ? HC.waterSpeed : 1) *
-      (this.stumble > 0 ? OBS.stumbleSpeed : 1);
-    let target = 0;
-    if (mag > 0.05) {
-      let diff = Math.atan2(dirX, dirZ) - this.heading;
-      diff = Math.atan2(Math.sin(diff), Math.cos(diff));
-      const rate = lerp(HC.turnRateSlow, HC.turnRateFast, Math.min(1, this.speedRatio));
-      this.heading += clamp(diff, -rate * dt, rate * dt);
-      // Ease off while turning hard, so sharp turns don't throw you into the trees.
-      target = top * mag * clamp(Math.cos(diff), 0.25, 1);
-    }
-    const accel = target > this.speed ? (this.galloping ? GAL.acceleration : HC.acceleration) : HC.braking;
+      (this.stumble > 0 ? OBS.stumbleSpeed : 1) *
+      hill;
+    const target = braking || mag < 0.05 ? 0 : top * mag * (1 - HC.turnSlowdown * Math.abs(this.steer));
+    const accel = target > this.speed ? (this.galloping ? GAL.acceleration : HC.acceleration) : this.inWater ? HC.waterBraking : HC.braking;
     this.speed += clamp(target - this.speed, -accel * dt, accel * dt);
 
     if (input.jumpPressed && this.grounded) {
@@ -398,8 +463,7 @@ export class Horse {
     // Move in small steps so a full gallop never tunnels through a trunk.
     const steps = Math.max(1, Math.ceil((this.speed * dt) / HC.substep));
     const h = dt / steps;
-    const hw = CONFIG.world.width / 2 - 2;
-    const hd = CONFIG.world.depth / 2 - 2;
+    const hw = W.width / 2 - 2;
     let ground = null;
     for (let i = 0; i < steps; i++) {
       this.velocity.x = Math.sin(this.heading) * this.speed;
@@ -407,7 +471,7 @@ export class Horse {
       this.velocity.y -= HC.gravity * h;
       this.position.addScaledVector(this.velocity, h);
       this.position.x = clamp(this.position.x, -hw, hw);
-      this.position.z = clamp(this.position.z, -hd, hd);
+      this.position.z = clamp(this.position.z, W.zMin + 2, W.zMax - 2);
 
       // Follow the terrain: stick to it while galloping, land after a hop.
       const reach = this.grounded ? HC.stepUp : 0;
@@ -425,7 +489,7 @@ export class Horse {
     }
 
     // Falls: the swamp, or off the world.
-    if ((this.grounded && !ground.platform && this.world.isHazard(this.position.x)) || this.position.y < CONFIG.world.killY) {
+    if ((this.grounded && !ground.platform && this.world.isHazard(this.position.x, this.position.z)) || this.position.y < CONFIG.world.killY) {
       this.respawnAtCheckpoint(hero);
       return;
     }
@@ -461,6 +525,11 @@ export class Horse {
         this.#spawnDust();
       }
     }
+  }
+
+  /** Signed speed across the trail (+ = toward the right of the trail's direction). */
+  #lateralVelocity(near) {
+    return Math.sin(this.heading) * -near.tz + Math.cos(this.heading) * near.tx;
   }
 
   /** Jumped cleanly over an obstacle, or stumbled into it (slow down briefly; no damage). */
@@ -516,6 +585,10 @@ export class Horse {
       this.legPrev[i] = now;
     });
     body.position.y = Math.abs(Math.sin(ph)) * HC.bobHeight * s;
+    // Lean into turns (turning right = yaw rate < 0 = lean right = +Z roll).
+    const leanTarget = this.mode === MODES.RIDING ? clamp(-this.yawRate * HC.leanFactor * Math.min(1, this.speedRatio), -HC.maxLean, HC.maxLean) : 0;
+    this.lean += (leanTarget - this.lean) * (1 - Math.exp(-HC.leanSmoothing * dt));
+    body.rotation.z = this.lean;
     body.rotation.x = Math.sin(ph) * 0.05 * s + (this.stumble > 0 ? Math.sin((this.stumble / OBS.stumbleTime) * Math.PI) * 0.3 : 0);
     const graze = this.mode === MODES.IDLE ? Math.max(0, Math.sin(this.time * 0.8)) : 0;
     neck.rotation.x = graze * 0.9 + Math.sin(ph) * 0.12 * s;
@@ -528,7 +601,8 @@ export class Horse {
     this.shadow.rotation.z = this.heading;
 
     this.model.updateMatrixWorld();
-    return this.#seat.copy(seat).add(new THREE.Vector3(0, body.position.y, 0)).applyMatrix4(this.model.matrixWorld);
+    body.updateMatrixWorld();
+    return this.#seat.copy(seat).applyMatrix4(body.matrixWorld);
   }
 
   #spawnDust() {
@@ -636,4 +710,9 @@ export class Horse {
     mesh.instanceMatrix.needsUpdate = true;
     fade.needsUpdate = true;
   }
+}
+
+/** Angle wrapped to -π…π. */
+function wrap(a) {
+  return Math.atan2(Math.sin(a), Math.cos(a));
 }

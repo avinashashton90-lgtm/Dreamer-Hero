@@ -150,7 +150,7 @@ async function boot() {
     } else {
       horse.update(dt, null, cam.yaw, hero);
     }
-    cam.update(dt, hero.position, { mounted: horse.mounted, speed: horse.speedRatio, gallop: horse.galloping });
+    cam.update(dt, hero.position, { mounted: horse.mounted, speed: horse.speedRatio, gallop: horse.galloping, heading: horse.heading });
     world.update(dt, cam.camera.position);
     world.updateFoliage(dt, cam.camera.position, cam.focus);
     renderer.render(world.scene, cam.camera);

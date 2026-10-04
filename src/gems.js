@@ -1,6 +1,5 @@
 import * as THREE from 'three';
 import { CONFIG } from './config.js';
-import { pathZ, pathDir } from './world.js';
 
 const G = CONFIG.gems;
 const COLORS = Object.keys(G.colors); // ['yellow', 'blue', 'pink']
@@ -53,10 +52,11 @@ export async function loadGemModel(color, count) {
 }
 
 /**
- * Gems along the ride (river → cave): yellow, blue and pink. Some weave around the path,
- * some sit at the ends of side trails, and some float above obstacles (only reachable with a
- * jump). Collected by walking or riding through them. Counts and ability unlocks persist
- * through respawns; only `reset()` (new game) clears them.
+ * Gems along the ride (river → cave): yellow, blue and pink, in groups of 5 laid out along
+ * the trail's centre lane — rows on the centre line, gentle arcs within the lane, and arcs in
+ * the air over some obstacles (only a jump reaches those). Group colours cycle yellow → blue
+ * → pink along the ride. Collected by walking or riding through them. Counts and ability
+ * unlocks persist through respawns; only `reset()` (new game) clears them.
  */
 export class Gems {
   /**
@@ -70,34 +70,15 @@ export class Gems {
     this.world = world;
     this.events = events;
     this.time = 0;
-    const spots = [];
-    const ground = (x, z) => Math.max(world.heightAt(x, z), CONFIG.zones.waterY) + G.height;
-    // On the path, weaving left and right of the centre line.
-    for (const [x, lat] of G.pathGems) {
-      const [dx, dz] = pathDir(x);
-      const gx = x - dz * lat;
-      const gz = pathZ(x) + dx * lat;
-      spots.push({ kind: 'path', order: x, position: new THREE.Vector3(gx, ground(gx, gz), gz) });
-    }
-    // Floating above obstacles: jump to grab them.
-    for (const i of G.airGemObstacles) {
-      const o = world.obstacles[i];
-      spots.push({ kind: 'air', order: o.cx, obstacle: o, position: new THREE.Vector3(o.cx, o.base + G.airHeight, o.cz) });
-    }
-    // Along the side trails.
-    world.layout.spurs.forEach((sp, si) => {
-      for (const t of G.spurGemTs) {
-        const x = sp.x0 + sp.ux * sp.len * t;
-        const z = sp.z0 + sp.uz * sp.len * t;
-        spots.push({ kind: 'spur', spur: si, order: sp.x0 + t * 0.1, position: new THREE.Vector3(x, ground(x, z), z) });
-      }
-    });
-    spots.sort((a, b) => a.order - b.order);
+    const groups = layoutGroups(world);
     const perColor = {};
-    this.gems = spots.map((sp, i) => {
-      const color = COLORS[i % COLORS.length];
-      perColor[color] = (perColor[color] ?? 0) + 1;
-      return { ...sp, color, index: perColor[color] - 1, collected: false, pop: 0 };
+    this.gems = [];
+    groups.forEach((grp, gi) => {
+      const color = COLORS[gi % COLORS.length];
+      for (const sp of grp.spots) {
+        perColor[color] = (perColor[color] ?? 0) + 1;
+        this.gems.push({ ...sp, kind: grp.kind, group: gi, color, index: perColor[color] - 1, collected: false, pop: 0 });
+      }
     });
     this.perColor = perColor;
     this.counts = {};
@@ -189,4 +170,54 @@ export class Gems {
       hp.needsUpdate = true;
     }
   }
+}
+
+/**
+ * Group layout: air arcs over the chosen obstacles, ground groups (alternating rows and arcs)
+ * spread evenly over the rest of the trail and kept clear of every obstacle. Sorted by
+ * distance along the trail. Each spot: { s, lateral, position }.
+ */
+export function layoutGroups(world) {
+  const { track, obstacles } = world;
+  const span = (G.groupSize - 1) * G.spacing;
+  const groundY = (x, z) => Math.max(world.heightAt(x, z), CONFIG.zones.waterY);
+  const at = (s, lateral) => {
+    const p = track.at(s);
+    return { x: p.x - p.tz * lateral, z: p.z + p.tx * lateral };
+  };
+  const groups = [];
+
+  // In the air over obstacles: an arc following the hop at full speed, a little above it.
+  const H = CONFIG.horse;
+  const air = G.airGemObstacles.map((i) => obstacles[i]).filter(Boolean);
+  for (const o of air) {
+    const spots = G.airOffsets.map((d) => {
+      const t = d / H.maxSpeed; // time from the apex
+      const hop = H.hopVelocity ** 2 / (2 * H.gravity) - 0.5 * H.gravity * t * t;
+      const { x, z } = at(o.s + d, 0);
+      return { s: o.s + d, lateral: 0, position: new THREE.Vector3(x, groundY(x, z) + G.riderReach + hop + G.airLift, z) };
+    });
+    groups.push({ kind: 'air', s: o.s, spots });
+  }
+
+  // On the ground: evenly spread, nudged off any obstacle (before it, so the run-up is clear).
+  const count = G.groups - air.length;
+  const s0 = G.startS;
+  const s1 = track.length - G.endMargin - span;
+  const clear = G.obstacleClear + span / 2;
+  for (let i = 0; i < count; i++) {
+    let mid = s0 + span / 2 + ((i + 0.5) / count) * (s1 - s0);
+    for (const o of obstacles) if (Math.abs(mid - o.s) < clear) mid = o.s - clear;
+    const arc = i % 2 === 1;
+    const side = i % 4 === 1 ? 1 : -1;
+    const spots = [];
+    for (let k = 0; k < G.groupSize; k++) {
+      const s = mid - span / 2 + k * G.spacing;
+      const lateral = arc ? side * G.arcLateral[k] : 0;
+      const { x, z } = at(s, lateral);
+      spots.push({ s, lateral, position: new THREE.Vector3(x, groundY(x, z) + G.height, z) });
+    }
+    groups.push({ kind: arc ? 'arc' : 'row', s: mid, spots });
+  }
+  return groups.sort((a, b) => a.s - b.s);
 }

@@ -105,14 +105,16 @@ export class Quests {
     const dx = target.x - hero.position.x;
     const dz = target.z - hero.position.z;
     const dist = Math.hypot(dx, dz);
-    this.ui.setQuest(obj.text, Math.round(dist));
+    this.ui.setQuest(obj.text, Math.round(obj.distance ? obj.distance(hero) : dist));
 
     this.arrow.position.set(
       hero.position.x,
       hero.position.y + Q.arrowHeight + Math.sin(this.time * 3) * 0.08,
       hero.position.z,
     );
-    this.arrow.rotation.y = Math.atan2(dx, dz);
+    // Along a route (the ride) the arrow points a little way ahead on it, not straight at the goal.
+    const aim = obj.arrowTarget ? obj.arrowTarget(hero) : target;
+    this.arrow.rotation.y = Math.atan2(aim.x - hero.position.x, aim.z - hero.position.z);
     this.arrow.visible = dist > 3;
     this.beacon.material.opacity = 0.25 + 0.1 * Math.sin(this.time * 2.5);
   }
@@ -131,6 +133,12 @@ export class Quests {
   /** Objective targets are points, or functions for moving targets (the horse). */
   #target(obj) {
     return typeof obj.target === 'function' ? obj.target() : obj.target;
+  }
+
+  /** Progress along the ride track for the hero (nearest point). */
+  #trackS(h) {
+    const { track } = this.world;
+    return (track.nearest(h.position.x, h.position.z, Q.trackSearch) ?? track.nearestGlobal(h.position.x, h.position.z)).s;
   }
 
   #buildObjectives() {
@@ -163,6 +171,17 @@ export class Quests {
         text: DIALOGUE.quests.ride,
         doneText: DIALOGUE.quests.caveReached,
         target: this.world.caveArch,
+        // Distance left along the trail (plus the last bit to the cave mouth).
+        distance: (h) => {
+          const { track, caveArch } = this.world;
+          const end = track.at(track.length);
+          return track.length - this.#trackS(h) + Math.hypot(caveArch.x - end.x, caveArch.z - end.z);
+        },
+        arrowTarget: (h) => {
+          const { track } = this.world;
+          const s = this.#trackS(h) + Q.arrowLookahead;
+          return s >= track.length ? this.world.caveArch : track.at(s);
+        },
         isDone: (h) => Math.hypot(h.position.x - this.world.caveArch.x, h.position.z - this.world.caveArch.z) < CONFIG.cave.reach,
       },
     ];

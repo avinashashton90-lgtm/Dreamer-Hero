@@ -14,31 +14,18 @@ export const CONFIG = {
   world: {
     seed: 20261004,
     width: 300,
-    depth: 200,
-    segmentsX: 150,
-    segmentsZ: 100,
+    depth: 200,              // the original map (town, swamp, cave region): z -100…100
+    // The map extends north for the long ride: z from zMin to zMax.
+    zMin: -100,
+    zMax: 640,
+    segmentsX: 125,
+    segmentsZ: 300,
     killY: -20,              // safety net: below this the hero respawns at the last safe spot
     fogNear: 70,
     fogFar: 240,
-    edgeHillStart: 78,       // |z| where the boundary hills start rising
+    edgeHillStart: 78,       // boundary hills rise over the last 22 units of each map edge
     edgeHillHeight: 16,
-    // Winding ground route (sand bank → river → forest → cave), z as a function of x:
-    // two sine waves, straightening out to z=0 as it reaches the cave opening.
-    pathAmplitude: 12,
-    pathFrequency: 0.05,
-    pathAmplitude2: 5,
-    pathFrequency2: 0.11,
-    pathStraightenX: [68, 86], // blend from winding to straight (z=0) between these x
-    pathHalfWidth: 5.5,      // forest trees keep at least this far from the path centre line
-    pathDirtWidth: 3.2,      // half width of the visible dirt track
-    // Short dead-end side trails off the ride path (gems at their ends).
-    spurs: [
-      // Steep angles so each trail peels away from the path and ends well clear of the
-      // obstacles either side of its entrance.
-      { x: 27, side: 1, angle: 1.25, length: 14 },
-      { x: 64, side: -1, angle: 1.25, length: 14 },
-    ],
-    spurHalfWidth: 3.2,      // trees keep clear of the trail
+    ridge: { x: -30, z: [78, 112] }, // hills closing the swamp/town off from the north meadows
     colors: {
       street: 0x4a4d57,
       swamp: 0x2d4a3e,
@@ -51,6 +38,38 @@ export const CONFIG = {
     },
   },
 
+  // The forest ride: a long, flowing dirt trail (see track.js). Straights joined by wide
+  // rounded corners (radius `cornerRadius`, or a point's 3rd value). From the horse on the
+  // west river bank: north along the bank, a sweep west, the hill climb and descent up the
+  // west side, east along the north edge across the river ford (~50%), the long descent down
+  // the east side, a sweep back west, south past the cliffs and into the cave arena. ~1480 long.
+  track: {
+    points: [
+      [-20, 6], [-20, 290], [-122, 360], [-122, 600], [50, 600], [112, 540], [112, 340],
+      [40, 280], [40, 40], [60, 0], [96, 0],
+    ],
+    cornerRadius: 40,
+    halfWidth: 6,            // ~12 wide
+    sampleSpacing: 1,
+    gridCell: 8,
+    dirtColor: 0x9c7a4f,
+    rimColor: 0x7a6040,      // slightly darker trail edge
+    // A soft fence of bushes and boulders just outside each edge (no hard colliders).
+    edge: { offset: 1.8, spacing: 4.2, boulderShare: 0.3, bushSize: [0.9, 1.5], boulderSize: [0.45, 0.85], gapChance: 0.06 },
+    // Riding: a gentle push back toward the trail near the edges (never a wall).
+    softEdge: { start: 4.6, strength: 4, turn: 1.2, band: 11 },
+    // Gentle path assist: with the stick near neutral, nudge the heading along the trail.
+    assist: { rate: 0.45, maxAngle: 0.7, deadzone: 0.3 },
+    // A hill climb then a long descent on each side of the ford.
+    hills: [
+      { x: -122, z: 470, height: 12, radius: 46 }, // west side: a climb, then down the far side
+      { x: 104, z: 548, height: 11, radius: 56 },  // north-east: a long descent down the east side
+    ],
+    uphillDrag: 2.2,         // top speed × (1 − slope × this): slower uphill, quicker downhill
+    hillSpeed: [0.78, 1.12], // ...clamped to this range
+    fordReach: 9,            // ford (shallow bed) within this distance of the trail
+  },
+
   zones: {
     riverX: 0,               // river centre line
     riverHalfWidth: 6,
@@ -58,7 +77,7 @@ export const CONFIG = {
     riverFrequency: 0.03,
     riverBedY: -1.25,        // shallow: the horse never sinks (water ~0.45 deep)
     fordBedY: -1.05,         // the ford where the path crosses (water ~0.25 deep)
-    fordHalfWidth: 7,        // ford width either side of the path
+    fordHalfWidth: 7,        // ford width either side of the trail
     waterY: -0.8,
     forestStart: 8,
     caveStart: 84,
@@ -130,13 +149,14 @@ export const CONFIG = {
 
   // Forest and background trees: three species with per-instance size and tint.
   forest: {
-    count: 340,              // dense forest, mostly hugging the winding path
-    nearPathBand: 34,        // most trees sit within this distance of the path
-    farCount: 70,            // plus a scattering farther out
+    count: 950,              // dense forest along both sides of the trail
+    nearPathBand: 22,        // ...within this distance outside the trail edge
+    farCount: 220,           // plus a scattering everywhere else (off the trail)
+    trailClearance: 2.4,     // trees keep at least this much beyond the bush edge
+    chunkSize: 100,          // instanced per chunk so off-screen chunks are culled
     trunkRadius: 0.35,       // collider radius at scale 1
     scaleMin: 0.8,
     scaleMax: 1.9,
-    edgeCount: 60,           // extra trees scattered along the map edges
     // Relative share of each species: conifer, broadleaf (oak), birch.
     speciesWeights: [0.45, 0.35, 0.2],
     tintVariation: 0.12,     // +/- brightness per tree
@@ -263,7 +283,9 @@ export const CONFIG = {
     speedDistanceScale: 0.08, // subtle extra distance at full speed
     speedFov: 4,              // subtle extra FOV at full speed...
     gallopFov: 3,             // ...and a bit more while galloping
-    rideBlend: 3,             // how quickly ride/speed effects follow             // ease back out slowly once the view is clear (snaps in instantly)
+    rideBlend: 3,             // how quickly ride/speed effects follow
+    rideFollow: 2.2,          // riding: camera swings back behind the horse (1/s)...
+    rideFollowDelay: 1.2,     // ...this long after the player last dragged to look
   },
 
   input: {
@@ -286,8 +308,8 @@ export const CONFIG = {
   },
 
   horse: {
-    position: [-12, 6],    // on the sand bank by the river (x, z)
-    facing: Math.PI / 2,
+    position: [-15, 6],    // on the sand bank by the river (x, z), at the start of the trail
+    facing: 0,             // north, along the trail
     radius: 0.9,           // collision radius
     height: 2.6,
     stepUp: 0.6,
@@ -300,8 +322,18 @@ export const CONFIG = {
     maxSpeed: 17.5,        // 2.5 × hero walk speed
     acceleration: 9,       // units/s² toward the joystick speed
     braking: 16,
-    turnRateSlow: 3.2,     // rad/s when slow...
-    turnRateFast: 1.7,     // ...and at full gallop (gradual turns)
+    // Steering (horse-relative: stick left/right turns, up = go, down = brake).
+    turnRateSlow: 2.2,     // rad/s when slow...
+    turnRateFast: 1.0,     // ...at full speed...
+    gallopTurnFactor: 0.9, // ...and less again while galloping
+    steerSmoothing: 7,     // how quickly steering follows the stick (1/s)
+    straighten: 5,         // with the stick centred, residual steering dies away (1/s)
+    leanFactor: 0.22,      // lean into turns (radians per rad/s of turning, at full speed)
+    maxLean: 0.22,
+    leanSmoothing: 6,
+    brakeStick: -0.45,     // pulling the stick back past this brakes
+    turnSlowdown: 0.25,    // eases off this much (fraction of speed) at full steer
+    steerDeadzone: 0.06,   // stick values below this count as centred
     hopVelocity: 9,        // hop on jump: ~1.6 high, clears every obstacle
     gravity: 25,
     gallopStride: 0.2,     // leg cycles per unit travelled (faster legs at higher speed)
@@ -313,13 +345,14 @@ export const CONFIG = {
     gallop: {
       speedMultiplier: 2,
       acceleration: 16,
-      staminaDrain: 0.33,  // per second while galloping (~3 s from full)
-      staminaRefill: 0.12, // per second when not galloping (~8 s to refill)
-      refillDelay: 0.6,    // seconds after galloping before stamina refills
+      staminaDrain: 0.075, // per second while galloping (~13 s from full)
+      staminaRefill: 0.5,  // per second when not galloping (~2 s to refill)
+      refillDelay: 0.5,    // seconds after galloping before stamina refills
       minToStart: 0.2,     // need at least this much to start a gallop
       dustMultiplier: 2.2,
     },
     waterSpeed: 0.72,      // speed multiplier while in the river
+    waterBraking: 40,      // the water slows the horse quickly to that speed
     splash: {
       maxDrops: 90,
       maxRipples: 24,
@@ -349,31 +382,35 @@ export const CONFIG = {
 
   // Obstacles on the ride path (jump them on the horse). Each spans the path across its
   // direction; groups give a clear line of approach.
+  // Obstacles: few and fair — each alone on a straight, with a long clear run-up.
   obstacles: {
-    // Pairs 15 apart: a jump at full speed covers ~12.6, so each needs its own jump
-    // (at a gallop, one well-timed leap can clear a pair). Gaps between groups hold gems.
-    groups: [
-      { xs: [20, 35], types: ['log', 'wall'] },
-      { xs: [56, 71], types: ['hurdle', 'log'] },
-      { xs: [89, 103], types: ['wall', 'hurdle'] }, // in the arena, before the cave
-    ],
-    halfLength: 6.4,         // across the path
+    at: [0.1, 0.27, 0.42, 0.62, 0.76, 0.88], // target positions (fraction of the track)
+    wallIndex: 3,            // which one is the low rock wall (the rest are logs)
+    search: 0.04,            // look this far (fraction) either side for a straight spot
+    runUp: 40,               // clear (no other obstacle, no water) before...
+    runOut: 20,              // ...and after
+    straightBefore: 25,      // the obstacle sits on a straight: at least this much before it...
+    straightAfter: 10,       // ...and after
+    maxCurvature: 0.004,     // "straight": heading changes less than this per unit
+    halfLength: 6.8,         // across the trail (into the bush edge)
+    arenaClear: 50,          // none in the last stretch into the cave arena
     types: {
-      log: { height: 0.75, depth: 0.85, color: 0x6b4423 },
-      wall: { height: 0.85, depth: 1.0, color: 0x8a8378 },
-      hurdle: { height: 0.95, depth: 0.3, color: 0xd9c9a3 },
+      log: { height: 0.6, depth: 0.55, color: 0x6b4423 },
+      wall: { height: 0.7, depth: 0.6, color: 0x8a8378 },
     },
-    stumbleTime: 0.9,        // seconds slowed after hitting one without jumping
-    stumbleSpeed: 0.35,      // speed multiplier while stumbling
+    stumbleTime: 0.6,        // seconds slowed after hitting one without jumping
+    stumbleSpeed: 0.7,       // speed multiplier while stumbling (slows a little)
     clearMargin: 0.15,       // hooves must be this close to the top (or above) to clear it
     contactReach: 0.35,      // judged when the horse is this close to being over the obstacle
   },
 
-  // Ride checkpoints (x along the path; z follows the path). Falls/deaths after the first
-  // mount respawn the hero on the horse at the last checkpoint reached.
+  // Ride checkpoints every 25% of the track (the first is the horse). Falls/deaths after the
+  // first mount respawn the hero on the horse at the last checkpoint reached.
   checkpoints: {
-    xs: [-12, 12, 45, 79],
-    radius: 7,
+    fractions: [0, 0.25, 0.5, 0.75], // along the track (the first is the horse's spot)
+    dryStep: 4,              // moved forward this far at a time while in the river
+    edgeOffset: 0.4,         // flag pole beyond the trail's right edge
+    radius: 9,
     poleHeight: 3.2,
     flagColor: 0xd62828,
     reachedColor: 0x3fd96b,
@@ -381,17 +418,23 @@ export const CONFIG = {
 
   gems: {
     colors: { yellow: 0xffd23f, blue: 0x3fa9ff, pink: 0xff5fc8 },
-    perColor: 6,           // placed per colour (5 needed to unlock)
+    // Layout: 9 groups of 5 along the trail's centre lane — yellow, blue, pink, repeated
+    // (15 of each). Rows on the centre line, gentle arcs within the lane, and arcs in the
+    // air above three obstacles (a jump collects them). Unlocks still trigger at 5.
     needed: 5,
+    groups: 9,               // in total, air arcs included
+    groupSize: 5,
+    spacing: 3.2,            // between gems in a group
+    startS: 45,              // first group (after the horse) ...
+    endMargin: 40,           // ... last group ends this far before the arena
+    arcLateral: [0, 1.0, 1.4, 1.0, 0], // arc groups bow this far off the centre line
+    obstacleClear: 16,       // ground groups keep this far (along the trail) from obstacles
+    airGemObstacles: [0, 2, 4], // obstacle indices with a gem arc above them
+    airOffsets: [-3.5, -1.75, 0, 1.75, 3.5], // along the trail, around the obstacle
+    airLift: 0.6,            // above the hop's own arc, so only a jump reaches them
+    riderReach: 1.4,         // collect point above the horse's hooves (body centre)
     abilities: { yellow: 'batarang', blue: 'smokeBomb', pink: 'flashMode' },
-    // Layout: gems weave around the path (x, lateral offset), sit at the ends of the side
-    // trails, and float above some obstacles (jump to grab them). 18 in total.
-    // Ground gems stay out of the jump arcs (~7 either side of an obstacle at full speed).
-    pathGems: [[-8, 1.5], [-2, -2.5], [3, 0.5], [8, 3.2], [12, -3.4], [43, 3.5], [47.5, -3], [79, 3], [83, -2.5]],
-    airGemObstacles: [1, 3, 5], // obstacle indices (in path order) with a gem above them
-    spurGemTs: [0.45, 0.75, 1.0], // along each side trail
     height: 1.4,             // ground gems: above the ground (or water surface)
-    airHeight: 3.9,          // air gems: above the ground — only reachable with a jump
     collectHeight: 1.3,      // vertical reach from the collector's body centre
     collectRadius: 1.9,
     size: 0.45,
@@ -432,6 +475,8 @@ export const CONFIG = {
     beaconColor: 0xffe680,
     beaconHeight: 30,
     beaconRadius: 0.8,
+    arrowLookahead: 25,    // riding: the arrow points this far ahead along the trail
+    trackSearch: 30,       // how far off the trail the ride progress is still measured locally
   },
 };
 

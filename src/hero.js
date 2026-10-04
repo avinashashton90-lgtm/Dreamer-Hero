@@ -100,11 +100,11 @@ export class Hero {
   }
 
   /** Places the rider (feet at `p`, facing `yaw`); also used during mount transitions. */
-  setRidingPose(p, yaw) {
+  setRidingPose(p, yaw, lean = 0) {
     this.position.copy(p);
     this.facing = yaw;
     this.model.position.copy(p);
-    this.model.rotation.y = yaw;
+    this.model.rotation.set(0, yaw, lean, 'YXZ'); // leans into the horse's turns
   }
 
   /** Back on foot at `p` (end of a dismount). */
@@ -112,6 +112,7 @@ export class Hero {
     this.riding = false;
     this.shadow.visible = true;
     this.model.scale.set(1, 1, 1);
+    this.model.rotation.set(0, yaw, 0);
     this.facing = yaw;
     this.lastSafe.copy(p);
     this.#placeAt(p);
@@ -174,9 +175,8 @@ export class Hero {
 
     // Keep inside the map.
     const hw = CONFIG.world.width / 2 - 1;
-    const hd = CONFIG.world.depth / 2 - 1;
     this.position.x = THREE.MathUtils.clamp(this.position.x, -hw, hw);
-    this.position.z = THREE.MathUtils.clamp(this.position.z, -hd, hd);
+    this.position.z = THREE.MathUtils.clamp(this.position.z, CONFIG.world.zMin + 1, CONFIG.world.zMax - 1);
 
     // Ground: walking steps up small ledges; falling also snaps onto ledges just above the feet.
     const falling = this.velocity.y <= 0;
@@ -197,7 +197,7 @@ export class Hero {
 
     if (this.grounded) {
       if (this.platform?.safe) this.lastSafe.copy(this.platform.safe);
-      else if (!this.platform && this.world.isHazard(this.position.x)) return this.#fall();
+      else if (!this.platform && this.world.isHazard(this.position.x, this.position.z)) return this.#fall();
       else if (!this.platform) this.lastSafe.copy(this.position);
     }
     if (this.position.y < CONFIG.world.killY) return this.#fall();

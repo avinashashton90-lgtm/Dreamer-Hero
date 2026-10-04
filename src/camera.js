@@ -23,6 +23,7 @@ export class FollowCamera {
     this.speed = 0; // 0 … 1 fraction of the horse's top speed (smoothed)
     this.gallop = 0; // 0 … 1 while galloping (smoothed)
     this.pivot = new THREE.Vector3(); // look-at point (shifted over the rider's shoulder)
+    this.sinceLook = Infinity; // seconds since the player last dragged to look
     this.#dir = new THREE.Vector3();
   }
 
@@ -34,6 +35,7 @@ export class FollowCamera {
   }
 
   rotate(dx, dy, sensitivity) {
+    if (dx || dy) this.sinceLook = 0;
     this.yaw -= dx * sensitivity;
     this.pitch = clamp(this.pitch + dy * sensitivity, C.minPitch, C.maxPitch);
   }
@@ -47,10 +49,17 @@ export class FollowCamera {
   /**
    * @param {number} dt
    * @param {THREE.Vector3} target  point to follow (hero feet, or rider's seat)
-   * @param {{mounted?: boolean, speed?: number, gallop?: boolean}} [ride]
-   *   speed = fraction of the horse's normal top speed; gallop = Gallop held
+   * @param {{mounted?: boolean, speed?: number, gallop?: boolean, heading?: number}} [ride]
+   *   speed = fraction of the horse's normal top speed; gallop = Gallop held; heading = horse yaw
    */
   update(dt, target, ride = {}) {
+    this.sinceLook += dt;
+    // Riding: unless the player is looking around, swing back behind the horse.
+    if (ride.mounted && ride.heading !== undefined && this.sinceLook > C.rideFollowDelay) {
+      const behind = ride.heading + Math.PI;
+      const diff = Math.atan2(Math.sin(behind - this.yaw), Math.cos(behind - this.yaw));
+      this.yaw += diff * (1 - Math.exp(-C.rideFollow * dt));
+    }
     const rk = 1 - Math.exp(-C.rideBlend * dt);
     this.ride += ((ride.mounted ? 1 : 0) - this.ride) * rk;
     this.speed += ((ride.mounted ? Math.min(1, ride.speed ?? 0) : 0) - this.speed) * rk;

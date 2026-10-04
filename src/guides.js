@@ -92,7 +92,7 @@ export class JumpGuide {
     this.ringAlpha += ((airborne ? 1 : 0) - this.ringAlpha) * (1 - Math.exp(-G.ringFadeSpeed * dt));
     this.ring.visible = this.ringAlpha > 0.01;
     if (!this.ring.visible) return;
-    const danger = !below.platform && this.world.isHazard(x);
+    const danger = !below.platform && this.world.isHazard(x, z);
     const color = danger ? G.ringHazardColor : G.ringColor;
     const [glow, ring] = this.ring.children;
     ring.material.color.setHex(color);

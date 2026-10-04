@@ -155,12 +155,14 @@ function cameraCheck(cam) {
   if (inside > 0 || worstBlock > 0.3) failed = true;
 }
 
-// 8) Horse and forest ride: walk to the horse, mount, ride the winding path — jumping the
-// obstacles, detouring down the side trails, grabbing the gems floating over jumps — through
-// the ford to the giant cave. No falls, stumbles or stuck points; every gem; all unlocks.
+// 8) Horse and the long forest ride: walk to the horse, mount, ride the whole trail at normal
+// speed (steering like a player: stick left/right only, path assist on), jumping every
+// obstacle and collecting every gem, through the ford to the giant cave. Then a galloping
+// run, a run that never jumps (stumbles only, never trapped), stamina, dismount/remount and
+// a fall after riding (respawn on the horse).
 {
-  const { pathZ } = await import('../src/world.js');
   const { Sound } = await import('../src/audio.js');
+  const track = world.track, TRK = CONFIG.track, OB = CONFIG.obstacles, GC = CONFIG.gems;
   const horse = new Horse(world.scene, world); await horse.init();
   const sound = new Sound(); horse.sound = sound;
   const abilities = new Abilities(hero);
@@ -173,18 +175,48 @@ function cameraCheck(cam) {
   hero.onFall = () => { if (!horse.everMounted) return false; horse.respawnAtCheckpoint(hero); return true; };
   const none = { moveX: 0, moveY: 0, jumpPressed: false };
   const HC = CONFIG.horse, tApex = HC.hopVelocity / HC.gravity;
-  const collectPoint = () => horse.controlsHero ? horse.collectPoint : hero.position.clone().setY(hero.position.y + 0.9);
+  const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
+  const arch = world.caveArch;
+
+  // Layout checks: obstacle count/spacing/straightness, the arena clear, gems inside the trail.
+  const obs = world.obstacles;
+  let layoutOk = obs.length >= 5 && obs.length <= 7;
+  const obsInfo = obs.map((o, i) => {
+    const gapBefore = i ? o.s - obs[i - 1].s : o.s;
+    const k = track.maxCurvature(o.s - OB.straightBefore, o.s + OB.straightAfter);
+    const arenaD = Math.hypot(o.cx - CONFIG.cave.center[0], o.cz - CONFIG.cave.center[1]);
+    if (gapBefore < OB.runUp + OB.runOut || k > OB.maxCurvature || arenaD < CONFIG.cave.radius + 10 || o.height > 0.75) layoutOk = false;
+    return `${o.type}@${o.s.toFixed(0)}`;
+  });
+  if (obs.filter((o) => o.type === 'wall').length !== 1) layoutOk = false;
+  let gemsOut = 0, airLow = 0;
+  for (const g of gems.gems) {
+    const n = track.nearest(g.position.x, g.position.z, 20);
+    if (!n || n.dist > TRK.halfWidth - 1.5) gemsOut++;
+    if (g.kind === 'air') {
+      const ground = world.heightAt(g.position.x, g.position.z) + GC.riderReach;
+      if (g.position.y - ground < GC.collectHeight + 0.1) airLow++; // reachable without a jump
+    }
+  }
+  const perColor = JSON.stringify(gems.perColor);
+  console.log(`track: length ${track.length.toFixed(0)}, obstacles ${obs.length} [${obsInfo.join(' ')}], gems ${gems.gems.length} ${perColor}, outside trail ${gemsOut}, air gems reachable without jump ${airLow}, checkpoints at ${horse.checkpoints.map((c) => (c.s / track.length * 100).toFixed(0) + '%').join(' ')}`);
+  if (!layoutOk || gemsOut || airLow || Object.values(gems.perColor).some((n) => n < 12)) failed = true;
 
   // Autopilot jump: take off so the apex lands over the obstacle.
   const shouldJump = () => {
     if (!horse.grounded) return false;
-    for (const o of world.obstacles) {
+    for (const o of obs) {
       const rx = horse.position.x - o.cx, rz = horse.position.z - o.cz;
       const along = rx * o.dx + rz * o.dz, across = rx * o.nx + rz * o.nz;
       const lead = Math.max(1.2, horse.speed * tApex);
       if (Math.abs(across) < o.halfLength && along < 0 && -along < lead + 0.5 && -along > 0.5) return true;
     }
     return false;
+  };
+  // Horse-relative steering toward a point (stick right = turn right = heading down).
+  const steerTo = (x, z, gain = 2.2) => {
+    const want = Math.atan2(x - horse.position.x, z - horse.position.z);
+    return THREE.MathUtils.clamp(-wrap(want - horse.heading) * gain, -1, 1);
   };
 
   // On foot from the sand bank landing to the horse.
@@ -202,109 +234,140 @@ function cameraCheck(cam) {
   console.log(`walk to horse: ${walkOk ? 'ok' : 'FAILED'} (${t.toFixed(1)}s), mounted: ${horse.mode}`);
   if (!walkOk || horse.mode !== 'riding') failed = true;
 
-  // Route: path samples + path/air gems in order, with side-trail detours, then the cave.
-  const route = [];
-  for (let x = -10; x <= 84; x += 5) route.push({ key: x, x, z: pathZ(x), passX: true });
-  for (const g of gems.gems) if (g.kind !== 'spur') route.push({ key: g.position.x, x: g.position.x, z: g.position.z, gem: g, passX: g.kind === 'air' });
-  L.spurs.forEach((sp, si) => {
-    const seq = [{ x: sp.x0, z: sp.z0 }, ...gems.gems.filter((g) => g.spur === si).map((g) => ({ x: g.position.x, z: g.position.z, gem: g })), { x: sp.x0 + sp.ux * 2, z: sp.z0 + sp.uz * 2 }];
-    seq.forEach((w, k) => route.push({ key: sp.x0 + k * 0.001, ...w }));
-  });
-  route.push({ key: 95, x: 95, z: 0, passX: true }, { key: 108, x: 108, z: 0, passX: true });
-  route.sort((a, b) => a.key - b.key);
-  const arch = world.caveArch;
-  route.push({ x: arch.x - 12, z: arch.z, final: true });
+  // One full ride from the start of the trail to the cave. The bot looks ~14 ahead on the
+  // trail, lined up with the next uncollected gem's lane offset (gems are all in the lane).
+  const ride = ({ gallop = false, jump = true, check = false } = {}) => {
+    horse.lastCheckpoint = 0; horse.checkpoints.forEach((c, i) => (c.reached = i === 0));
+    horse.respawnAtCheckpoint(hero); horse.stamina = 1; rideFalls = 0; checkpoints = 0;
+    const stumbles0 = horse.stumbles, cleared0 = horse.obstaclesCleared;
+    cam.reset(); cam.snapTo(hero.position);
+    let t = 0, bestS = 0, since = 0, stuck = false, stuckAt = '', topSpeed = 0, maxLat = 0, wobble = 0, prevSteer = 0;
+    let frames = 0, inside = 0, blockedFor = 0, worstBlock = 0, rideDists = [], waterTime = 0, waterMaxSpeed = 0, minSeat = Infinity;
+    let atCave = false, wetFor = 0;
+    while (t < 200) {
+      const n = track.nearest(horse.position.x, horse.position.z, 30) ?? track.nearestGlobal(horse.position.x, horse.position.z);
+      if (n.s > bestS + 1) { bestS = n.s; since = 0; } else if ((since += dt) > 4 && n.s < track.length - 3) { stuck = true; stuckAt = `s ${n.s.toFixed(0)} (${horse.position.x.toFixed(0)},${horse.position.z.toFixed(0)})`; break; }
+      atCave = Math.hypot(hero.position.x - arch.x, hero.position.z - arch.z) < CONFIG.cave.reach;
+      if (atCave) break;
+      let tx, tz;
+      if (n.s > track.length - 6) { tx = arch.x - 4; tz = arch.z; }
+      else {
+        const next = gems.gems.find((g) => !g.collected && g.s > n.s + 2 && g.s < n.s + 30);
+        const lat = next ? next.lateral : 0;
+        const p = track.at(n.s + 14);
+        tx = p.x - p.tz * lat; tz = p.z + p.tx * lat;
+      }
+      const moveX = steerTo(tx, tz);
+      horse.update(dt, { moveX, moveY: 1, jumpPressed: jump && shouldJump(), gallop }, cam.yaw, hero);
+      gems.update(dt, horse.collectPoint);
+      cam.update(dt, hero.position, { mounted: horse.mounted, speed: horse.speedRatio, gallop: horse.galloping, heading: horse.heading });
+      if (check) world.updateFoliage(dt, cam.camera.position, cam.focus);
+      t += dt;
+      topSpeed = Math.max(topSpeed, horse.speed);
+      if (n.s > 5 && n.s < track.length - 5) maxLat = Math.max(maxLat, Math.abs(n.lateral));
+      if (Math.sign(moveX) !== Math.sign(prevSteer) && Math.abs(moveX - prevSteer) > 0.5) wobble++;
+      prevSteer = moveX;
+      if (horse.inWater) { waterTime += dt; wetFor += dt; if (wetFor > 0.3) waterMaxSpeed = Math.max(waterMaxSpeed, horse.speed); minSeat = Math.min(minSeat, hero.position.y - CONFIG.zones.waterY); }
+      if (!horse.inWater) wetFor = 0;
+      if (check) {
+        if (horse.grounded && horse.speed > 5) rideDists.push(cam.camera.position.distanceTo(cam.pivot));
+        if (Math.floor(t / dt) % 3 === 0) {
+          frames++;
+          const chk = cameraCheck(cam);
+          inside += chk.inside;
+          blockedFor = chk.blocked ? blockedFor + dt * 3 : 0; worstBlock = Math.max(worstBlock, blockedFor);
+        }
+      }
+    }
+    rideDists.sort((a, b) => a - b);
+    return { t, stuck, stuckAt, atCave, topSpeed, maxLat, wobble, frames, inside, worstBlock, medianDist: rideDists[Math.floor(rideDists.length / 2)],
+      waterTime, waterMaxSpeed, minSeat, stumbles: horse.stumbles - stumbles0, cleared: horse.obstaclesCleared - cleared0, falls: rideFalls, checkpoints };
+  };
 
-  cam.reset(); cam.snapTo(hero.position);
-  let wi = 0, best = Infinity, sinceProgress = 0, stuck = false, topSpeed = 0, stuckAt = '';
-  let frames = 0, inside = 0, blockedFor = 0, worstBlock = 0, rideDists = [];
-  let waterTime = 0, waterMaxSpeed = 0, minSeatAboveWater = Infinity;
-  t = 0;
-  while (t < 150 && wi < route.length) {
-    const w = route[wi];
-    const dx = w.x - horse.position.x, dz = w.z - horse.position.z, d = Math.hypot(dx, dz);
-    const done = w.gem ? w.gem.collected : (d < 2.2 || (w.passX && horse.position.x > w.x + 0.5));
-    if (done || (w.gem && w.passX && horse.position.x > w.x + 2)) { wi++; best = Infinity; sinceProgress = 0; continue; }
-    if (d < best - 0.05) { best = d; sinceProgress = 0; } else if ((sinceProgress += dt) > 4) { stuck = true; stuckAt = `${w.x.toFixed(1)},${w.z.toFixed(1)}`; break; }
-    const yaw = Math.atan2(-dx, -dz);
-    cam.yaw += Math.atan2(Math.sin(yaw - cam.yaw), Math.cos(yaw - cam.yaw)) * 0.1;
-    const throttle = w.gem && d < 8 ? 0.6 : 1;
-    horse.update(dt, { moveX: 0, moveY: throttle, jumpPressed: shouldJump() }, yaw, hero);
-    gems.update(dt, collectPoint());
-    cam.update(dt, hero.position, { mounted: horse.mounted, speed: horse.speedRatio, gallop: horse.galloping });
-    world.updateFoliage(dt, cam.camera.position, cam.focus);
-    topSpeed = Math.max(topSpeed, horse.speed);
-    if (horse.inWater) {
-      waterTime += dt;
-      waterMaxSpeed = Math.max(waterMaxSpeed, horse.speed);
-      minSeatAboveWater = Math.min(minSeatAboveWater, hero.position.y - CONFIG.zones.waterY);
-    }
-    t += dt;
-    if (horse.grounded && Math.abs(hero.position.x - 40) < 40) rideDists.push(cam.camera.position.distanceTo(cam.pivot));
-    if (hero.position.x > Z.forestStart && hero.position.x < Z.caveStart) {
-      frames++;
-      const chk = cameraCheck(cam);
-      inside += chk.inside;
-      blockedFor = chk.blocked ? blockedFor + dt : 0; worstBlock = Math.max(worstBlock, blockedFor);
-    }
-  }
-  const atCave = Math.hypot(hero.position.x - arch.x, hero.position.z - arch.z) < CONFIG.cave.reach;
-  rideDists.sort((a, b) => a - b);
-  const medianDist = rideDists[Math.floor(rideDists.length / 2)];
-  console.log(`ride: ${t.toFixed(1)}s, top speed ${topSpeed.toFixed(1)}, gems ${gems.gems.length - gems.remaining}/${gems.gems.length} (${gems.gems.filter((g) => !g.collected).map((g) => g.kind + '@' + g.position.x.toFixed(0)).join(' ') || 'all'}), counts ${JSON.stringify(gems.counts)}, unlocks [${[...abilities.unlocked]}], checkpoints ${checkpoints}/${CONFIG.checkpoints.xs.length - 1}, falls ${rideFalls}, stumbles ${horse.stumbles}, jumps cleared ${horse.obstaclesCleared}/${world.obstacles.length}, stuck ${stuck}${stuck ? ' at ' + stuckAt : ''}, reached cave ${atCave}`);
-  console.log(`ford: ${waterTime.toFixed(1)}s in water, max speed there ${waterMaxSpeed.toFixed(1)} (cap ${(HC.maxSpeed * HC.waterSpeed).toFixed(1)}), rider seat ≥ ${minSeatAboveWater.toFixed(2)} above water, sounds ${JSON.stringify(sound.counts)}`);
-  console.log(`camera riding: median distance ${medianDist.toFixed(2)} (target ${CONFIG.camera.rideDistance}); forest frames ${frames}, inside-solid ${inside}, longest leaf block ${worstBlock.toFixed(2)}s`);
-  if (stuck || rideFalls || gems.remaining || abilities.unlocked.size !== 3 || !atCave || checkpoints !== CONFIG.checkpoints.xs.length - 1) failed = true;
-  if (horse.stumbles || horse.obstaclesCleared < world.obstacles.length) failed = true;
-  if (!(waterTime > 0.3) || waterMaxSpeed > HC.maxSpeed * HC.waterSpeed + 0.5 || minSeatAboveWater < 0.5) failed = true;
+  // a) Normal speed, jumping and collecting.
+  const r = ride({ check: true });
+  const nCp = CONFIG.checkpoints.fractions.length - 1;
+  console.log(`ride (normal): ${r.t.toFixed(1)}s, top speed ${r.topSpeed.toFixed(1)}, gems ${gems.gems.length - gems.remaining}/${gems.gems.length} (${gems.gems.filter((g) => !g.collected).map((g) => g.kind + '@' + g.s.toFixed(0)).join(' ') || 'all'}), counts ${JSON.stringify(gems.counts)}, unlocks [${[...abilities.unlocked]}], checkpoints ${r.checkpoints}/${nCp}, falls ${r.falls}, stumbles ${r.stumbles}, jumps cleared ${r.cleared}/${obs.length}, max off-centre ${r.maxLat.toFixed(1)}, stuck ${r.stuck}${r.stuck ? ' at ' + r.stuckAt : ''}, reached cave ${r.atCave}`);
+  console.log(`ford: ${r.waterTime.toFixed(1)}s in water, max speed there ${r.waterMaxSpeed.toFixed(1)} (cap ${(HC.maxSpeed * HC.waterSpeed).toFixed(1)}), rider seat ≥ ${r.minSeat.toFixed(2)} above water, sounds ${JSON.stringify(sound.counts)}`);
+  console.log(`camera riding: median distance ${r.medianDist.toFixed(2)} (target ${CONFIG.camera.rideDistance}); checked frames ${r.frames}, inside-solid ${r.inside}, longest leaf block ${r.worstBlock.toFixed(2)}s`);
+  if (r.stuck || r.falls || gems.remaining || abilities.unlocked.size !== 3 || !r.atCave || r.checkpoints !== nCp) failed = true;
+  if (r.stumbles || r.cleared < obs.length || r.maxLat > TRK.halfWidth) failed = true;
+  if (r.t < 75 || r.t > 105) { console.log('normal ride time out of the ~90 s target'); failed = true; }
+  if (!(r.waterTime > 0.3) || r.waterMaxSpeed > HC.maxSpeed * HC.waterSpeed + 0.5 || r.minSeat < 0.5) failed = true;
   if (!sound.counts.splashEnter || !sound.counts.splashExit || !sound.counts.splashStep) failed = true;
-  if (!(medianDist < CONFIG.camera.rideDistance * 1.25)) failed = true;
-  if (inside > 0 || worstBlock > 0.3) failed = true;
+  if (!(r.medianDist < CONFIG.camera.rideDistance * 1.25)) failed = true;
+  if (r.inside > 0 || r.worstBlock > 0.3) failed = true;
+
+  // b) Holding Gallop the whole way (stamina permitting).
+  const rg = ride({ gallop: true });
+  console.log(`ride (gallop held): ${rg.t.toFixed(1)}s, top speed ${rg.topSpeed.toFixed(1)}, stumbles ${rg.stumbles}, jumps cleared ${rg.cleared}/${obs.length}, max off-centre ${rg.maxLat.toFixed(1)}, stuck ${rg.stuck}, falls ${rg.falls}, reached cave ${rg.atCave}`);
+  if (rg.stuck || rg.falls || !rg.atCave || rg.maxLat > TRK.halfWidth || rg.t > 60 || rg.t < 40) failed = true;
+
+  // c) Never jumping: every obstacle is a stumble (slows a little), never a trap or a respawn.
+  const rn = ride({ jump: false });
+  console.log(`ride (no jumps): ${rn.t.toFixed(1)}s, stumbles ${rn.stumbles}/${obs.length}, stuck ${rn.stuck}${rn.stuck ? ' at ' + rn.stuckAt : ''}, falls ${rn.falls}, reached cave ${rn.atCave}`);
+  if (rn.stuck || rn.falls || !rn.atCave || rn.stumbles !== obs.length) failed = true;
+
+  // Stumble: slowed a little, carries on.
+  {
+    horse.lastCheckpoint = 1; horse.respawnAtCheckpoint(hero); rideFalls = 0;
+    const o = obs.find((o) => o.s > horse.checkpoints[1].s + 20);
+    const s0 = horse.stumbles;
+    let before = 0, slowest = Infinity, n = null;
+    for (let i = 0; i < 60 * 20; i++) {
+      n = track.nearest(horse.position.x, horse.position.z, 30);
+      if (n.s > o.s + 15) break;
+      const p = track.at(n.s + 14);
+      horse.update(dt, { moveX: steerTo(p.x, p.z), moveY: 1, jumpPressed: false }, cam.yaw, hero);
+      if (horse.stumbles === s0) before = horse.speed;
+      if (horse.stumble > 0) slowest = Math.min(slowest, horse.speed);
+    }
+    const stumbled = horse.stumbles === s0 + 1;
+    console.log(`stumble: ${stumbled ? 'ok' : 'FAILED'} (${before.toFixed(1)} → ${slowest.toFixed(1)}), respawned: ${rideFalls > 0}, carried on past it: ${n.s > o.s}`);
+    if (!stumbled || rideFalls || n.s <= o.s || slowest < before * 0.5) failed = true;
+  }
+
+  // Steering: stick centred → holds its line (no drift off a straight); a tap of steer then
+  // centred → straightens out instead of swinging.
+  {
+    const o = obs[0];
+    horse.lastCheckpoint = 0; horse.respawnAtCheckpoint(hero);
+    for (let i = 0; i < 60 * 3; i++) horse.update(dt, { moveX: 0, moveY: 1, jumpPressed: false }, cam.yaw, hero);
+    const h0 = horse.heading;
+    for (let i = 0; i < 12; i++) horse.update(dt, { moveX: 1, moveY: 1, jumpPressed: false }, cam.yaw, hero);
+    const hTurned = horse.heading;
+    for (let i = 0; i < 60; i++) horse.update(dt, { moveX: 0, moveY: 1, jumpPressed: false }, cam.yaw, hero);
+    const settle = horse.steer;
+    const n = track.nearest(horse.position.x, horse.position.z, 30);
+    console.log(`steering: tap turned ${(wrap(h0 - hTurned) * 57.3).toFixed(1)}°, residual steer after 1 s ${settle.toFixed(3)}, still on trail (off-centre ${n ? n.lateral.toFixed(1) : '?'})`);
+    if (Math.abs(settle) > 0.01 || !n || Math.abs(n.lateral) > TRK.halfWidth) failed = true;
+  }
+
+  // Gallop: hold → ~2x speed while stamina lasts, then it refills (on the first straight).
+  {
+    horse.lastCheckpoint = 0; horse.respawnAtCheckpoint(hero);
+    horse.speed = HC.maxSpeed; horse.stamina = 1;
+    let gTop = 0, steps = 0;
+    const drive = (gallop) => {
+      const n = track.nearest(horse.position.x, horse.position.z, 30) ?? track.nearestGlobal(horse.position.x, horse.position.z);
+      const p = track.at(n.s + 14);
+      horse.update(dt, { moveX: steerTo(p.x, p.z), moveY: 1, jumpPressed: shouldJump(), gallop }, cam.yaw, hero);
+    };
+    while (horse.stamina > 0 && steps++ < 60 * 20) { drive(true); gTop = Math.max(gTop, horse.speed); }
+    drive(true);
+    const drained = horse.stamina === 0 && !horse.galloping;
+    const before = horse.stamina;
+    for (let i = 0; i < 60 * 3; i++) drive(false);
+    const refilled = horse.stamina > before;
+    console.log(`gallop: top speed ${gTop.toFixed(1)} (normal ${HC.maxSpeed}, x${(gTop / HC.maxSpeed).toFixed(2)}), lasted ${(steps * dt).toFixed(1)}s, drained ${drained}, refills ${refilled} (to ${horse.stamina.toFixed(2)} after 3 s)`);
+    if (gTop < HC.maxSpeed * 1.9 || !drained || !refilled) failed = true;
+  }
 
   // Giant cave: entrance ~10x the horse's height, cliffs tower over the arena.
   const archHeight = CONFIG.cave.archRadius;
   const cliffTop = Math.max(...world.cylinders.filter((c) => c.x > CONFIG.cave.cliff.faceX - 1).map((c) => c.top));
   console.log(`cave: entrance height ${archHeight} (= ${(archHeight / HC.height).toFixed(1)}x horse), cliff top ~${cliffTop.toFixed(0)}`);
   if (archHeight < 9 * HC.height || cliffTop < 40) failed = true;
-
-  // Stumble: ride into the first obstacle without jumping → slowed briefly, no respawn, carries on.
-  horse.lastCheckpoint = 1; horse.respawnAtCheckpoint(hero); rideFalls = 0;
-  const o0 = world.obstacles[0];
-  const s0 = horse.stumbles;
-  let slowest = Infinity;
-  for (let i = 0; i < 60 * 4 && horse.position.x < o0.cx + 4; i++) {
-    const dx = o0.cx + o0.dx * 6 - horse.position.x, dz = o0.cz + o0.dz * 6 - horse.position.z;
-    horse.update(dt, { moveX: 0, moveY: 1, jumpPressed: false }, Math.atan2(-dx, -dz), hero);
-    if (horse.stumble > 0) slowest = Math.min(slowest, horse.speed);
-  }
-  const stumbled = horse.stumbles === s0 + 1;
-  console.log(`stumble: ${stumbled ? 'ok' : 'FAILED'} (slowed to ${slowest.toFixed(1)}), respawned: ${rideFalls > 0}, carried on past it: ${horse.position.x > o0.cx}`);
-  if (!stumbled || rideFalls || horse.position.x <= o0.cx) failed = true;
-
-  // Gallop: hold → ~2x speed while stamina lasts, then it refills.
-  // Along the long, straight sand bank (north–south, beside the river) at cruising speed,
-  // then hold Gallop; then keep galloping (circling the arena) until stamina runs out.
-  horse.position.set(-15, world.heightAt(-15, -45), -45); horse.heading = 0; horse.speed = HC.maxSpeed; horse.stamina = 1;
-  let gTop = 0, steps = 0;
-  while (horse.position.z < 50 && horse.stamina > 0.05 && steps++ < 600) {
-    horse.update(dt, { moveX: 0, moveY: 1, jumpPressed: false, gallop: true }, Math.PI, hero);
-    gTop = Math.max(gTop, horse.speed);
-  }
-  horse.position.set(CONFIG.cave.center[0], 0, 8); horse.heading = Math.PI / 2;
-  const pursue = (gallop) => {
-    // Circle the arena so the run never ends at a wall.
-    const [cx, cz] = CONFIG.cave.center, a = Math.atan2(horse.position.z - cz, horse.position.x - cx) + 0.5;
-    const dx = cx + Math.cos(a) * 12 - horse.position.x, dz = cz + Math.sin(a) * 12 - horse.position.z;
-    horse.update(dt, { moveX: 0, moveY: 1, jumpPressed: shouldJump(), gallop }, Math.atan2(-dx, -dz), hero);
-  };
-  while (horse.stamina > 0 && steps++ < 60 * 8) pursue(true);
-  pursue(true);
-  const drained = horse.stamina === 0 && !horse.galloping;
-  const before = horse.stamina;
-  for (let i = 0; i < 60 * 3; i++) pursue(false);
-  const refilled = horse.stamina > before;
-  console.log(`gallop: top speed ${gTop.toFixed(1)} (normal ${HC.maxSpeed}, x${(gTop / HC.maxSpeed).toFixed(2)}), lasted ${(steps * dt).toFixed(1)}s, drained ${drained}, refills ${refilled} (to ${horse.stamina.toFixed(2)} after 3 s)`);
-  if (gTop < HC.maxSpeed * 1.9 || !drained || !refilled) failed = true;
 
   // Dismount, remount.
   horse.toggle(hero);

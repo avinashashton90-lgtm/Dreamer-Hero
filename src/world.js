@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { CONFIG } from './config.js';
+import { Track } from './track.js';
 
 const W = CONFIG.world;
 const Z = CONFIG.zones;
@@ -11,6 +12,7 @@ const CV = CONFIG.cave;
 const SKY = CONFIG.sky;
 const WATER = CONFIG.water;
 const FOL = CONFIG.foliage;
+const TR = CONFIG.track;
 
 const { smoothstep, lerp, clamp } = THREE.MathUtils;
 
@@ -24,67 +26,6 @@ function makeRng(seed) {
   const next = () => (s = (s * 16807) % 2147483647) / 2147483647;
   next.range = (a, b) => a + (b - a) * next();
   return next;
-}
-
-/** Z of the winding ground route (sand bank → river → forest → cave) at a given X. */
-export function pathZ(x) {
-  const wave = W.pathAmplitude * Math.sin(x * W.pathFrequency) + W.pathAmplitude2 * Math.sin(x * W.pathFrequency2 + 1.3);
-  return wave * (1 - smoothstep(x, W.pathStraightenX[0], W.pathStraightenX[1]));
-}
-
-/** dz/dx of the path (numerical). */
-export function pathSlope(x) {
-  return (pathZ(x + 0.5) - pathZ(x - 0.5)) / 1;
-}
-
-/** Unit direction of the path at x, as [dx, dz]. */
-export function pathDir(x) {
-  const sl = pathSlope(x);
-  const l = Math.hypot(1, sl);
-  return [1 / l, sl / l];
-}
-
-/** Side trails off the ride path (see CONFIG.world.spurs): straight segments from the path. */
-export function makeSpurs() {
-  return W.spurs.map((sp) => {
-    const [dx, dz] = pathDir(sp.x);
-    const a = Math.atan2(dz, dx) + sp.side * sp.angle;
-    const x0 = sp.x;
-    const z0 = pathZ(sp.x);
-    const ux = Math.cos(a);
-    const uz = Math.sin(a);
-    return { x0, z0, x1: x0 + ux * sp.length, z1: z0 + uz * sp.length, len: sp.length, ux, uz };
-  });
-}
-
-/** Distance from (x,z) to the nearest side trail (Infinity if none). */
-export function spurDistance(spurs, x, z) {
-  let best = Infinity;
-  for (const s of spurs) {
-    const t = clamp((x - s.x0) * s.ux + (z - s.z0) * s.uz, 0, s.len);
-    best = Math.min(best, Math.hypot(x - (s.x0 + s.ux * t), z - (s.z0 + s.uz * t)));
-  }
-  return best;
-}
-
-/** Obstacles on the ride path, in path order: each spans the path across its direction. */
-export function makeObstacles() {
-  const O = CONFIG.obstacles;
-  const list = [];
-  for (const g of O.groups) {
-    g.xs.forEach((x, i) => {
-      const type = g.types[i % g.types.length];
-      const [dx, dz] = pathDir(x);
-      list.push({ type, ...O.types[type], cx: x, cz: pathZ(x), dx, dz, nx: -dz, nz: dx, halfLength: O.halfLength });
-    });
-  }
-  return list.sort((a, b) => a.cx - b.cx);
-}
-
-/** Approximate perpendicular distance from (x,z) to the path centre line. */
-export function pathDistance(x, z) {
-  const sl = pathSlope(x);
-  return Math.abs(z - pathZ(x)) / Math.sqrt(1 + sl * sl);
 }
 
 export function riverCenterX(z) {
@@ -167,39 +108,55 @@ export function generateLayout(seed = W.seed) {
     fillers.push({ ...b, height, top: height + R.ledge, route: false });
   }
 
-  return { roofs, fillers, branches, townEndX, hazardEndX, spurs: makeSpurs(), obstacles: makeObstacles(), rnd };
+  return { roofs, fillers, branches, townEndX, hazardEndX, rnd };
 }
 
 // ---------------------------------------------------------------------------
 // Terrain height (analytic, so physics never needs a raycast)
 // ---------------------------------------------------------------------------
 
-export function createHeightFn(layout) {
-  const halfD = W.depth / 2;
+/** True inside the original town / swamp region (south of the ridge). */
+export function inSouthRegion(z) {
+  return z < W.ridge.z[0] + 22;
+}
+
+export function createHeightFn(layout, track) {
   const halfW = W.width / 2;
   return function heightAt(x, z) {
-    // Base height per zone, blended across boundaries.
-    const forestH =
+    // Base: gentle forest/meadow hills everywhere...
+    let h =
       Z.forestHillHeight *
       (0.5 + 0.5 * Math.sin(x * Z.forestHillScale) * Math.cos(z * Z.forestHillScale * 1.3));
+    // ...but the original map keeps its zones (sand bank, cave floor, desert behind the cliff).
+    const south = 1 - smoothstep(z, W.ridge.z[0] + 17, W.ridge.z[1]);
+    h = lerp(h, Z.sandHeight, (1 - smoothstep(x, Z.forestStart - 3, Z.forestStart + 3)) * south);
+    h = lerp(h, 0, smoothstep(x, Z.caveStart - 4, Z.caveStart + 4) * (1 - smoothstep(z, 70, 90)));
     const desertH =
       Z.desertDuneHeight * (0.5 + 0.5 * Math.sin(x * Z.desertDuneScale + Math.sin(z * Z.desertDuneScale * 2)));
-    let h = Z.sandHeight;
-    h = lerp(h, forestH, smoothstep(x, Z.forestStart - 3, Z.forestStart + 3));
-    h = lerp(h, 0, smoothstep(x, Z.caveStart - 4, Z.caveStart + 4));
-    h = lerp(h, desertH, smoothstep(x, Z.desertStart - 4, Z.desertStart + 4));
-    h = lerp(0, h, smoothstep(x, layout.hazardEndX - 0.5, layout.hazardEndX + 2));
+    h = lerp(h, desertH, smoothstep(x, Z.desertStart - 4, Z.desertStart + 4) * (1 - smoothstep(z, 100, 115)));
+    // Town streets and swamp are flat at 0.
+    h = lerp(h, 0, (1 - smoothstep(x, layout.hazardEndX - 0.5, layout.hazardEndX + 2)) * south);
 
-    // River channel.
-    // River channel: shallow everywhere, shallower still at the ford on the ride path.
+    // Hills on the ride (a climb, then a long descent).
+    for (const hill of TR.hills) {
+      const d2 = (x - hill.x) ** 2 + (z - hill.z) ** 2;
+      h += hill.height * Math.exp(-d2 / (hill.radius * hill.radius));
+    }
+
+    // River channel: shallow everywhere, shallower still at the ford where the trail crosses.
     const dr = Math.abs(x - riverCenterX(z));
-    const ford = 1 - smoothstep(Math.abs(z - pathZ(x)), Z.fordHalfWidth - 2, Z.fordHalfWidth + 2);
-    h = lerp(lerp(Z.riverBedY, Z.fordBedY, ford), h, smoothstep(dr, Z.riverHalfWidth - 2, Z.riverHalfWidth + 1));
+    if (dr < Z.riverHalfWidth + 1) {
+      const near = track.nearest(x, z, TR.fordReach + 4);
+      const ford = near ? 1 - smoothstep(near.dist, TR.fordReach - 2, TR.fordReach + 2) : 0;
+      h = lerp(lerp(Z.riverBedY, Z.fordBedY, ford), h, smoothstep(dr, Z.riverHalfWidth - 2, Z.riverHalfWidth + 1));
+    }
 
-    // Boundary hills keep the player inside the map.
+    // Boundary hills keep the player inside the map; a ridge closes the swamp off to the north.
     const edge = Math.max(
-      smoothstep(Math.abs(z), W.edgeHillStart, halfD),
+      smoothstep(-z, -(W.zMin + 22), -W.zMin),
+      smoothstep(z, W.zMax - 22, W.zMax),
       smoothstep(Math.abs(x), halfW - 10, halfW),
+      smoothstep(z, W.ridge.z[0], W.ridge.z[0] + 14) * (1 - smoothstep(z, W.ridge.z[1] - 12, W.ridge.z[1])) * (1 - smoothstep(x, W.ridge.x - 6, W.ridge.x + 4)),
     );
     h += edge * W.edgeHillHeight * (0.7 + 0.3 * Math.sin(x * 0.11 + z * 0.07));
 
@@ -216,31 +173,40 @@ export function createHeightFn(layout) {
 // ---------------------------------------------------------------------------
 
 /** Placeholder terrain: one vertex-coloured grid. Keep heightAt() in sync if swapped. */
-export async function loadTerrainModel(heightAt, layout) {
-  const geo = new THREE.PlaneGeometry(W.width, W.depth, W.segmentsX, W.segmentsZ);
+export async function loadTerrainModel(heightAt, layout, track) {
+  const depth = W.zMax - W.zMin;
+  const geo = new THREE.PlaneGeometry(W.width, depth, W.segmentsX, W.segmentsZ);
   geo.rotateX(-Math.PI / 2);
+  geo.translate(0, 0, (W.zMin + W.zMax) / 2);
   const pos = geo.attributes.position;
   const colors = new Float32Array(pos.count * 3);
   const C = Object.fromEntries(Object.entries(W.colors).map(([k, v]) => [k, new THREE.Color(v)]));
+  const dirt = new THREE.Color(TR.dirtColor);
+  const rim = new THREE.Color(TR.rimColor);
   const c = new THREE.Color();
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i);
     const z = pos.getZ(i);
     const y = heightAt(x, z);
     pos.setY(i, y);
-    if (x < layout.townEndX) c.copy(C.street);
-    else if (x < layout.hazardEndX) c.copy(C.swamp);
-    else if (x < Z.forestStart) c.copy(C.sand);
-    else if (x < Z.caveStart) c.copy(C.grass);
-    else if (x < Z.desertStart) c.copy(C.rock);
-    else c.copy(C.desert);
-    // Visible dirt track along the ride path (sand bank → cave).
-    if (x > layout.hazardEndX + 1 && x < Z.caveStart + 3) {
-      const d = Math.min(pathDistance(x, z), spurDistance(layout.spurs, x, z) + 0.6);
-      if (d < W.pathDirtWidth + 1) c.lerp(C.dirt, 1 - smoothstep(d, W.pathDirtWidth - 1, W.pathDirtWidth + 1));
+    const south = inSouthRegion(z);
+    const swampOrTown = south && x < layout.hazardEndX;
+    if (south && x < layout.townEndX) c.copy(C.street);
+    else if (swampOrTown) c.copy(C.swamp);
+    else if (south && x < Z.forestStart) c.copy(C.sand);
+    else if (x >= Z.caveStart && z < 75 && x < Z.desertStart) c.copy(C.rock);
+    else if (x >= Z.desertStart && z < 110) c.copy(C.desert);
+    else c.copy(C.grass);
+    // Sandy banks along the whole river.
+    if (!swampOrTown) c.lerp(C.sand, 1 - smoothstep(Math.abs(x - riverCenterX(z)), Z.riverHalfWidth + 3, Z.riverHalfWidth + 7));
+    if (y > 3 && !swampOrTown) c.lerp(C.rock, smoothstep(y, south ? 3 : 10, south ? 12 : 17)); // boundary hills
+    // The ride trail: dirt with a slightly darker rim.
+    const near = track.nearest(x, z, TR.halfWidth + 3);
+    if (near) {
+      c.lerp(rim, 1 - smoothstep(near.dist, TR.halfWidth + 0.5, TR.halfWidth + 2.5));
+      c.lerp(dirt, 1 - smoothstep(near.dist, TR.halfWidth - 1.5, TR.halfWidth + 0.5));
     }
-    if (y < Z.riverBedY + 0.6 && x >= layout.hazardEndX) c.copy(C.riverBed);
-    if (y > 3 && x < Z.desertStart) c.lerp(C.rock, smoothstep(y, 3, 12)); // boundary hills
+    if (y < Z.riverBedY + 0.6 && !swampOrTown) c.copy(C.riverBed);
     c.offsetHSL(0, 0, Math.sin(x * 1.7 + z * 2.3) * 0.015);
     colors.set([c.r, c.g, c.b], i * 3);
   }
@@ -456,11 +422,12 @@ export async function loadGiantTreeModels(plan) {
 }
 
 /**
- * Placeholder forest trees: three species (conifer, broadleaf, birch), each one merged,
- * vertex-coloured geometry drawn as a single InstancedMesh. Returns per-species meshes and
- * the collider radius / height at scale 1.
+ * Placeholder forest trees: three species (conifer, broadleaf, birch). Each species is a
+ * merged, vertex-coloured trunk + crown; `instance(n)` makes a fresh pair of InstancedMeshes
+ * (solid trunks, fadeable crowns) sharing the geometry — one pair per forest chunk. Also
+ * returns the collider radius / height at scale 1 and the crown's local bounding sphere.
  */
-export async function loadForestTreeModels(counts) {
+export async function loadForestTreeModels() {
   const trunkBrown = 0x5e3d24;
   const species = [
     {
@@ -478,10 +445,10 @@ export async function loadForestTreeModels(counts) {
       // Broadleaf: thick trunk under a lumpy round crown.
       parts: [
         paint(new THREE.CylinderGeometry(0.22, 0.42, 2.6, 7).translate(0, 1.3, 0), 0x6b4a2f),
-        paint(new THREE.IcosahedronGeometry(1.7, 1).translate(0, 3.7, 0), 0x3f8f3a),
-        paint(new THREE.IcosahedronGeometry(1.3, 1).translate(1.15, 3.1, 0.4), 0x4d9e42),
-        paint(new THREE.IcosahedronGeometry(1.25, 1).translate(-0.95, 3.3, -0.6), 0x36803a),
-        paint(new THREE.IcosahedronGeometry(1.05, 1).translate(0.2, 4.7, 0.5), 0x57a84a),
+        paint(new THREE.IcosahedronGeometry(1.7, 0).translate(0, 3.7, 0), 0x3f8f3a),
+        paint(new THREE.IcosahedronGeometry(1.3, 0).translate(1.15, 3.1, 0.4), 0x4d9e42),
+        paint(new THREE.IcosahedronGeometry(1.25, 0).translate(-0.95, 3.3, -0.6), 0x36803a),
+        paint(new THREE.IcosahedronGeometry(1.05, 0).translate(0.2, 4.7, 0.5), 0x57a84a),
       ],
       trunkRadius: 0.42,
       height: 5.3,
@@ -492,9 +459,9 @@ export async function loadForestTreeModels(counts) {
         paint(new THREE.CylinderGeometry(0.11, 0.17, 4.4, 6, 6).translate(0, 2.2, 0), (x, y, z, c) =>
           c.set(Math.sin(y * 6.3 + Math.atan2(z, x) * 2) > 0.75 ? 0x3a3530 : 0xe9e5da),
         ),
-        paint(new THREE.IcosahedronGeometry(1, 1).scale(1, 1.7, 1).translate(0, 4.8, 0), 0x86c25a),
-        paint(new THREE.IcosahedronGeometry(0.75, 1).scale(1, 1.4, 1).translate(0.55, 3.7, 0.2), 0x9bd066),
-        paint(new THREE.IcosahedronGeometry(0.6, 1).scale(1, 1.3, 1).translate(-0.45, 3.5, -0.3), 0x7db851),
+        paint(new THREE.IcosahedronGeometry(1, 0).scale(1, 1.7, 1).translate(0, 4.8, 0), 0x86c25a),
+        paint(new THREE.IcosahedronGeometry(0.75, 0).scale(1, 1.4, 1).translate(0.55, 3.7, 0.2), 0x9bd066),
+        paint(new THREE.IcosahedronGeometry(0.6, 0).scale(1, 1.3, 1).translate(-0.45, 3.5, -0.3), 0x7db851),
       ],
       trunkRadius: 0.18,
       height: 6.4,
@@ -503,21 +470,73 @@ export async function loadForestTreeModels(counts) {
   // Trunks stay solid; crowns use the fade material so they can get out of the camera's way.
   const trunkMat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
   const crownMat = makeFadeMaterial({ vertexColors: true, flatShading: true });
-  return species.map((sp, i) => {
-    const n = Math.max(1, counts[i]);
+  return species.map((sp) => {
+    const trunkGeo = sp.parts[0];
     const crownGeo = mergeGeometries(sp.parts.slice(1));
     crownGeo.computeBoundingSphere();
-    addFadeAttribute(crownGeo, n);
-    const crown = new THREE.InstancedMesh(crownGeo, crownMat, n);
-    crown.renderOrder = 10;
     return {
-      trunks: new THREE.InstancedMesh(sp.parts[0], trunkMat, n),
-      crowns: crown,
       crownSphere: crownGeo.boundingSphere, // local bounds, for fade + camera collision
       trunkRadius: sp.trunkRadius,
       height: sp.height,
+      instance(n) {
+        const geo = crownGeo.clone(); // own per-instance fade attribute
+        addFadeAttribute(geo, n);
+        const crowns = new THREE.InstancedMesh(geo, crownMat, n);
+        crowns.renderOrder = 10;
+        return { trunks: new THREE.InstancedMesh(trunkGeo, trunkMat, n), crowns };
+      },
     };
   });
+}
+
+/** Placeholder trail edge: round bushes and low boulders (instanced, tinted per instance). */
+export async function loadTrackEdgeModels(bushCount, boulderCount) {
+  const bushes = new THREE.InstancedMesh(
+    new THREE.IcosahedronGeometry(1, 0),
+    new THREE.MeshLambertMaterial({ color: 0xffffff, flatShading: true }),
+    Math.max(1, bushCount),
+  );
+  const boulders = new THREE.InstancedMesh(
+    new THREE.DodecahedronGeometry(1, 0),
+    new THREE.MeshLambertMaterial({ color: 0x8f8a82, flatShading: true }),
+    Math.max(1, boulderCount),
+  );
+  bushes.count = bushCount;
+  boulders.count = boulderCount;
+  return { bushes, boulders };
+}
+
+/**
+ * Obstacles along the track: for each target fraction, the straightest nearby spot with a
+ * dry, straight run-up and run-out and no other obstacle within reach. Each spans the trail.
+ */
+export function placeObstacles(track, heightAt) {
+  const O = CONFIG.obstacles;
+  const L = track.length;
+  const list = [];
+  const wet = (s0, s1) => {
+    for (let s = s0; s <= s1; s += 2) {
+      const p = track.at(s);
+      if (heightAt(p.x, p.z) < Z.waterY + 0.3) return true;
+    }
+    return false;
+  };
+  O.at.forEach((frac, i) => {
+    let best = null;
+    for (let s = (frac - O.search) * L; s <= (frac + O.search) * L; s += 2) {
+      if (s - O.runUp < 30 || s + O.runOut > L - CONFIG.obstacles.arenaClear) continue;
+      if (list.some((o) => s > o.s - O.runUp - O.runOut && s < o.s + O.runUp + O.runOut)) continue;
+      const k = track.maxCurvature(s - O.straightBefore, s + O.straightAfter);
+      if (k > O.maxCurvature || wet(s - O.runUp, s + O.runOut)) continue;
+      const score = k + Math.abs(s - frac * L) * 1e-5; // straightest, then closest to target
+      if (!best || score < best.score) best = { s, score };
+    }
+    if (!best) return; // no fair spot near this fraction: skip it rather than force a bad one
+    const type = i === O.wallIndex ? 'wall' : 'log';
+    const p = track.at(best.s);
+    list.push({ type, ...O.types[type], s: best.s, cx: p.x, cz: p.z, dx: p.tx, dz: p.tz, nx: -p.tz, nz: p.tx, halfLength: O.halfLength });
+  });
+  return list.sort((a, b) => a.s - b.s);
 }
 
 /** Placeholder cave mouth: a dark half-round opening framed by a rough stone arch, facing -X. */
@@ -681,11 +700,12 @@ function makeClouds(rnd) {
     new THREE.MeshLambertMaterial({ color: 0xffffff, emissive: 0x9aa6b8, flatShading: true, fog: false }),
     SKY.cloudCount * 3,
   );
+  mesh.frustumCulled = false;
   const m = new THREE.Matrix4();
   let k = 0;
   for (let i = 0; i < SKY.cloudCount; i++) {
     const cx = rnd.range(-W.width * 0.7, W.width * 0.7);
-    const cz = rnd.range(-W.depth * 0.8, W.depth * 0.8);
+    const cz = rnd.range(W.zMin - 40, W.zMax + 40);
     const cy = rnd.range(SKY.cloudHeight[0], SKY.cloudHeight[1]);
     for (let j = 0; j < 3; j++) {
       const s = rnd.range(4, 8);
@@ -768,7 +788,8 @@ export class World {
     this.scene.background = new THREE.Color(SKY.horizon);
     this.scene.fog = new THREE.Fog(SKY.horizon, W.fogNear, W.fogFar);
     this.layout = generateLayout();
-    this.heightAt = createHeightFn(this.layout);
+    this.track = new Track();
+    this.heightAt = createHeightFn(this.layout, this.track);
 
     // Colliders. boxes: buildings (standable tops + walls). beams: horizontal branches
     // (standable flat top + sides). cylinders: solid round obstacles (trunks, rocks).
@@ -794,13 +815,14 @@ export class World {
     this.sky = makeSky();
     this.scene.add(this.sky, makeClouds(rnd));
 
-    this.terrain = await loadTerrainModel(this.heightAt, layout);
+    this.terrain = await loadTerrainModel(this.heightAt, layout, this.track);
     this.scene.add(this.terrain);
 
     this.#buildWater();
     await this.#buildTown();
     await this.#buildGiantTrees(rnd);
     await this.#buildForest(rnd);
+    await this.#buildTrackEdges(rnd);
     await this.#buildObstacles();
     await this.#buildCave(rnd);
   }
@@ -824,8 +846,10 @@ export class World {
     for (const set of this.foliageSets) this.#fadeSet(set, dt, cameraPos, focus);
   }
 
-  #fadeSet({ mesh, items }, dt, cameraPos, focus) {
+  #fadeSet({ mesh, items, bounds }, dt, cameraPos, focus) {
     const attr = mesh.geometry.attributes.instanceFade;
+    // Whole chunk far away (and nothing in it faded): nothing to do.
+    if (bounds && !mesh.userData.anyFaded && bounds.center.distanceTo(focus) > bounds.radius + FOL.activeRange) return;
     const fade = attr.array;
     const k = 1 - Math.exp(-FOL.fadeSpeed * dt);
     const sx = cameraPos.x - focus.x;
@@ -874,22 +898,25 @@ export class World {
       }
     }
     if (changed) attr.needsUpdate = true;
+    if (bounds) mesh.userData.anyFaded = changed || items.some((_, i) => attr.array[i] < 1);
   }
 
   // --- Queries used by the hero ---
 
   /** Ground type at (x,z): 'swamp' | 'water' | 'sand' | 'dirt' | 'grass' | 'rock'. */
   surfaceAt(x, z) {
-    if (x < this.layout.hazardEndX) return 'swamp';
+    if (this.isHazard(x, z)) return 'swamp';
     if (this.heightAt(x, z) < Z.waterY) return 'water';
-    if (x < Z.caveStart && x > Z.forestStart && pathDistance(x, z) < W.pathDirtWidth) return 'dirt';
-    if (x < Z.forestStart || x >= Z.desertStart) return 'sand';
-    return x < Z.caveStart ? 'grass' : 'rock';
+    if (this.track.distance(x, z, TR.halfWidth + 1) < TR.halfWidth) return 'dirt';
+    if (Math.abs(x - riverCenterX(z)) < Z.riverHalfWidth + 5) return 'sand';
+    if (inSouthRegion(z) && x < Z.forestStart) return 'sand';
+    if (x >= Z.desertStart && z < 110) return 'sand';
+    return x >= Z.caveStart && z < 75 ? 'rock' : 'grass';
   }
 
   /** True where touching the terrain means a fall (town streets, swamp under the trees). */
-  isHazard(x) {
-    return x < this.layout.hazardEndX;
+  isHazard(x, z) {
+    return x < this.layout.hazardEndX && inSouthRegion(z);
   }
 
   /**
@@ -977,8 +1004,9 @@ export class World {
   // --- Builders ---
 
   #buildWater() {
-    const geo = new THREE.PlaneGeometry(Z.riverHalfWidth * 2 + 4, W.depth, 6, 80);
+    const geo = new THREE.PlaneGeometry(Z.riverHalfWidth * 2 + 4, W.zMax - W.zMin, 6, 200);
     geo.rotateX(-Math.PI / 2);
+    geo.translate(0, 0, (W.zMin + W.zMax) / 2);
     const pos = geo.attributes.position;
     for (let i = 0; i < pos.count; i++) pos.setX(i, pos.getX(i) + riverCenterX(pos.getZ(i)));
     geo.computeVertexNormals();
@@ -989,10 +1017,10 @@ export class World {
     const { townEndX, hazardEndX } = this.layout;
     const swampW = hazardEndX - townEndX;
     const swamp = new THREE.Mesh(
-      new THREE.PlaneGeometry(swampW, W.depth).rotateX(-Math.PI / 2),
+      new THREE.PlaneGeometry(swampW, W.ridge.z[0] + 10 - W.zMin).rotateX(-Math.PI / 2),
       makeWater(WATER.swampColor, WATER.swampOpacity),
     );
-    swamp.position.set(townEndX + swampW / 2, 0.05, 0);
+    swamp.position.set(townEndX + swampW / 2, 0.05, (W.ridge.z[0] + 10 + W.zMin) / 2);
     this.scene.add(swamp);
   }
 
@@ -1133,86 +1161,145 @@ export class World {
     });
   }
 
-  /** Dense forest hugging the winding path, plus edge trees: three species, varied size and tint. */
-  async #buildForest(rnd) {
-    const halfD = W.depth / 2 - 4;
-    const picks = [];
-    const weights = F.speciesWeights;
+  /** May a tree (scale k) stand here? Off the trail, river, arena, cliffs, swamp and town. */
+  #treeSpot(x, z, k) {
+    const hw = W.width / 2 - 6;
+    if (x < -hw || x > hw || z < W.zMin + 8 || z > W.zMax - 8) return false;
+    if (inSouthRegion(z) && x < this.layout.hazardEndX + 3) return false;
+    if (Math.abs(x - riverCenterX(z)) < Z.riverHalfWidth + 2.5) return false;
     const [cx, cz] = CV.center;
+    if (Math.hypot(x - cx, z - cz) < CV.radius + 6) return false;
+    if (x > CV.cliff.faceX - 8 && z < 120) return false;
+    if (Math.hypot(x - CONFIG.horse.position[0], z - CONFIG.horse.position[1]) < 8) return false;
+    const keep = TR.halfWidth + TR.edge.offset + F.trailClearance + 1.2 * k;
+    return this.track.distance(x, z, keep + 1) > keep;
+  }
+
+  /** Dense forest along both sides of the trail plus a scattering everywhere else. */
+  async #buildForest(rnd) {
+    const picks = [];
+    const taken = new Set();
+    const weights = F.speciesWeights;
     const pickSpecies = () => {
       let r = rnd() * weights.reduce((a, b) => a + b, 0);
       for (let i = 0; i < weights.length; i++) if ((r -= weights[i]) <= 0) return i;
       return 0;
     };
-    const clear = (x, z, k) =>
-      pathDistance(x, z) > W.pathHalfWidth + 1.6 * k &&
-      spurDistance(this.layout.spurs, x, z) > W.spurHalfWidth + 1.2 * k &&
-      Math.abs(x - riverCenterX(z)) > Z.riverHalfWidth + 2 &&
-      Math.hypot(x - CONFIG.horse.position[0], z - CONFIG.horse.position[1]) > 8 &&
-      Math.hypot(x - cx, z - cz) > CV.radius + 4 &&
-      !picks.some((p) => Math.abs(p.x - x) < 1.8 && Math.abs(p.z - z) < 1.8);
     const tryPlace = (x, z) => {
       const k = rnd.range(F.scaleMin, F.scaleMax);
-      if (clear(x, z, k)) picks.push({ x, z, k, species: pickSpecies() });
+      const cell = `${Math.round(x / 1.8)},${Math.round(z / 1.8)}`; // trunks never overlap
+      if (taken.has(cell) || !this.#treeSpot(x, z, k)) return;
+      taken.add(cell);
+      picks.push({ x, z, k, species: pickSpecies() });
     };
-
-    // Dense band along both sides of the path...
-    for (let tries = 0; picks.length < F.count && tries < F.count * 20; tries++) {
-      const x = rnd.range(Z.forestStart + 2, Z.caveStart - 2);
-      tryPlace(x, pathZ(x) + (rnd() < 0.5 ? -1 : 1) * rnd.range(W.pathHalfWidth, F.nearPathBand));
+    const { track } = this;
+    const edge = TR.halfWidth + TR.edge.offset + F.trailClearance;
+    // A dense band either side of the trail...
+    for (let tries = 0; picks.length < F.count && tries < F.count * 12; tries++) {
+      const p = track.at(rnd() * track.length);
+      const lat = (rnd() < 0.5 ? -1 : 1) * (edge + 1.5 + rnd() ** 1.5 * F.nearPathBand);
+      tryPlace(p.x - p.tz * lat, p.z + p.tx * lat);
     }
-    // ...a scattering farther out...
-    const withFar = picks.length + F.farCount;
-    for (let tries = 0; picks.length < withFar && tries < F.farCount * 20; tries++) {
-      tryPlace(rnd.range(Z.forestStart + 2, Z.caveStart - 3), rnd.range(-halfD, halfD));
-    }
-    // ...and trees along the sand bank and desert edges to frame the map.
-    const total = picks.length + F.edgeCount;
-    for (let tries = 0; picks.length < total && tries < F.edgeCount * 20; tries++) {
-      const x = rnd.range(this.layout.hazardEndX + 4, W.width / 2 - 6);
-      if (x > Z.caveStart - 2 && x < Z.desertStart + 2) continue;
-      tryPlace(x, (rnd() < 0.5 ? -1 : 1) * rnd.range(W.edgeHillStart - 22, W.edgeHillStart));
+    // ...and a scattering everywhere else.
+    const total = picks.length + F.farCount;
+    for (let tries = 0; picks.length < total && tries < F.farCount * 20; tries++) {
+      tryPlace(rnd.range(-W.width / 2, W.width / 2), rnd.range(W.zMin, W.zMax));
     }
 
-    const counts = [0, 1, 2].map((i) => picks.filter((p) => p.species === i).length);
-    const species = await loadForestTreeModels(counts);
-    const used = [0, 0, 0];
-    const items = [[], [], []];
+    // Instanced per chunk (so off-screen chunks are frustum-culled) and per species.
+    const chunks = new Map();
+    for (const t of picks) {
+      const key = `${Math.floor(t.x / F.chunkSize)},${Math.floor(t.z / F.chunkSize)}`;
+      if (!chunks.has(key)) chunks.set(key, []);
+      chunks.get(key).push(t);
+    }
+    const species = await loadForestTreeModels();
     const m = new THREE.Matrix4();
     const q = new THREE.Quaternion();
     const s = new THREE.Vector3();
     const p = new THREE.Vector3();
     const c = new THREE.Vector3();
     const tint = new THREE.Color();
-    for (const t of picks) {
-      const sp = species[t.species];
-      const y = this.heightAt(t.x, t.z);
-      const stretch = rnd.range(0.85, 1.2);
-      q.setFromAxisAngle(THREE.Object3D.DEFAULT_UP, rnd() * Math.PI * 2);
-      m.compose(p.set(t.x, y - 0.1, t.z), q, s.set(t.k, t.k * stretch, t.k));
-      const i = used[t.species]++;
-      sp.trunks.setMatrixAt(i, m);
-      sp.crowns.setMatrixAt(i, m);
-      const b = 1 + rnd.range(-F.tintVariation, F.tintVariation);
-      tint.setRGB(b * rnd.range(0.94, 1.04), b, b * rnd.range(0.92, 1.02));
-      sp.trunks.setColorAt(i, tint);
-      sp.crowns.setColorAt(i, tint);
-      c.copy(sp.crownSphere.center).applyMatrix4(m);
-      items[t.species][i] = { x: c.x, y: c.y, z: c.z, r: sp.crownSphere.radius * t.k * Math.max(1, stretch) };
-      this.cylinders.push({ x: t.x, z: t.z, r: sp.trunkRadius * t.k, top: y + sp.height * t.k * stretch, bottom: y - 1 });
+    for (const list of chunks.values()) {
+      species.forEach((sp, si) => {
+        const trees = list.filter((t) => t.species === si);
+        if (!trees.length) return;
+        const { trunks, crowns } = sp.instance(trees.length);
+        const items = [];
+        trees.forEach((t, i) => {
+          const y = this.heightAt(t.x, t.z);
+          const stretch = rnd.range(0.85, 1.2);
+          q.setFromAxisAngle(THREE.Object3D.DEFAULT_UP, rnd() * Math.PI * 2);
+          m.compose(p.set(t.x, y - 0.1, t.z), q, s.set(t.k, t.k * stretch, t.k));
+          trunks.setMatrixAt(i, m);
+          crowns.setMatrixAt(i, m);
+          const b = 1 + rnd.range(-F.tintVariation, F.tintVariation);
+          tint.setRGB(b * rnd.range(0.94, 1.04), b, b * rnd.range(0.92, 1.02));
+          trunks.setColorAt(i, tint);
+          crowns.setColorAt(i, tint);
+          c.copy(sp.crownSphere.center).applyMatrix4(m);
+          items.push({ x: c.x, y: c.y, z: c.z, r: sp.crownSphere.radius * t.k * Math.max(1, stretch) });
+          this.cylinders.push({ x: t.x, z: t.z, r: sp.trunkRadius * t.k, top: y + sp.height * t.k * stretch, bottom: y - 1 });
+        });
+        trunks.computeBoundingSphere();
+        crowns.computeBoundingSphere();
+        this.scene.add(trunks, crowns);
+        this.foliageSets.push({ mesh: crowns, items, bounds: crowns.boundingSphere });
+      });
     }
-    species.forEach((sp, i) => {
-      sp.trunks.count = sp.crowns.count = used[i];
-      this.scene.add(sp.trunks, sp.crowns);
-      this.foliageSets.push({ mesh: sp.crowns, items: items[i] });
-    });
+    this.treeCount = picks.length;
+  }
+
+  /** A soft fence of bushes and boulders just outside both trail edges (no colliders). */
+  async #buildTrackEdges(rnd) {
+    const E = TR.edge;
+    const { track } = this;
+    const spots = [];
+    for (let sAlong = 3; sAlong < track.length - 6; sAlong += E.spacing) {
+      for (const side of [-1, 1]) {
+        if (rnd() < E.gapChance) continue;
+        const sj = sAlong + rnd.range(-1, 1);
+        const p = track.at(sj);
+        const lat = side * (TR.halfWidth + E.offset + rnd.range(-0.3, 0.5));
+        const x = p.x - p.tz * lat;
+        const z = p.z + p.tx * lat;
+        if (this.heightAt(x, z) < Z.waterY + 0.15) continue; // not in the ford
+        if (track.distance(x, z, TR.halfWidth + 1) < TR.halfWidth + 0.8) continue; // inside of bends
+        spots.push({ x, z, boulder: rnd() < E.boulderShare });
+      }
+    }
+    const { bushes, boulders } = await loadTrackEdgeModels(spots.filter((t) => !t.boulder).length, spots.filter((t) => t.boulder).length);
+    const m = new THREE.Matrix4();
+    const q = new THREE.Quaternion();
+    const s = new THREE.Vector3();
+    const p = new THREE.Vector3();
+    const col = new THREE.Color();
+    let nb = 0;
+    let nr = 0;
+    for (const t of spots) {
+      const y = this.heightAt(t.x, t.z);
+      q.setFromAxisAngle(THREE.Object3D.DEFAULT_UP, rnd() * Math.PI * 2);
+      if (t.boulder) {
+        const k = rnd.range(...E.boulderSize);
+        boulders.setMatrixAt(nr, m.compose(p.set(t.x, y + k * 0.35, t.z), q, s.set(k * 1.3, k, k * 1.1)));
+        boulders.setColorAt(nr++, col.setScalar(0.85 + rnd() * 0.3));
+      } else {
+        const k = rnd.range(...E.bushSize);
+        bushes.setMatrixAt(nb, m.compose(p.set(t.x, y + k * 0.45, t.z), q, s.set(k * 1.2, k * 0.85, k * 1.2)));
+        bushes.setColorAt(nb++, col.setHex([0x3d8a3a, 0x4e9d43, 0x356f33][Math.floor(rnd() * 3)]));
+      }
+    }
+    bushes.computeBoundingSphere();
+    boulders.computeBoundingSphere();
+    this.scene.add(bushes, boulders);
+    this.edgeCount = spots.length;
   }
 
   /** Ride obstacles: solid (walkable top) for the hero on foot; the horse jumps them. */
   async #buildObstacles() {
-    this.obstacles = this.layout.obstacles;
+    this.obstacles = placeObstacles(this.track, this.heightAt);
     for (const o of this.obstacles) {
-      o.base = this.heightAt(o.cx, o.cz);
+      o.base = Math.min(this.heightAt(o.cx - o.nx * 2, o.cz - o.nz * 2), this.heightAt(o.cx, o.cz), this.heightAt(o.cx + o.nx * 2, o.cz + o.nz * 2));
       o.top = o.base + o.height;
       const hw = o.depth / 2;
       const beam = makeBeam(o.cx - o.nx * o.halfLength, o.cz - o.nz * o.halfLength, o.cx + o.nx * o.halfLength, o.cz + o.nz * o.halfLength, o.top, hw, hw);
