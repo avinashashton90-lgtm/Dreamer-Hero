@@ -394,7 +394,10 @@ export class Input {
       b.classList.toggle('cooling', cd > 0);
       if (name === 'flashMode') {
         b.querySelector('.energy i').style.transform = `scaleX(${ab.energy.toFixed(3)})`;
-        b.classList.toggle('ready', ab.flashReady);
+        const why = ab.flashBlockReason();
+        b.classList.toggle('ready', !why);
+        b.classList.toggle('blocked', why === 'health' || why === 'gems'); // greyed: can't pay
+        b.classList.toggle('reloading', why === 'reload');
         b.classList.toggle('active', ab.charging > 0 || ab.armed);
       }
     }

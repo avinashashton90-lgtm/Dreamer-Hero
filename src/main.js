@@ -64,6 +64,10 @@ async function boot() {
   const abilities = new Abilities(hero, world.scene, world, combat);
   await abilities.init();
   combat.abilities = abilities;
+  abilities.onEvent = (name, why) => {
+    if (name === 'flashBlocked') ui.toast(why === 'health' ? DIALOGUE.notEnoughHealth : why === 'gems' ? DIALOGUE.notEnoughGems : DIALOGUE.flashReloading);
+    if (name === 'paralyzed') sound.play('paralyze');
+  };
   let damageHero = () => false; // defined below (needs the state machine)
   const boss = new Boss(world.scene, world, {
     onHitHero: (hearts, x, z, opts) => damageHero(hearts, x, z, opts),
@@ -76,12 +80,11 @@ async function boot() {
   const girl = new Girl(world.scene, boss.girl);
   await girl.init();
   const lives = new Lives({ onChange: (l) => ui.setLives(l.hearts, l.maxHearts, l.respawns, CONFIG.lives.respawns) });
+  abilities.lives = lives; // ...and 30% of the hearts
 
   const gems = new Gems(world.scene, world, {
-    onCollect: (color) => {
-      ui.setGems(gems.counts, CONFIG.gems.needed);
-      if (color === 'pink') abilities.addFlashEnergy(CONFIG.abilities.flashMode.perPinkGem);
-    },
+    onCollect: () => ui.setGems(gems.counts, CONFIG.gems.needed),
+    onSpend: () => ui.setGems(gems.counts, CONFIG.gems.needed),
     onUnlock: (color, ability) => {
       abilities.unlock(ability);
       ui.pulseGem(color);
@@ -91,6 +94,7 @@ async function boot() {
   });
   await gems.init();
   ui.setGems(gems.counts, CONFIG.gems.needed);
+  abilities.gems = gems; // Flash Mode costs 5 pink gems...
   const guide = new JumpGuide(world.scene, world);
   await guide.init();
 

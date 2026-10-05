@@ -148,7 +148,6 @@ export class Combat {
     const dealt = target.takeHit({ amount, dirX, dirZ, knockback, heavy, flash, source });
     if (!dealt) return 0;
     this.hits++;
-    if (source === 'melee') this.abilities?.addFlashEnergy(FM.perHit);
     const shake = flash ? CB.shake.flash : heavy ? CB.shake.heavy : CB.shake.light;
     const hitStop = flash ? CB.flashHitStop : heavy ? CB.hitStop : 0;
     const position = target.position.clone();

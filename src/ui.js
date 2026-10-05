@@ -170,7 +170,8 @@ export class UI {
     if (this.livesKey === key) return;
     const lost = this.livesKey && hearts < Number(this.livesKey.split('/')[0]);
     this.livesKey = key;
-    this.heartsEl.innerHTML = Array.from({ length: maxHearts }, (_, i) => `<i class="${i < hearts ? '' : 'empty'}">♥</i>`).join('');
+    // Whole, half and empty hearts.
+    this.heartsEl.innerHTML = Array.from({ length: maxHearts }, (_, i) => `<i class="${hearts >= i + 1 ? '' : hearts >= i + 0.5 ? 'half' : 'empty'}">♥</i>`).join('');
     this.livesEl.innerHTML = Array.from({ length: maxRespawns }, (_, i) => `<i class="${i < respawns ? '' : 'used'}"></i>`).join('');
     if (lost) {
       this.heartsEl.classList.remove('hit');

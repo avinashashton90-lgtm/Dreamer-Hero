@@ -239,13 +239,38 @@ export const CONFIG = {
       size: 0.35, spin: 22, height: 1.2,
       color: 0xffd23f,
     },
+    // Smoke Bomb: a green powder cloud with twinkling crystal sparks (additive particles, no lights).
     smokeBomb: {
       throwRange: 8, flightTime: 0.6, arcHeight: 2.5, radius: 4, duration: 6,
-      exposure: 1, paralyze: 10, cooldown: 15, puffs: 14, color: 0xc9c4d6, opacity: 0.55,
+      exposure: 1, paralyze: 10, cooldown: 15,
+      puffs: 16,             // powder puffs per layer...
+      layers: [              // ...soft layered powder: [radius scale, puff size, opacity, colour]
+        [0.55, 1.5, 0.13, 0x2c9a46],
+        [0.85, 1.25, 0.1, 0x45bf62],
+        [1.05, 0.9, 0.07, 0x7fe394],
+      ],
+      powderGlow: 0x1d5e2c,  // the powder's own faint green glow
+      sparks: 22,            // glittering crystal sparks floating in each cloud
+      sparkSize: 0.09,
+      sparkColor: 0xe8ffe8,
+      sparkTwinkle: 9,       // twinkle speed
+      maxClouds: 2,
+      // A beast inside: powder streams into its mouth, chest heaves, a green glow builds.
+      stream: { rate: 45, life: 0.7, size: 0.16, max: 70, color: 0x7cf08e },
+      glow: { color: 0x3fdc66, size: 1.35, opacity: 0.32, fade: 0.6 },
+      burst: { count: 26, speed: 6, life: 0.7 }, // crystal sparks popping off at paralysis
+      tint: [0.04, 0.24, 0.08], // emissive green tint while paralyzed
+      ring: { radius: 1.25, width: 0.14, color: 0x6dff8a, opacity: 0.8 }, // timer ring under it
+      heave: 0.07,           // chest heave while inhaling
     },
+    // Flash Mode costs 5 pink gems and 30% of the hero's hearts (never lethal) and needs a
+    // full bar, which then reloads over flashReloadSeconds.
     flashMode: {
-      perHit: 0.1,           // energy per landed hit...
-      perPinkGem: 0.15,      // ...and per pink gem
+      gemCost: 5,            // pink gems spent per use
+      flashHeartCostPct: 0.3, // of max hearts (1.5 of 5); usable only with more hearts than this
+      flashReloadSeconds: 45, // the bar refills over this long after use
+      hurtFlicker: 0.45,     // red flicker on the hero when he pays the cost
+      hurtColor: 0xff2a2a,
       chargeTime: 1,         // gold glow charge-up before the punch is armed
       damageFraction: 0.5,   // of the target's max HP
       knockback: 12,
@@ -723,6 +748,9 @@ export const DIALOGUE = {
   gemNames: { yellow: 'Yellow', blue: 'Blue', pink: 'Pink' },
   abilityNames: { batarang: 'Batarang', smokeBomb: 'Smoke Bomb', flashMode: 'Flash Mode' },
   unlocked: (ability) => `${ability} Unlocked!`,
+  notEnoughHealth: 'Not enough health',
+  notEnoughGems: 'Need 5 pink gems',
+  flashReloading: 'Flash is recharging',
   gallop: 'Gallop',
   objectiveComplete: 'Objective complete!',
   distanceUnit: 'm',

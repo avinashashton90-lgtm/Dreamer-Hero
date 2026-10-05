@@ -247,7 +247,7 @@ for (const at of ['second line, mid-typewriter', 'first line']) {
     lives: lives.hearts === CONFIG.lives.hearts && lives.respawns === CONFIG.lives.respawns && lives.deaths === 0 && !lives.dead,
     boss: boss.hp === boss.maxHp && boss.state === BOSS_STATES.GUARD && !boss.defeated && !boss.girlTaken && !boss.girl.visible,
     girl: girl.frightened && !girl.riding && !girl.hinting,
-    abilities: abilities.unlocked.size === 0 && abilities.energy === 0 && !abilities.batarangOut && !abilities.armed,
+    abilities: abilities.unlocked.size === 0 && abilities.energy === 1 && !abilities.batarangOut && !abilities.armed,
     combat: combat.step === -1,
     quests: quests.index === 0,
     horse: horse.mode === 'idle' && !horse.everMounted && !horse.passenger && !horse.hold && horse.route === world.track && Math.hypot(horse.position.x - hx, horse.position.z - hz) < 0.01,

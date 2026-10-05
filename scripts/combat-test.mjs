@@ -9,6 +9,7 @@ import { Horse } from '../src/horse.js';
 import { Combat } from '../src/combat.js';
 import { Abilities } from '../src/abilities.js';
 import { Lives } from '../src/lives.js';
+import { Gems } from '../src/gems.js';
 
 const world = new World(); await world.init();
 const scene = world.scene;
@@ -166,44 +167,108 @@ const faceDummy = (d = 1.5, angle = 0) => {
   faceDummy(5);
   check(abilities.use('smokeBomb'), 'smoke bomb thrown');
   check(!abilities.use('smokeBomb'), 'smoke bomb on cooldown');
-  let parAt = -1, t = 0;
-  while (t < 4 && parAt < 0) { step(1); t += dt; if (dummy.paralyzed > 0) parAt = t; }
+  let parAt = -1, t = 0, maxStream = 0, glowRising = [], sparksBefore = 0, sparksAt = 0, puffColors = new Set();
+  const live = (list) => list.filter((p) => p.age < p.life).length;
+  while (t < 4 && parAt < 0) {
+    sparksBefore = live(abilities.sparkList);
+    step(1); t += dt;
+    maxStream = Math.max(maxStream, live(abilities.streamList));
+    const fx = abilities.fx.get(dummy);
+    if (fx && dummy.smokeExposure > 0) glowRising.push(fx.level);
+    for (let i = 0; i < abilities.puffs.count; i++) { const c = new THREE.Color(); abilities.puffs.getColorAt(i, c); puffColors.add(c.g > c.r && c.g > c.b ? 'green' : 'other'); }
+    if (dummy.paralyzed > 0) { parAt = t; sparksAt = live(abilities.sparkList); }
+  }
+  const rising = glowRising.length > 10 && glowRising.every((v, i) => i === 0 || v >= glowRising[i - 1] - 1e-9) && glowRising[glowRising.length - 1] > 0.9;
+  check(puffColors.has('green') && !puffColors.has('other'), 'smoke cloud is green powder (layered additive puffs)');
+  check(abilities.sparkList.length >= AB.smokeBomb.sparks, `crystal sparks twinkling in the cloud (${abilities.sparkList.length})`);
+  check(maxStream > 10 && rising, `inhaling: powder streams into its mouth (${maxStream} bits), green glow builds over the exposure (→ ${glowRising[glowRising.length - 1]?.toFixed(2)})`);
+  check(sparksAt - sparksBefore >= AB.smokeBomb.burst.count * 0.8 && abilities.stats.bursts === 1, `burst of crystal sparks at the moment of paralysis (+${sparksAt - sparksBefore})`);
+  {
+    const fx = abilities.fx.get(dummy);
+    const f0 = fx.ringFrac;
+    step(secs(2));
+    check(fx.ring.visible && f0 > 0.99 && Math.abs(fx.ringFrac - (1 - 2 / AB.smokeBomb.paralyze)) < 0.02 && fx.glow.visible, `green timer ring under it counts down (${f0.toFixed(2)} → ${fx.ringFrac.toFixed(2)} after 2 s)`);
+  }
   const expect = AB.throw.release + AB.smokeBomb.flightTime + AB.smokeBomb.exposure;
   check(abilities.lastSpawn?.name === 'smokeBomb' && abilities.lastSpawn.position.distanceTo(abilities.lastSpawn.hand) < 0.01, 'smoke bomb thrown from the hand at release');
   check(parAt > 0 && Math.abs(parAt - expect) < 0.1, `paralyzed after ${parAt.toFixed(2)}s (release ${AB.throw.release} + flight ${AB.smokeBomb.flightTime} + exposure ${AB.smokeBomb.exposure})`);
-  const p0 = dummy.paralyzed;
-  step(secs(AB.smokeBomb.paralyze - 0.5));
+  const p0 = AB.smokeBomb.paralyze; // (2 s of it already watched above)
+  step(secs(AB.smokeBomb.paralyze - 2 - 0.5));
   const still = dummy.paralyzed > 0;
-  step(secs(1));
-  check(p0 > AB.smokeBomb.paralyze - 0.1 && still && dummy.paralyzed === 0, `paralysis lasts ${AB.smokeBomb.paralyze}s then expires (now ${dummy.paralyzed})`);
+  let tEnd = 0;
+  while (dummy.paralyzed > 0 && tEnd < 2) { step(1); tEnd += dt; }
+  check(still && dummy.paralyzed === 0 && Math.abs(2 + (AB.smokeBomb.paralyze - 2 - 0.5) + tEnd - AB.smokeBomb.paralyze) < 0.05, `paralysis lasts ${AB.smokeBomb.paralyze}s then expires`);
+  // The fading glow after it ends.
+  const fx = abilities.fx.get(dummy);
+  const glowEnd = fx.level;
+  step(secs(AB.smokeBomb.glow.fade) + 2);
+  check(glowEnd > 0.5 && fx.level === 0 && !fx.glow.visible && !fx.ring.visible, `glow fades softly after paralysis (${glowEnd.toFixed(2)} → ${fx.level})`);
   check(abilities.clouds.length === 0, 'smoke cloud gone after its duration');
   step(secs(AB.smokeBomb.cooldown));
   check(abilities.ready('smokeBomb'), 'smoke bomb ready after cooldown');
 }
 
-// 5) Flash Mode: the bar fills from hits (and pink gems); when full, a 1 s charge-up, then the
-// next punch takes 50% of the target's max HP; can't be used twice or while not full.
+// 5) Flash Mode: the bar starts full and costs 5 pink gems + 30% of the hearts (never lethal);
+// using it empties the bar, which reloads over flashReloadSeconds; full again on respawn.
+// A 1 s charge-up, then the next punch takes 50% of the target's max HP.
 {
+  const FM = AB.flashMode;
+  const lives = new Lives();
+  const gems = new Gems(scene, world); gems.reset();
+  abilities.lives = lives; abilities.gems = gems;
   faceDummy(1.5);
-  abilities.energy = 0;
-  check(!abilities.use('flashMode'), 'flash unusable with an empty bar');
-  let n = 0;
-  while (abilities.energy < 1 && n < 40) { step(1, { attackPressed: true }); step(secs(CB.combo[0].duration) + 2); n++; if (!dummy.alive) dummy.reset(); }
-  abilities.addFlashEnergy(AB.flashMode.perPinkGem);
-  check(abilities.energy >= 1 && abilities.flashReady, `bar full after ${n} hit taps (+ a pink gem)`);
-  step(secs(1));
+  abilities.clear();
+  const blocked = [];
+  abilities.onEvent = (name, why) => { if (name === 'flashBlocked') blocked.push(why); };
+  check(abilities.energy === 1, 'Flash bar starts full');
+  // Not enough pink gems.
+  gems.counts.pink = FM.gemCost - 1;
+  check(!abilities.use('flashMode') && blocked.at(-1) === 'gems', 'blocked without 5 pink gems');
+  gems.counts.pink = FM.gemCost + 2;
+  // Low hearts: never lethal — needs more hearts than the cost (1.5 of 5).
+  const cost = lives.maxHearts * FM.flashHeartCostPct;
+  for (const h of [1, 1.5]) {
+    lives.setHearts(h);
+    check(!abilities.use('flashMode') && blocked.at(-1) === 'health' && lives.hearts === h && abilities.flashBlockReason() === 'health', `blocked at ${h} hearts (cost ${cost}): "Not enough health", hearts unchanged`);
+  }
+  // Enough: pay 1.5 hearts and 5 pink gems; red flicker; bar empties.
+  lives.setHearts(5);
   dummy.reset();
-  check(abilities.use('flashMode'), 'flash activated');
-  check(!abilities.use('flashMode') && abilities.energy === 0, 'flash cannot be used twice (bar emptied)');
-  step(secs(AB.flashMode.chargeTime * 0.5));
+  const pink0 = gems.counts.pink;
+  check(abilities.use('flashMode'), 'flash activated with 5 hearts and 7 pink gems');
+  check(lives.hearts === 5 - cost && gems.counts.pink === pink0 - FM.gemCost && hero.redFlicker > 0 && abilities.energy === 0,
+    `cost paid: hearts 5 → ${lives.hearts}, pink gems ${pink0} → ${gems.counts.pink}, red flicker, bar emptied`);
+  check(!abilities.use('flashMode'), 'flash cannot be used twice');
+  step(secs(FM.chargeTime * 0.5));
   const midGlow = hero.glow;
-  step(secs(AB.flashMode.chargeTime * 0.5) + 2);
-  check(abilities.armed && midGlow > 0.3, `charged after ${AB.flashMode.chargeTime}s (glow ${midGlow.toFixed(2)} mid-charge)`);
+  step(secs(FM.chargeTime * 0.5) + 2);
+  check(abilities.armed && midGlow > 0.3, `charged after ${FM.chargeTime}s (glow ${midGlow.toFixed(2)} mid-charge)`);
   hits.length = 0;
   step(1, { attackPressed: true }); step(secs(0.4));
   const dmg = hits[0]?.amount;
-  check(dmg === TARGET_HP * AB.flashMode.damageFraction && hits[0].flash && hits[0].hitStop === CB.flashHitStop && !abilities.armed && abilities.energy < 0.2,
-    `flash punch dealt ${dmg} (50% of ${TARGET_HP}) with hit-stop ${hits[0]?.hitStop}; disarmed, bar ${abilities.energy.toFixed(2)}`);
+  check(dmg === TARGET_HP * FM.damageFraction && hits[0].flash && hits[0].hitStop === CB.flashHitStop && !abilities.armed,
+    `flash punch dealt ${dmg} (50% of ${TARGET_HP}) with hit-stop ${hits[0]?.hitStop}`);
+  // Landing hits and pink gems no longer fill the bar; it reloads only with time.
+  const e0 = abilities.energy;
+  for (let i = 0; i < 6; i++) { dummy.reset(); step(1, { attackPressed: true }); step(secs(0.35)); }
+  const perSec = 1 / FM.flashReloadSeconds;
+  const elapsed = abilities.energy - e0;
+  check(elapsed < perSec * 3 + 0.01, `hits don't fill the bar (only time: +${elapsed.toFixed(3)})`);
+  // Reload: still not full a moment before flashReloadSeconds, full after it.
+  const usedAt = abilities.energy / perSec; // seconds since use
+  step(secs(FM.flashReloadSeconds - usedAt - 1));
+  const before = abilities.energy;
+  gems.counts.pink += FM.gemCost * 2; // (enough gems for the checks below)
+  check(before < 1 && !abilities.use('flashMode') && blocked.at(-1) === 'reload', `reloading: bar ${before.toFixed(2)} 1 s before ${FM.flashReloadSeconds} s — blocked`);
+  step(secs(1.2));
+  check(abilities.energy === 1 && abilities.flashReady, `bar full again after ${FM.flashReloadSeconds} s`);
+  // Full on respawn.
+  abilities.use('flashMode'); step(secs(2));
+  const mid = abilities.energy;
+  abilities.clear(); // (respawn)
+  check(mid < 0.1 && abilities.energy === 1, `bar full again on respawn (${mid.toFixed(2)} → ${abilities.energy})`);
+  abilities.lives = abilities.gems = null;
+  abilities.onEvent = null;
 }
 
 // 6) Lives: 5 hearts, 3 respawns. Zero hearts → respawn on the horse at the last checkpoint with

@@ -64,6 +64,7 @@ html, body {
 .hearts, .lives { display: flex; gap: 3px; }
 .hearts i { color: #ff3b5c; font-style: normal; transition: transform .2s, opacity .2s; }
 .hearts i.empty { color: #fff; opacity: 0.3; }
+.hearts i.half { color: transparent; background: linear-gradient(90deg, #ff3b5c 50%, rgba(255,255,255,0.3) 50%); -webkit-background-clip: text; background-clip: text; }
 .hearts.hit i:not(.empty) { animation: heart-hit .35s ease-out 1; }
 @keyframes heart-hit { 40% { transform: scale(1.35); } }
 .lives { padding-left: 8px; border-left: 2px solid rgba(255,255,255,.35); }
@@ -165,6 +166,8 @@ html, body {
 }
 .ability-btn .energy { position: absolute; left: 18%; right: 18%; bottom: 7px; height: 5px; border-radius: 3px; background: rgba(0,0,0,.5); overflow: hidden; z-index: 2; }
 .ability-btn .energy i { display: block; height: 100%; background: #ff5fc8; transform-origin: left; transform: scaleX(0); }
+.ability-btn.blocked { filter: grayscale(0.9); opacity: 0.55; }
+.ability-btn.reloading .energy i { background: #c58aff; }
 .ability-btn.ready { border-color: #ffd23f; animation: flash-ready 0.8s ease-in-out infinite; }
 .ability-btn.active { border-color: #ffd23f; background: rgba(255, 196, 0, 0.75); }
 @keyframes flash-ready { 50% { box-shadow: 0 0 16px 4px #ffd23f; } }

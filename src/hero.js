@@ -177,6 +177,7 @@ export class Hero {
     this.iframes = 0; // invincible while > 0 (dodge or just hurt)
     this.hurtT = 0; // blink after being hurt
     this.glow = 0; // 0..1 gold glow (Flash Mode)
+    this.redFlicker = 0; // seconds of red flicker (paying hearts for Flash)
     this.throwAnim = null; // { kind: 'throw' | 'catch', t } (driven by Abilities)
     this.phase = 0; // walk cycle
     this.time = 0;
@@ -202,7 +203,7 @@ export class Hero {
     this.shadow.visible = true;
     this.attack = null;
     this.throwAnim = null;
-    this.dodgeT = this.dodgeCooldown = this.iframes = this.hurtT = this.glow = 0;
+    this.dodgeT = this.dodgeCooldown = this.iframes = this.hurtT = this.glow = this.redFlicker = 0;
     const first = this.world.boxes[0];
     this.lastSafe.copy(first.safe);
     this.facing = Math.PI / 2; // face along the route (+X)
@@ -554,11 +555,13 @@ export class Hero {
     }
     pos.needsUpdate = true;
 
-    // Flash Mode glow and the hurt blink.
+    // Flash Mode glow, the red flicker when paying hearts for it, and the hurt blink.
+    this.redFlicker = Math.max(0, this.redFlicker - dt);
+    const red = this.redFlicker > 0 && Math.sin(this.redFlicker * 40) > 0;
     const g = this.glow;
     for (const m of mats) {
-      m.emissive.setHex(CONFIG.abilities.flashMode.glowColor);
-      m.emissiveIntensity = g * 0.8;
+      m.emissive.setHex(red ? CONFIG.abilities.flashMode.hurtColor : CONFIG.abilities.flashMode.glowColor);
+      m.emissiveIntensity = red ? 0.9 : g * 0.8;
     }
     this.model.visible = !(this.hurtT > 0 && Math.floor(this.hurtT * 12) % 2 === 0);
   }

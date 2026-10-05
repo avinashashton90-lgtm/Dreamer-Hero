@@ -29,6 +29,8 @@ npm run test:ending # headless check: girl's cutscene + Skip, desert ride bot, e
 | Attack (3-hit combo) | Attack button (large, bottom-right) | J |
 | Dodge roll | Dodge button | K |
 | Batarang / Smoke Bomb / Flash Mode | Small ability buttons around Attack (unlock with 5 gems of a colour) | 1 / 2 / 3 |
+
+Flash Mode costs 5 pink gems and 30% of your hearts (only usable with more hearts than that) and then recharges for 45 s. The Smoke Bomb's green powder paralyzes any enemy that breathes it in for a second.
 | Debug: all gems / hurt the hero / teleport to the arena / kill the boss | — | G / H / T / B |
 | Debug: girl's cutscene / desert ride / ending | — | P / O / U |
 | Cutscene: next line / skip | Tap anywhere / Skip (top right) | Click / Skip |

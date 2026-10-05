@@ -131,6 +131,14 @@ export class Gems {
     this.#render();
   }
 
+  /** Spend gems of a colour (Flash Mode costs 5 pink). Unlocks stay. Returns true if paid. */
+  spend(color, n) {
+    if ((this.counts[color] ?? 0) < n) return false;
+    this.counts[color] -= n;
+    this.events.onSpend?.(color, this.counts[color]);
+    return true;
+  }
+
   /** Debug: collect every remaining gem (unlocks everything). */
   grantAll() {
     for (const g of this.gems) if (!g.collected) this.#collect(g);

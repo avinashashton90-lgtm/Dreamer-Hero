@@ -49,6 +49,23 @@ export class Lives {
   }
 
   /**
+   * Pay a cost in hearts (Flash Mode). Never lethal: only allowed while the hero has more
+   * hearts than the cost. Half hearts are fine. Returns true if paid.
+   */
+  spend(amount) {
+    if (this.dead || !(this.hearts > amount)) return false;
+    this.hearts = Math.round((this.hearts - amount) * 2) / 2;
+    this.events.onChange?.(this);
+    return true;
+  }
+
+  /** Set the hearts directly (story: exhausted on one heart; the pit refills them). */
+  setHearts(n) {
+    this.hearts = Math.max(0, Math.min(this.maxHearts, n));
+    this.events.onChange?.(this);
+  }
+
+  /**
    * After a death: use one respawn (full hearts) and return 'respawn', or return 'gameover'
    * when none are left.
    */

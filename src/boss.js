@@ -317,6 +317,13 @@ export class Boss {
     this.#set(S.PARALYZED);
   }
 
+  /** World position of the mouth (the smoke is breathed in here). */
+  mouthPosition(out = new THREE.Vector3()) {
+    if (!this.model) return out.set(this.position.x, this.position.y + this.height * 0.85, this.position.z);
+    this.model.updateMatrixWorld(true);
+    return this.model.userData.mouth.getWorldPosition(out);
+  }
+
   /** The hero used a respawn: back to full health on guard (CONFIG.lives.bossResetsOnRespawn). */
   onHeroRespawn() {
     if (CONFIG.lives.bossResetsOnRespawn && !this.defeated) this.reset();
@@ -360,6 +367,7 @@ export class Boss {
    */
   update(dt, hero) {
     this.stateTime += dt;
+    this.clock = (this.clock ?? 0) + dt;
     this.flash = Math.max(0, this.flash - dt);
     const onFoot = !hero.riding;
     const dx = hero.position.x - this.position.x;
@@ -647,6 +655,10 @@ export class Boss {
   #pose(dt) {
     if (!this.model) return;
     const { body, head, jaw, mouth, arms, legs, mats } = this.model.userData;
+    // Breathing the smoke in: the chest heaves, the jaw hangs open.
+    const inhale = this.state !== S.PARALYZED && this.smokeExposure > 0 ? Math.min(1, this.smokeExposure / CONFIG.abilities.smokeBomb.exposure) : 0;
+    const heave = 1 + CONFIG.abilities.smokeBomb.heave * inhale * (0.5 + 0.5 * Math.sin((this.clock ?? 0) * 13));
+    body.scale.set(heave, 1 + (heave - 1) * 0.5, heave);
     const t = this.stateTime;
     const P = this.pace;
     const SL = B.slam;
@@ -655,7 +667,7 @@ export class Boss {
     body.rotation.set(0, 0, 0);
     body.position.set(0, 0, 0);
     head.rotation.set(0, 0, 0);
-    jaw.rotation.set(0, 0, 0);
+    jaw.rotation.set(inhale * 0.35, 0, 0);
     for (const a of arms) {
       a.shoulder.rotation.set(0, 0, 0);
       a.elbow.rotation.set(0, 0, 0);
@@ -806,7 +818,7 @@ export class Boss {
     for (const m of mats) {
       if (!m.emissive) continue;
       if (this.flash > 0) m.emissive.setScalar(0.85);
-      else if (this.state === S.PARALYZED) m.emissive.setRGB(0.12, 0.12, 0.22);
+      else if (this.state === S.PARALYZED) m.emissive.setRGB(...CONFIG.abilities.smokeBomb.tint); // green from the powder
       else m.emissive.setScalar(0);
     }
     this.dizzy.visible = this.state === S.PARALYZED || this.state === S.STUNNED;
