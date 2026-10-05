@@ -141,7 +141,7 @@ export class Input {
     this.attackQueued = false;
     this.dodgeQueued = false;
     this.abilityQueued = null; // 'batarang' | 'smokeBomb' | 'flashMode'
-    this.debugQueued = { grantGems: false, damageHero: false, teleportArena: false, killBoss: false, cutscene: false, desert: false, ending: false };
+    this.debugQueued = { grantGems: false, damageHero: false, teleportArena: false, killBoss: false, cutscene: false, desert: false, ending: false, pit: false };
 
     this.#buildDom(overlayRoot);
     this.#bind();
@@ -195,6 +195,7 @@ export class Input {
       debugCutscene: this.enabled && this.debugQueued.cutscene,
       debugDesert: this.enabled && this.debugQueued.desert,
       debugEnding: this.enabled && this.debugQueued.ending,
+      debugPit: this.enabled && this.debugQueued.pit,
       lookDX: this.enabled ? this.lookDX : 0,
       lookDY: this.enabled ? this.lookDY : 0,
       lookSensitivity: this.lookSensitivity,
@@ -342,6 +343,7 @@ export class Input {
         if (e.code === I.debugKeys.cutscene) this.debugQueued.cutscene = true;
         if (e.code === I.debugKeys.desert) this.debugQueued.desert = true;
         if (e.code === I.debugKeys.ending) this.debugQueued.ending = true;
+        if (e.code === I.debugKeys.pit) this.debugQueued.pit = true;
       }
       if (e.code === 'Space') {
         e.preventDefault();
@@ -374,7 +376,8 @@ export class Input {
    * @param {boolean} mounted
    * @param {import('./abilities.js').Abilities} ab
    */
-  setCombatButtons(mounted, ab) {
+  /** `exhausted`: on his last heart (desert) — no combat or ability buttons at all. */
+  setCombatButtons(mounted, ab, exhausted = false) {
     const show = (el, on) => {
       const d = on ? '' : 'none';
       if (el.style.display !== d) el.style.display = d;
@@ -382,10 +385,10 @@ export class Input {
     // Riding: Dismount takes Dodge's (hidden) spot, clear of the gem counters.
     const mb = `calc(env(safe-area-inset-bottom, 0px) + ${mounted ? I.mountButtonBottomRiding : I.mountButtonBottom}px)`;
     if (this.mountBtn.style.bottom !== mb) this.mountBtn.style.bottom = mb;
-    show(this.attackBtn, !mounted);
-    show(this.dodgeBtn, !mounted);
+    show(this.attackBtn, !mounted && !exhausted);
+    show(this.dodgeBtn, !mounted && !exhausted);
     for (const [name, b] of Object.entries(this.abilityBtns)) {
-      show(b, !mounted || name === 'batarang');
+      show(b, (!mounted || name === 'batarang') && !exhausted);
       const unlocked = ab.has(name);
       b.classList.toggle('locked', !unlocked);
       if (!unlocked) continue;

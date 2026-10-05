@@ -311,6 +311,50 @@ export const CONFIG = {
     edge: { step: 3.2, scale: [0.35, 0.7], tuftShare: 0.45, tuftColor: 0x9c9550, rockColor: 0xc49a68 },
     prints: { max: 180, life: 7, size: 0.22, color: 0x7a5a36, opacity: 0.45, minSpeed: 2 },
     gems: { groups: 3, startS: 120, endMargin: 140 },
+    // Exhausted after the boss: one heart for the whole ride to the pit, getting worse.
+    desertArrivalHearts: 1,
+    exhaustion: {
+      start: 0.35,           // tiredness at the start of the desert (0..1), worst (1) at the pit
+      speedLoss: 0.25,       // top speed −25% at worst...
+      staminaLoss: 0.25,     // ...gallop stamina capped 25% lower...
+      drainGain: 0.6,        // ...and draining 60% faster
+      horseFloor: 0.7,       // the horse feels ≥70% of those losses from the first moment of tiredness
+      slump: 0.38,           // the hero slumps forward in the saddle (radians at worst)
+      breathe: 0.55,         // heavy breathing (cycles per second)...
+      breatheBob: 0.045,     // ...and how much it lifts him
+      vignette: 0.8,         // red screen-edge vignette opacity at worst
+      recover: 1.5,          // seconds for it all to fade after drinking
+    },
+    // The Lazarus Pit, just off the desert trail, revealed only by the girl.
+    pit: {
+      at: 0.575,             // "Stop." at this fraction of the desert trail
+      ahead: 26,             // the pit lies this far further along...
+      lateral: 13.5,         // ...and this far right of the centre line (just past the trail's soft edge)
+      flat: 3.5,             // the dunes level out this far past the rim
+      radius: 2.3,
+      clearance: 1.6,        // no desert scenery this close to its rim
+      rimColor: 0x6b5a48, waterColor: 0x0d3b3a, faintGlow: 0x3fd8c0, activeColor: 0x3fa0ff,
+      faintOpacity: 0.25, activeOpacity: 0.85,
+      vapor: { max: 30, rate: 8, life: 2.4, rise: 1.6, size: [0.18, 0.4], color: 0x3fb8a8, opacity: 0.1 },
+      ripple: { time: 1.6, color: 0x9fd8ff },
+      aura: { height: 6, time: 2.2, color: 0x2f78ff, opacity: 0.16 },
+      pulse: { time: 1.1, size: 1.8, color: 0x5f9fff, opacity: 0.4 },
+      walkSpeed: 2.4,        // the hero and girl walk to the pit
+      drink: { scoop: 0.9, raise: 0.7, sip: 1.0 }, // the hero's cup: scoop, raise to the lips, sip (s)
+      kneelTime: 0.8,        // the girl kneels before touching the water
+      hum: 1.2,              // the water lights up; then "Drink it."
+      smileHold: 2,          // she smiles silently (close-up)
+      standOff: [1.6, 0.9],  // hero / girl stand this far from the rim
+      healStep: 0.35,        // seconds per heart refilled
+      dimTime: 1.5,
+      shots: {
+        behind: { back: 7.5, up: 3.4, ahead: 6, duration: 1.4 },
+        reveal: { side: -6, up: 3.2, back: 6, duration: 2.2 },
+        sideOn: { dist: 8.5, up: 2.6, duration: 1.6 },
+        closeUp: { dist: 1.6, up: 1.45, duration: 1.0, hold: 2 },
+        pullBack: { dist: 11, up: 5, duration: 1.6 },
+      },
+    },
     // Sunset: sky, fog and light colours blend in as the camera moves east into the desert.
     sunset: {
       blend: [150, 260],     // camera x range over which the sunset takes over
@@ -529,7 +573,7 @@ export const CONFIG = {
     mountButtonBottomRiding: 176, // ...and lower while riding (Dodge is hidden then)
     // Ability buttons in an arc around Attack: angle 0 = left, 90 = up (degrees).
     abilityArc: { radius: 166, angles: [22, 48, 74], size: 52 },
-    debugKeys: { grantGems: 'KeyG', damageHero: 'KeyH', teleportArena: 'KeyT', killBoss: 'KeyB', cutscene: 'KeyP', desert: 'KeyO', ending: 'KeyU' },
+    debugKeys: { grantGems: 'KeyG', damageHero: 'KeyH', teleportArena: 'KeyT', killBoss: 'KeyB', cutscene: 'KeyP', desert: 'KeyO', ending: 'KeyU', pit: 'KeyL' },
   },
 
   cutscene: {
@@ -770,6 +814,14 @@ export const DIALOGUE = {
     hintCue: 'Take me.', // the witch hint plays as she says this
     safety: 'Come, I will take you to safety.',
     castle: 'My castle lies beyond the desert dunes. Let us go together!',
+  },
+  // The Lazarus Pit, half way across the desert.
+  pitScene: {
+    stop: 'Stop.',
+    fine: "I'm fine... we should keep going.",
+    look: "You're not. Look.",
+    drink: 'Drink it.',
+    who: 'Thank you. But... who are you?',
   },
   tapToContinue: '▼',
   summary: {

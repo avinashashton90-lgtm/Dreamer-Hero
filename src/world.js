@@ -146,7 +146,9 @@ export function duneHeight(x, z, octaves) {
 }
 
 export function createHeightFn(layout, track, desertTrack) {
-  return function heightAt(x, z) {
+  // Level spots (the Lazarus Pit): { x, z, y, r0, r1 }, filled in after the layout is known.
+  const flats = [];
+  const heightAt = function heightAt(x, z) {
     // Base: gentle forest/meadow hills everywhere...
     let h =
       Z.forestHillHeight *
@@ -201,8 +203,11 @@ export function createHeightFn(layout, track, desertTrack) {
     const tunnelEnd = ax + CV.tunnelDepth;
     const cave = smoothstep(x, ax - 6, ax) * (1 - smoothstep(x, tunnelEnd, tunnelEnd + 8)) * (1 - smoothstep(Math.abs(z - az), CV.archRadius - 1, CV.archRadius + 4));
     h = lerp(h, 0, cave);
+    for (const f of flats) h = lerp(h, f.y, 1 - smoothstep(Math.hypot(x - f.x, z - f.z), f.r0, f.r1));
     return h;
   };
+  heightAt.flats = flats;
+  return heightAt;
 }
 
 // ---------------------------------------------------------------------------
@@ -917,6 +922,13 @@ export class World {
     this.tracks = [this.track, this.desertTrack];
     this.activeTrack = this.track; // what the horse's path assist follows
     this.heightAt = createHeightFn(this.layout, this.track, this.desertTrack);
+    // The Lazarus Pit: just off the desert trail's right edge, on a little level patch.
+    const PIT = DS.pit;
+    const pp = this.desertTrack.at(this.desertTrack.length * PIT.at + PIT.ahead);
+    const px = pp.x - pp.tz * PIT.lateral;
+    const pz = pp.z + pp.tx * PIT.lateral;
+    this.pitPosition = new THREE.Vector3(px, this.heightAt(px, pz), pz);
+    this.heightAt.flats.push({ x: px, z: pz, y: this.pitPosition.y, r0: PIT.radius + 0.5, r1: PIT.radius + PIT.flat });
 
     // Colliders. boxes: buildings (standable tops + walls). beams: horizontal branches
     // (standable flat top + sides). cylinders: solid round obstacles (trunks, rocks).
@@ -1647,7 +1659,9 @@ export class World {
     const track = this.desertTrack;
     const corridor = TR.corridorHalfWidth;
     const items = [];
+    const pit = this.pitPosition;
     const ok = (x, z, r) =>
+      Math.hypot(x - pit.x, z - pit.z) > DS.pit.radius + DS.pit.clearance + r &&
       x > DS.startX + 4 &&
       x < W.xMax - 26 &&
       z > W.zMin + 26 &&

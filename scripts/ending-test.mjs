@@ -1,5 +1,5 @@
 // Headless end-of-Part-1 test: the girl's cutscene (trigger, camera, typewriter, taps, witch
-// hint, Skip mid-typewriter), the desert (layout, a bot riding the whole trail at normal speed
+// hint, Skip mid-typewriter), exhaustion on 1 heart and the Lazarus Pit scene, the desert (layout, a bot riding the whole trail at normal speed
 // and galloping, walls), the ending (horse slows, wide shot, ending state, stats) and Play
 // Again resetting everything.
 // Usage: npm run test:ending   (exits non-zero on failure)
@@ -20,6 +20,7 @@ import { FollowCamera } from '../src/camera.js';
 import { Cinematic } from '../src/cinematic.js';
 import { Story } from '../src/story.js';
 import { Sound } from '../src/audio.js';
+import { LazarusPit } from '../src/pit.js';
 
 const world = new World(); await world.init();
 const scene = world.scene;
@@ -44,9 +45,10 @@ const view = { shown: false, lines: [], typed: '', complete: false,
   dialogue(speaker, text, complete) { this.speaker = speaker; this.typed = text; if (complete && !this.complete) this.lines.push(`${speaker}: ${text}`); this.complete = complete; },
   clearDialogue() { this.complete = false; this.typed = ''; } };
 const cinematic = new Cinematic(cam, view);
-const story = new Story({ world, hero, horse, boss, girl, gems, abilities, combat, lives, quests, cinematic, state, cam, sound });
+const pit = new LazarusPit(scene, world, sound); await pit.init();
+const story = new Story({ world, hero, horse, boss, girl, gems, abilities, combat, lives, quests, cinematic, state, cam, pit, sound });
 quests.story = story;
-const DS = CONFIG.desert, CI = CONFIG.cinematic, TRK = CONFIG.track, L = DIALOGUE.girlScene;
+const DS = CONFIG.desert, CI = CONFIG.cinematic, TRK = CONFIG.track, L = DIALOGUE.girlScene, PL = DIALOGUE.pitScene, EX = DS.exhaustion;
 const dt = 1 / 60, NEUTRAL = { moveX: 0, moveY: 0, jumpPressed: false };
 let failed = false;
 const check = (ok, msg) => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${msg}`); if (!ok) failed = true; };
@@ -157,7 +159,93 @@ for (const at of ['second line, mid-typewriter', 'first line']) {
     `Skip (${at}): typing ${midType} → cutscene ends, girl joins, desert ride, state ${state.current}`);
 }
 
-// 4) The desert: layout, then a bot rides the whole trail (normal and galloping).
+// 4) Exhaustion on the last heart, and the Lazarus Pit ("Stop." scene).
+{
+  story.resetAll(); state.current = STATES.PLAY;
+  await afterBoss();
+  await run(0.1, NEUTRAL);
+  check(lives.hearts === DS.desertArrivalHearts && story.fatigue >= EX.start, `boss beaten: hearts drop to ${lives.hearts}, exhausted (${story.fatigue.toFixed(2)})`);
+  await story.debugDesert();
+  await run(0.1, NEUTRAL);
+  check(lives.hearts === 1 && story.phase === 'desert', `hearts on entering the desert: ${lives.hearts}`);
+  // Flash bar and gems before the pit (the pit must not touch them).
+  gems.grantAll();
+  abilities.energy = 0.4;
+  const gemsBefore = JSON.stringify(gems.counts), energyBefore = abilities.energy;
+  const t = world.desertTrack, Lt = t.length;
+  const steerOn = () => { const n = t.nearest(horse.position.x, horse.position.z, 30) ?? t.nearestGlobal(horse.position.x, horse.position.z); const p = t.at(n.s + 14); return THREE.MathUtils.clamp(-wrap(Math.atan2(p.x - horse.position.x, p.z - horse.position.z) - horse.heading) * 2.2, -1, 1); };
+  let fEarly = -1, vEarly = 0, fLate = 0, vLate = 0, staminaCap = 1, pitHiddenBefore = true, triggerAt = -1, slump = 0, gallopDrain = 0;
+  let tt = 0;
+  while (tt < 120 && !cinematic.active) {
+    const gallop = horse.trackS > Lt * 0.3 && horse.trackS < Lt * 0.33;
+    const st0 = horse.stamina;
+    await frame({ moveX: steerOn(), moveY: 1, jumpPressed: false, gallop });
+    if (gallop && horse.galloping) gallopDrain = Math.max(gallopDrain, (st0 - horse.stamina) / dt);
+    tt += dt;
+    const s = horse.trackS / Lt;
+    if (s > 0.08 && s < 0.12) { fEarly = story.fatigue; vEarly = Math.max(vEarly, horse.speed); }
+    if (s > 0.45 && s < 0.55) { fLate = Math.max(fLate, story.fatigue); vLate = Math.max(vLate, horse.speed); staminaCap = Math.min(staminaCap, 1 - EX.staminaLoss * (EX.horseFloor + (1 - EX.horseFloor) * story.fatigue)); slump = Math.max(slump, hero.model.userData.spine.rotation.x); }
+    if (pit.model.visible) pitHiddenBefore = false;
+  }
+  triggerAt = horse.trackS / Lt;
+  check(fEarly >= EX.start && fLate > fEarly + 0.2, `tiredness grows along the trail: ${fEarly.toFixed(2)} → ${fLate.toFixed(2)} (worst before the pit)`);
+  check(vEarly < CONFIG.horse.maxSpeed * (1 - EX.speedLoss * EX.horseFloor) + 0.3 && vLate <= vEarly + 0.05 && vLate < CONFIG.horse.maxSpeed * 0.78, `horse slower while exhausted: top ${vEarly.toFixed(1)} → ${vLate.toFixed(1)} (normal ${CONFIG.horse.maxSpeed})`);
+  check(horse.stamina <= staminaCap + 1e-6 + EX.staminaLoss * 0.05 && gallopDrain > CONFIG.horse.gallop.staminaDrain * 1.05, `gallop stamina capped (${horse.stamina.toFixed(2)}) and drains faster (${gallopDrain.toFixed(3)}/s vs ${CONFIG.horse.gallop.staminaDrain})`);
+  check(slump > EX.slump * 0.6, `hero slumped in the saddle (spine ${slump.toFixed(2)} rad)`);
+  check(cinematic.active && story.phase === 'pit' && triggerAt >= 0.55 && triggerAt <= 0.6 && state.is(STATES.CUTSCENE), `"Stop." scene starts at ${(triggerAt * 100).toFixed(1)}% of the trail`);
+  check(pitHiddenBefore && !pit.model.visible, 'the pit is hidden until the scene reveals it');
+  check(lives.hearts === 1, 'still on 1 heart at the pit (no healing on the way)');
+  // Play the scene, reading each line and tapping on.
+  view.lines = [];
+  let readFor = 0, lookedAtHero = false, pointed = false, revealedOnLook = false, stopped = false, kneeled = false, cup = false, pulse = false, smile = false, heartsSeq = [lives.hearts], camSide = false, t2 = 0;
+  while (cinematic.active && t2 < 90) {
+    await frame();
+    t2 += dt;
+    if (girl.lookAtHero) lookedAtHero = true;
+    if (girl.pointing) pointed = true;
+    if (view.lines.length >= 3 && pit.model.visible) revealedOnLook = true;
+    if (view.lines.length <= 2 && horse.speed < 0.2) stopped = true;
+    if (girl.kneeling && pit.active) kneeled = true;
+    if (hero.model.userData.cup.visible) cup = true;
+    if (pit.model.userData.pulse.visible) pulse = true;
+    if (girl.smiling) smile = true;
+    if (lives.hearts !== heartsSeq.at(-1)) heartsSeq.push(lives.hearts);
+    if (view.complete && (readFor += dt) > 0.3) { readFor = 0; cinematic.tap(); }
+  }
+  const S = DIALOGUE.speakers;
+  const expected = [`${S.girl}: ${PL.stop}`, `${S.hero}: ${PL.fine}`, `${S.girl}: ${PL.look}`, `${S.girl}: ${PL.drink}`, `${S.hero}: ${PL.who}`];
+  check(JSON.stringify(view.lines) === JSON.stringify(expected), `pit dialogue in order:\n       ${view.lines.join('\n       ')}`);
+  check(lookedAtHero && pointed && stopped && revealedOnLook, `girl looks at him ${lookedAtHero}, horse halts ${stopped}, she points ${pointed}, pit revealed ${revealedOnLook}`);
+  check(kneeled && sound.counts.hum >= 1 && cup && pulse && smile, `she kneels and the water wakes (hum ${sound.counts.hum}), cup ${cup}, heal pulse ${pulse}, silent smile ${smile}`);
+  check(JSON.stringify(heartsSeq) === JSON.stringify([1, 2, 3, 4, 5]), `hearts refill one by one: ${heartsSeq.join(' → ')}`);
+  await run(0.1);
+  check(!cinematic.active && state.is(STATES.PLAY) && lives.hearts === lives.maxHearts && story.pitDone && story.phase === 'desert', `after the scene: hearts ${lives.hearts}/${lives.maxHearts}, state ${state.current}`);
+  check(JSON.stringify(gems.counts) === gemsBefore && abilities.energy === energyBefore, `only hearts restored: gems ${gemsBefore === JSON.stringify(gems.counts) ? 'unchanged' : 'CHANGED'}, Flash bar ${abilities.energy} (was ${energyBefore})`);
+  check(horse.mode === 'riding' && hero.riding && horse.passenger === boss.girl && girl.riding && !horse.hold && !pit.active, 'they remount, she rides behind him, the pit dims');
+  await run(0.2, NEUTRAL);
+  check(quests.current?.id === 'castle' && ui.text === DIALOGUE.quests.castle, `quest still "${ui.text}"`);
+  await run(EX.recover + 0.3, { moveX: 0, moveY: 1, jumpPressed: false });
+  check(story.fatigue === 0 && horse.fatigue === 0 && hero.exhaustion === 0, 'exhaustion gone: slump, vignette and horse speed back to normal');
+  const vNow = horse.speed;
+  await run(2, { moveX: steerOn(), moveY: 1, jumpPressed: false });
+  check(horse.speed > vLate + 1, `horse speed back up: ${horse.speed.toFixed(1)} (was ${vLate.toFixed(1)} exhausted, ${vNow.toFixed(1)} just after)`);
+
+  // Debug L jumps straight to "Stop."; Skip mid-scene still restores the hearts.
+  for (const when of ['walking to the pit', 'first line']) {
+    story.resetAll(); state.current = STATES.PLAY;
+    await story.debugPit();
+    const started = cinematic.active && story.phase === 'pit' && lives.hearts === 1;
+    if (when === 'first line') await until(() => view.typed.length > 1, 3);
+    else await until(() => { if (view.complete) cinematic.tap(); return !!story.actors.hero; }, 30);
+    const midScene = cinematic.active;
+    await cinematic.skip();
+    await run(0.1);
+    check(started && midScene && lives.hearts === lives.maxHearts && story.pitDone && horse.mode === 'riding' && horse.passenger === boss.girl && state.is(STATES.PLAY) && !hero.drink,
+      `debug L → "Stop."; Skip (${when}) → hearts ${lives.hearts}, back on the horse with her, state ${state.current}`);
+  }
+}
+
+// 5) The desert: layout, then a bot rides the whole trail (normal and galloping).
 {
   const t = world.desertTrack;
   const CH = TRK.corridorHalfWidth;
@@ -177,10 +265,17 @@ for (const at of ['second line, mid-typewriter', 'first line']) {
   const ride = async (gallop) => {
     story.resetAll(); state.current = STATES.PLAY;
     await story.debugDesert();
-    const prints0 = horse.prints.length;
-    let tt = 0, best = 0, since = 0, stuck = false, maxLat = 0, gemsGot = 0;
+    let prints = 0;
+    let tt = 0, best = 0, since = 0, stuck = false, maxLat = 0, gemsGot = 0, readFor = 0, pitScene = false;
     const c0 = Object.values(gems.counts).reduce((a, b) => a + b, 0);
-    while (tt < 200 && story.phase === 'desert') {
+    while (tt < 200 && (story.phase === 'desert' || story.phase === 'pit')) {
+      if (cinematic.active) {
+        // The Lazarus Pit scene on the way: read each line, then tap on.
+        pitScene = true;
+        await frame();
+        if (view.complete && (readFor += dt) > 0.3) { readFor = 0; cinematic.tap(); }
+        continue;
+      }
       const n = t.nearest(horse.position.x, horse.position.z, 30) ?? t.nearestGlobal(horse.position.x, horse.position.z);
       if (n.s > best + 1) { best = n.s; since = 0; } else if ((since += dt) > 4) { stuck = true; break; }
       maxLat = Math.max(maxLat, Math.abs(n.lateral));
@@ -189,15 +284,17 @@ for (const at of ['second line, mid-typewriter', 'first line']) {
       const p = t.at(Math.min(t.length + 40, n.s + 14));
       const tight = t.maxCurvature(n.s, n.s + 30) > 0.018;
       await frame({ moveX: steerTo(p.x - p.tz * lat, p.z + p.tx * lat), moveY: 1, jumpPressed: false, gallop: gallop && !tight });
+      prints = Math.max(prints, horse.prints.filter((q) => q.age < q.life).length);
       tt += dt;
     }
     gemsGot = Object.values(gems.counts).reduce((a, b) => a + b, 0) - c0;
-    return { tt, stuck, maxLat, prints: horse.prints.length - prints0, dust: horse.dust.length, gemsGot, wallContacts: horse.wallContacts };
+    return { tt, stuck, maxLat, prints, dust: horse.dust.length, gemsGot, wallContacts: horse.wallContacts, pitScene };
   };
   const rn = await ride(false);
+  check(rn.pitScene && story.pitDone, 'the ride stops at the Lazarus Pit on the way');
   check(!rn.stuck && story.phase === 'ending' && rn.maxLat <= TRK.halfWidth, `bot rides the desert at normal speed in ${rn.tt.toFixed(1)} s to the castle; stuck ${rn.stuck}, max off-centre ${rn.maxLat.toFixed(1)}`);
   check(rn.prints > 20 && rn.dust > 0 && rn.gemsGot > 0, `hoof prints ${rn.prints}, dust puffs, optional gems picked up ${rn.gemsGot}`);
-  // 5) The ending: horse slows to a stop, a wide shot from behind, then the ending state.
+  // 6) The ending: horse slows to a stop, a wide shot from behind, then the ending state.
   const camBefore = cam.camera.position.clone();
   const tStop = await until(() => horse.speed < 0.1, 6);
   const f = new THREE.Vector3(Math.sin(horse.heading), 0, Math.cos(horse.heading));
@@ -228,7 +325,7 @@ for (const at of ['second line, mid-typewriter', 'first line']) {
   check(worst <= TRK.halfWidth, `desert walls: pushing hard into both sides, max off-centre ${worst.toFixed(2)}`);
 }
 
-// 6) Play Again: everything back to a brand new game.
+// 7) Play Again: everything back to a brand new game.
 {
   // Make a mess first.
   await story.debugDesert();
@@ -257,6 +354,7 @@ for (const at of ['second line, mid-typewriter', 'first line']) {
     timers: story.time === 0 && abilities.cooldowns.batarang === 0 && abilities.cooldowns.smokeBomb === 0,
     cinematic: !cinematic.active && !view.shown,
     sunset: world.sunset === 0,
+    pit: !pit.model.visible && !pit.active && !story.pitDone && story.fatigue === 0 && horse.fatigue === 0,
     listeners: Object.values(STATES).map(listeners).join(',') === before,
   };
   for (const [k, v] of Object.entries(checks)) if (!v) msgs.push(k);

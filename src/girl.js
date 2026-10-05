@@ -36,6 +36,15 @@ export async function loadGirlModel() {
     eye.position.set(side * 0.05, 0.01, 0.13);
     head.add(eye);
   }
+  // Mouth: a small neutral line, or a gentle smile.
+  const lips = new THREE.MeshBasicMaterial({ color: 0x8a3a3a });
+  const neutral = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.008, 0.01), lips);
+  neutral.position.set(0, -0.06, 0.133);
+  const smile = new THREE.Mesh(new THREE.TorusGeometry(0.03, 0.006, 4, 10, Math.PI), lips);
+  smile.position.set(0, -0.05, 0.133);
+  smile.rotation.z = Math.PI; // curve up at the ends
+  smile.visible = false;
+  head.add(neutral, smile);
   const arms = [];
   for (const side of [-1, 1]) {
     const shoulder = new THREE.Group();
@@ -50,7 +59,7 @@ export async function loadGirlModel() {
     arms.push({ shoulder, elbow });
   }
   body.add(dress, torso, head);
-  group.userData = { body, head, arms, eyeMat, dressMat };
+  group.userData = { body, head, arms, eyeMat, dressMat, mouth: { neutral, smile } };
   return group;
 }
 
@@ -100,6 +109,11 @@ export class Girl {
     this.hintT = 0;
     this.hints = 0;
     this.time = 0;
+    this.lookAtHero = false; // riding: turns to look at him
+    this.pointing = false; // right arm points ahead
+    this.kneeling = false; // at the pit, a hand in the water
+    this.walking = false;
+    this.smiling = false;
     model.userData.onMount = () => (this.riding = true);
     model.userData.onDismount = () => (this.riding = false);
   }
@@ -114,6 +128,7 @@ export class Girl {
   reset() {
     this.frightened = true;
     this.riding = false;
+    this.lookAtHero = this.pointing = this.kneeling = this.walking = this.smiling = false;
     this.hintT = 0;
     this.hints = 0;
     this.shadow.visible = false;
@@ -141,12 +156,27 @@ export class Girl {
       a.elbow.rotation.set(0, 0, 0);
     }
     if (this.riding) {
-      // Sitting behind the hero, holding on.
+      // Sitting behind the hero, holding on (or looking round at him, or pointing ahead).
       body.position.y = -0.55;
       arms.forEach((a, i) => {
         a.shoulder.rotation.set(-1.1, 0, (i ? -1 : 1) * 0.25);
         a.elbow.rotation.x = -0.6;
       });
+      if (this.lookAtHero) {
+        head.rotation.set(0.3, 0.45, 0); // leaning round to see his face
+        body.rotation.y = 0.2;
+      }
+    } else if (this.kneeling) {
+      // Kneeling at the pit, right hand in the water.
+      body.position.y = -0.62;
+      body.rotation.x = 0.35;
+      head.rotation.x = 0.3;
+      arms[1].shoulder.rotation.set(-1.25, 0, -0.1);
+      arms[1].elbow.rotation.x = -0.2;
+      arms[0].shoulder.rotation.set(-0.3, 0, 0.2);
+    } else if (this.walking) {
+      body.position.y = Math.abs(Math.sin(this.time * 7)) * 0.04;
+      arms.forEach((a, i) => (a.shoulder.rotation.x = Math.sin(this.time * 7 + i * Math.PI) * 0.35));
     } else if (this.frightened) {
       // Hands clasped at the chest, shoulders hunched, a nervous shiver.
       body.rotation.z = Math.sin(this.time * 31) * CI.tremble;
@@ -157,11 +187,21 @@ export class Girl {
         a.elbow.rotation.set(-1.5, 0, (i ? -1 : 1) * 0.35); // ...hands meeting in front
       });
     }
+    if (this.pointing) {
+      // Right arm out, pointing ahead.
+      arms[1].shoulder.rotation.set(-1.55, 0, -0.15);
+      arms[1].elbow.rotation.x = 0;
+    }
+    const { neutral, smile } = this.model.userData.mouth;
+    smile.visible = this.smiling;
+    neutral.visible = !this.smiling;
     // Witch hint: eyes flicker purple; the wall shadow flickers to the hat-and-staff shape.
     const flick = this.hinting && Math.sin(this.time * 47) > -0.3;
     eyeMat.color.setHex(flick ? CI.hintColor : 0x222222);
     if (this.shadow) {
-      this.shadow.visible = this.model.visible && !this.riding;
+      // (her shadow on the cave wall only exists while she stands at the cave mouth)
+      const atCave = Math.hypot(this.model.position.x - G.shadow.x, this.model.position.z - G.shadow.z) < 15;
+      this.shadow.visible = this.model.visible && !this.riding && atCave;
       this.shadow.position.y = groundY;
       this.shadow.userData.hint.visible = flick;
       this.shadow.userData.normal.visible = !flick;

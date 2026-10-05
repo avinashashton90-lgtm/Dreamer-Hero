@@ -66,6 +66,15 @@ html, body {
 .hearts i.empty { color: #fff; opacity: 0.3; }
 .hearts i.half { color: transparent; background: linear-gradient(90deg, #ff3b5c 50%, rgba(255,255,255,0.3) 50%); -webkit-background-clip: text; background-clip: text; }
 .hearts.hit i:not(.empty) { animation: heart-hit .35s ease-out 1; }
+/* Exhausted (1 heart): the last heart dims and pulses slowly; a red vignette breathes. */
+.hearts.weary i:not(.empty) { animation: heart-weary 2.2s ease-in-out infinite; }
+@keyframes heart-weary { 0%, 100% { opacity: 0.45; transform: scale(0.92); } 50% { opacity: 0.8; transform: scale(1.04); } }
+.hearts i.heal { animation: heart-heal .5s ease-out 1 !important; }
+@keyframes heart-heal { 0% { transform: scale(0.4); text-shadow: 0 0 12px #cfe8ff; } 50% { transform: scale(1.45); text-shadow: 0 0 14px #9fd8ff; } 100% { transform: scale(1); } }
+.vignette { position: fixed; inset: 0; pointer-events: none; z-index: -1; display: none;
+  background: radial-gradient(ellipse at center, transparent 55%, rgba(170, 0, 0, 0.75) 100%);
+  animation: vignette-breathe 2.2s ease-in-out infinite; }
+@keyframes vignette-breathe { 0%, 100% { filter: brightness(0.75); } 50% { filter: brightness(1.15); } }
 @keyframes heart-hit { 40% { transform: scale(1.35); } }
 .lives { padding-left: 8px; border-left: 2px solid rgba(255,255,255,.35); }
 .lives i { width: 1.2em; height: 0.62em; border-radius: 0.3em 0.3em 0.45em 0.45em; background: #111; border: 2px solid #ffd23f; position: relative; display: inline-block; }

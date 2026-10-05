@@ -15,7 +15,7 @@ npm run test:route # headless check: jump route fair + completable, and the full
 npm run test:combat # headless check: combo, dodge, Batarang, Smoke Bomb, Flash Mode, hearts/respawns/Game Over
 npm run test:boss   # headless check: every boss state (slam, fire breath, charge…), boulder stun, paralysis, Flash, death + respawn, defeat
 npm run test:input  # headless check: multi-touch routing (joystick + camera + buttons at once)
-npm run test:ending # headless check: girl's cutscene + Skip, desert ride bot, ending, Play Again reset
+npm run test:ending # headless check: girl's cutscene + Skip, Lazarus Pit scene, desert ride bot, ending, Play Again reset
 ```
 
 ## Controls
@@ -32,7 +32,7 @@ npm run test:ending # headless check: girl's cutscene + Skip, desert ride bot, e
 
 Flash Mode costs 5 pink gems and 30% of your hearts (only usable with more hearts than that) and then recharges for 45 s. The Smoke Bomb's green powder paralyzes any enemy that breathes it in for a second.
 | Debug: all gems / hurt the hero / teleport to the arena / kill the boss | — | G / H / T / B |
-| Debug: girl's cutscene / desert ride / ending | — | P / O / U |
+| Debug: girl's cutscene / desert ride / Lazarus Pit / ending | — | P / O / L / U |
 | Cutscene: next line / skip | Tap anywhere / Skip (top right) | Click / Skip |
 | Mount / dismount the horse | Mount button (appears near the horse) | E |
 | Gallop (hold, uses stamina) | Gallop button (while riding) | Shift |
@@ -66,14 +66,15 @@ src/
   boss.js       the cave monster fight
   girl.js       the girl (frightened, riding, the witch hint)
   cinematic.js  reusable cutscenes: camera moves, typewriter dialogue, Skip
-  story.js      end of Part 1: girl's scene, desert ride, ending, Play Again
+  story.js      end of Part 1: girl's scene, desert ride, exhaustion + Lazarus Pit, ending, Play Again
+  pit.js        the Lazarus Pit (water, glow, vapor, ripple, aura, heal pulse)
 ```
 
 Placeholder models are built in `loadXModel()` functions (`loadHeroModel`, `loadTerrainModel`, `loadHorseModel`, …) so real glTF assets can be swapped in later.
 
 The forest ride follows one trail spline: a 14-wide, ~1544-long dirt trail (at least `CONFIG.trailLength` = 1500; about 94 s at normal speed, ~64 s galloping) from the river to the cave, with wide curves, a hill climb and descent, a river ford half way, 6 jumpable logs/walls on straights, and 60 gems in rows and arcs along the centre lane. Trees stay outside a 22-wide corridor behind a continuous line of bushes and boulders, and invisible side walls keep the horse on the trail (it slides along them).
 
-The hero has 5 hearts and 3 respawns: losing all hearts puts you back on the horse at the last checkpoint; after the third respawn it's Game Over (Retry restarts the ride). At the end of the ride the hero gets off at the cave arena and fights the cave monster (fist slam, fire breath, charge into boulders, faster below 40% HP); defeat it and a girl appears at the cave mouth. Talk to her (a short cutscene — watch her eyes and shadow), then ride with her across the desert at sunset to her castle for the "To be continued... Part 2" ending and a summary (gems, time, deaths) with Play Again.
+The hero has 5 hearts and 3 respawns: losing all hearts puts you back on the horse at the last checkpoint; after the third respawn it's Game Over (Retry restarts the ride). At the end of the ride the hero gets off at the cave arena and fights the cave monster (fist slam, fire breath, charge into boulders, faster below 40% HP); defeat it and a girl appears at the cave mouth. Talk to her (a short cutscene — watch her eyes and shadow), then ride with her across the desert at sunset — worn out on your last heart, until she stops you at a glowing Lazarus Pit that heals you — to her castle for the "To be continued... Part 2" ending and a summary (gems, time, deaths) with Play Again.
 
 Debug from the browser console: `game.state.set('ending')`, `game.hero.position`, etc.
 

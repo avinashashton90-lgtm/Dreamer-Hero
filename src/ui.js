@@ -36,6 +36,10 @@ export class UI {
       this.gemPills[color] = pill;
     }
 
+    // Exhaustion: a faint red vignette that breathes (strength set by setExhaustion).
+    this.vignette = this.#el('div', 'vignette');
+    this.exhaustion = 0;
+
     this.fade = this.#el('div', 'fade');
 
     this.rotate = this.#el('div', 'overlay rotate');
@@ -168,7 +172,9 @@ export class UI {
   setLives(hearts, maxHearts, respawns, maxRespawns) {
     const key = `${hearts}/${maxHearts}/${respawns}`;
     if (this.livesKey === key) return;
-    const lost = this.livesKey && hearts < Number(this.livesKey.split('/')[0]);
+    const prev = this.livesKey ? Number(this.livesKey.split('/')[0]) : hearts;
+    const lost = hearts < prev;
+    const healed = hearts > prev;
     this.livesKey = key;
     // Whole, half and empty hearts.
     this.heartsEl.innerHTML = Array.from({ length: maxHearts }, (_, i) => `<i class="${hearts >= i + 1 ? '' : hearts >= i + 0.5 ? 'half' : 'empty'}">♥</i>`).join('');
@@ -178,6 +184,24 @@ export class UI {
       void this.heartsEl.offsetWidth;
       this.heartsEl.classList.add('hit');
     }
+    if (healed) {
+      // The heart just refilled pops with a blue-white glow.
+      const el = this.heartsEl.children[Math.ceil(hearts) - 1];
+      el?.classList.add('heal');
+    }
+  }
+
+  /**
+   * Exhaustion 0..1: a breathing red screen-edge vignette, and the last heart dims and pulses
+   * slowly. 0 hides both.
+   */
+  setExhaustion(f) {
+    const v = Math.round(f * 100) / 100;
+    if (v === this.exhaustion) return;
+    this.exhaustion = v;
+    this.vignette.style.opacity = (CONFIG.desert.exhaustion.vignette * (0.4 + 0.6 * v)).toFixed(2);
+    this.vignette.style.display = v > 0 ? 'block' : 'none';
+    this.heartsEl.classList.toggle('weary', v > 0);
   }
 
   /** Boss health bar (top centre). */

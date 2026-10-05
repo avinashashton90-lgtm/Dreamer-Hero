@@ -214,6 +214,7 @@ export class Horse {
     this.drops = [];
     this.ripples = [];
     this.stamina = 1; // 0..1, drains while galloping
+    this.fatigue = 0; // 0..1 (desert, hero exhausted): slower, less gallop stamina, drains faster
     this.galloping = false;
     this.refillWait = 0;
     this.stumble = 0; // seconds left of a stumble
@@ -335,6 +336,7 @@ export class Horse {
     this.hold = false;
     for (const d of [...this.dust, ...this.drops, ...this.ripples, ...this.prints]) d.age = d.life;
     this.stamina = 1;
+    this.fatigue = 0;
     this.galloping = false;
     this.stumble = 0;
     this.inWater = false;
@@ -351,7 +353,7 @@ export class Horse {
   }
 
   /** Mount / dismount (button or E). */
-  toggle(hero) {
+  toggle(hero, side = 1) {
     if (this.canMount(hero)) {
       this.mode = MODES.MOUNTING;
       this.t = 0;
@@ -364,8 +366,8 @@ export class Horse {
       this.speed = 0;
       this.#from.copy(hero.position);
       // Land beside the horse (its left), on the ground there.
-      const lx = this.position.x + Math.cos(this.heading) * HC.dismountSide;
-      const lz = this.position.z - Math.sin(this.heading) * HC.dismountSide;
+      const lx = this.position.x + Math.cos(this.heading) * HC.dismountSide * side;
+      const lz = this.position.z - Math.sin(this.heading) * HC.dismountSide * side; // side -1: the right
       this.#to.set(lx, this.world.groundAt(lx, lz, this.position.y + 2).y, lz);
     }
   }
@@ -401,6 +403,15 @@ export class Horse {
     }
     this.#updateDust(dt);
     this.#updateSplash(dt);
+  }
+
+  /** Straight back into the saddle where the horse stands (cutscenes). */
+  mountNow(hero) {
+    this.mode = MODES.RIDING;
+    this.everMounted = true;
+    this.speed = 0;
+    hero.startRiding();
+    hero.setRidingPose(this.#syncModel(0), this.heading);
   }
 
   /** Someone riding behind the hero (the girl), or null. */
@@ -463,8 +474,13 @@ export class Horse {
       this.galloping = true;
       this.sound?.play('gallopStart');
     }
-    if (this.galloping) this.stamina = Math.max(0, this.stamina - GAL.staminaDrain * dt);
-    else if ((this.refillWait -= dt) <= 0) this.stamina = Math.min(1, this.stamina + GAL.staminaRefill * dt);
+    // Exhausted rider: the stamina bar tops out lower and drains faster.
+    const EX = CONFIG.desert.exhaustion;
+    const tired = this.fatigue > 0 ? EX.horseFloor + (1 - EX.horseFloor) * this.fatigue : 0;
+    const staminaCap = 1 - EX.staminaLoss * tired;
+    if (this.galloping) this.stamina = Math.max(0, this.stamina - GAL.staminaDrain * (1 + EX.drainGain * tired) * dt);
+    else if ((this.refillWait -= dt) <= 0) this.stamina = this.stamina + GAL.staminaRefill * dt;
+    this.stamina = Math.min(this.stamina, staminaCap);
     this.stumble = Math.max(0, this.stumble - dt);
 
     // Turning: slower the faster it goes, slower again while galloping.
@@ -518,6 +534,7 @@ export class Horse {
       (this.galloping ? GAL.speedMultiplier : 1) *
       (this.inWater ? HC.waterSpeed : 1) *
       (this.stumble > 0 ? OBS.stumbleSpeed : 1) *
+      (1 - CONFIG.desert.exhaustion.speedLoss * tired) *
       hill;
     // Near the cave arena: slow down and let the hero off (once per arrival).
     const atCave = this.route === this.world.track && this.#nearCave();

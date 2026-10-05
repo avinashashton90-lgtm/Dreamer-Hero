@@ -20,6 +20,7 @@ import { Boss } from './boss.js';
 import { Girl } from './girl.js';
 import { Cinematic } from './cinematic.js';
 import { Story } from './story.js';
+import { LazarusPit } from './pit.js';
 
 async function boot() {
   const app = document.getElementById('app');
@@ -115,7 +116,9 @@ async function boot() {
   // Cinematic cutscenes and the end of Part 1 (girl's scene → desert ride → ending).
   let cinematic = null;
   cinematic = new Cinematic(cam, ui.cinematicView(() => cinematic.tap(), () => cinematic.skip()));
-  const story = new Story({ world, hero, horse, boss, girl, gems, abilities, combat, lives, quests, cinematic, state, cam, sound, ui, guide });
+  const pit = new LazarusPit(world.scene, world, sound);
+  await pit.init();
+  const story = new Story({ world, hero, horse, boss, girl, gems, abilities, combat, lives, quests, cinematic, state, cam, pit, sound, ui, guide });
   quests.story = story;
   const NEUTRAL = { moveX: 0, moveY: 0, jumpPressed: false };
 
@@ -229,6 +232,11 @@ async function boot() {
     const playing = !state.paused && state.is(STATES.PLAY);
     if (playing) {
       const inp = input.read();
+      if (story.fatigue > 0) {
+        // Exhausted (last heart, until the Lazarus Pit): no attacks, dodges or abilities.
+        inp.attackPressed = inp.dodgePressed = false;
+        inp.ability = null;
+      }
       cam.rotate(inp.lookDX, inp.lookDY, inp.lookSensitivity);
       if (inp.debugGrantGems) gems.grantAll();
       if (inp.debugDamageHero) damageHero(CONFIG.lives.debugDamage, hero.position.x + Math.sin(hero.facing), hero.position.z + Math.cos(hero.facing));
@@ -236,6 +244,7 @@ async function boot() {
       if (inp.debugCutscene) story.debugCutscene();
       if (inp.debugDesert) story.debugDesert();
       if (inp.debugEnding) story.debugEnding();
+      if (inp.debugPit) story.debugPit();
       if (inp.debugTeleportArena) {
         // Debug: on foot at the arena entrance, the horse waiting beside it.
         const [cx, cz] = CONFIG.cave.center;
@@ -262,7 +271,7 @@ async function boot() {
       abilities.update(dt);
       boss.update(dt, hero);
       ui.setBossBar(boss.active, boss.hp / boss.maxHp, DIALOGUE.bossName);
-      input.setCombatButtons(horse.controlsHero, abilities);
+      input.setCombatButtons(horse.controlsHero, abilities, story.fatigue > 0);
       // Collect from the body centre: horse + rider when riding, the hero's chest on foot.
       gems.update(dt, horse.controlsHero ? horse.collectPoint : hero.position.clone().setY(hero.position.y + 0.9));
       quests.update(dt, hero);
@@ -288,7 +297,7 @@ async function boot() {
   });
 
   // Exposed for debugging in the browser console (e.g. game.state.set('ending')).
-  window.game = { state, hero, cam, world, quests, horse, input, guide, gems, abilities, sound, combat, lives, boss, girl, story, cinematic, damageHero, lifeEvents, STATES };
+  window.game = { state, hero, cam, world, quests, horse, input, guide, gems, abilities, sound, combat, lives, boss, girl, pit, story, cinematic, damageHero, lifeEvents, STATES };
 
   state.start();
 }

@@ -4,6 +4,7 @@ import { CONFIG } from './config.js';
 const H = CONFIG.hero;
 const O = CONFIG.outfit;
 const CB = CONFIG.combat;
+const O_EX = CONFIG.desert.exhaustion;
 const { clamp, lerp } = THREE.MathUtils;
 
 /**
@@ -134,8 +135,17 @@ export async function loadHeroModel() {
   cloakPivot.add(cloak);
   spine.add(cloakPivot);
 
+  // A small cup (the Lazarus Pit): held in the right fist, shown only while drinking.
+  const cup = new THREE.Group();
+  // (own materials: not in `mats`, so the Flash glow leaves them alone)
+  cup.add(mesh(new THREE.CylinderGeometry(0.055, 0.04, 0.09, 10, 1, true), new THREE.MeshLambertMaterial({ color: 0x8a6a3a, side: THREE.DoubleSide })));
+  cup.add(mesh(new THREE.CircleGeometry(0.05, 10).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: CONFIG.desert.pit.activeColor }), 0, 0.02, 0));
+  cup.position.set(0, -0.33, 0.04);
+  cup.visible = false;
+  arms[1].elbow.add(cup);
+
   const handLocal = new THREE.Vector3(0, -0.29, 0); // the right fist, in the elbow's frame
-  root.userData = { rig, pelvis, spine, head, legs, arms, cloak, cloakPivot, daggerHip, daggerHand, mats, handLocal };
+  root.userData = { rig, pelvis, spine, head, legs, arms, cloak, cloakPivot, daggerHip, daggerHand, cup, mats, handLocal };
   return root;
 }
 
@@ -179,6 +189,9 @@ export class Hero {
     this.glow = 0; // 0..1 gold glow (Flash Mode)
     this.redFlicker = 0; // seconds of red flicker (paying hearts for Flash)
     this.throwAnim = null; // { kind: 'throw' | 'catch', t } (driven by Abilities)
+    this.exhaustion = 0; // 0..1: slumped in the saddle, breathing heavily (desert, on 1 heart)
+    this.drink = null; // { t } scoop from the pit with a cup and sip (Lazarus Pit scene)
+    this.facePitch = 0; // scripted: look up / down (radians)
     this.phase = 0; // walk cycle
     this.time = 0;
     this.moveSpeed = 0; // measured horizontal speed (smoothed; riding included) for the cloak
@@ -204,6 +217,8 @@ export class Hero {
     this.attack = null;
     this.throwAnim = null;
     this.dodgeT = this.dodgeCooldown = this.iframes = this.hurtT = this.glow = this.redFlicker = 0;
+    this.exhaustion = this.facePitch = 0;
+    this.drink = null;
     const first = this.world.boxes[0];
     this.lastSafe.copy(first.safe);
     this.facing = Math.PI / 2; // face along the route (+X)
@@ -273,6 +288,22 @@ export class Hero {
     this.velocity.z = (dz / d) * CB.hurtKnockback;
     this.velocity.y = Math.max(this.velocity.y, 3);
     this.grounded = false;
+  }
+
+  /**
+   * Scripted on foot (cutscenes): stand at `p` facing `yaw`; the walk cycle plays from the
+   * measured speed, so moving `p` a little each frame walks.
+   */
+  puppet(p, yaw, dt) {
+    this.riding = false;
+    this.grounded = true;
+    this.velocity.set(0, 0, 0);
+    this.shadow.visible = true;
+    this.position.copy(p);
+    this.facing = yaw;
+    this.lastDt = dt;
+    if (this.drink) this.drink.t += dt;
+    this.#sync();
   }
 
   /** World position of the right hand (where thrown items leave and are caught). */
@@ -427,12 +458,13 @@ export class Hero {
     }
     this.prevPos.copy(this.position);
     const run = clamp(this.moveSpeed / H.walkSpeed, 0, 1.5);
-    const { rig, spine, legs, arms, cloak, cloakPivot, daggerHip, daggerHand, mats } = u;
+    const { rig, spine, head, legs, arms, cloak, cloakPivot, daggerHip, daggerHand, mats } = u;
 
     // Reset to neutral, then layer poses.
     rig.position.set(0, 0, 0);
     rig.rotation.set(0, 0, 0);
     spine.rotation.set(0, 0, 0);
+    head.rotation.set(0, 0, 0);
     for (const l of legs) {
       l.hip.rotation.set(0, 0, 0);
       l.knee.rotation.set(0, 0, 0);
@@ -454,6 +486,23 @@ export class Hero {
         a.elbow.rotation.x = -0.7;
       });
       spine.rotation.x = 0.12 * clamp(run / 2.5, 0, 1);
+    } else if (this.drink) {
+      // Kneel, scoop from the pit with the cup, then raise it and sip.
+      const DR = CONFIG.desert.pit.drink;
+      const t = this.drink.t;
+      const scoop = Math.min(1, t / DR.scoop);
+      const sip = clamp((t - DR.scoop) / DR.raise, 0, 1);
+      const bend = Math.sin(scoop * Math.PI) * (1 - sip);
+      rig.position.y = -0.35 * (1 - sip * 0.6);
+      legs.forEach((l, i) => {
+        l.hip.rotation.x = i ? -1.4 : -0.3;
+        l.knee.rotation.x = i ? 1.5 : 1.9;
+      });
+      spine.rotation.x = 0.7 * bend + 0.1;
+      const a = arms[1];
+      a.shoulder.rotation.set(lerp(-1.1 * scoop, -1.45, sip), 0, lerp(0, 0.35, sip));
+      a.elbow.rotation.x = lerp(-0.2, -2.0, sip);
+      head.rotation.x = -0.35 * sip;
     } else if (this.dodgeT > 0) {
       // Roll: tuck and spin forward once over the dodge.
       const p = 1 - this.dodgeT / CB.dodge.duration;
@@ -485,6 +534,18 @@ export class Hero {
         a.elbow.rotation.x = -0.3 * sw;
       });
     }
+
+    // Exhaustion: slumped forward, head low, heavy breathing (a slow bob of the shoulders).
+    const ex = this.exhaustion;
+    if (ex > 0) {
+      const breath = Math.sin(this.time * Math.PI * 2 * O_EX.breathe);
+      spine.rotation.x += O_EX.slump * ex + breath * 0.05 * ex;
+      head.rotation.x = 0.35 * ex;
+      rig.position.y += breath * O_EX.breatheBob * ex;
+      arms.forEach((a) => (a.shoulder.rotation.x += 0.35 * ex));
+    }
+    head.rotation.x += this.facePitch;
+    u.cup.visible = !!this.drink;
 
     // Combo: punches alternate arms (right first), the third hit is a heavy kick.
     const atk = this.attack;
