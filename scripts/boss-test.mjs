@@ -17,7 +17,7 @@ import { Quests } from '../src/quests.js';
 const world = new World(); await world.init();
 const scene = world.scene;
 const hero = new Hero(scene, world, heroAssets); await hero.init();
-const horse = new Horse(scene, world); await horse.init();
+const horse = new Horse(scene, world, heroAssets); await horse.init();
 const combat = new Combat(scene, hero); await combat.init();
 const abilities = new Abilities(hero, scene, world, combat); await abilities.init();
 combat.abilities = abilities;

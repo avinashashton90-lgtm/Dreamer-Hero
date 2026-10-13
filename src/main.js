@@ -38,15 +38,17 @@ async function boot() {
   const world = new World();
   await world.init();
 
-  // The Mixamo hero (falls back to the placeholder if anything fails to load).
-  const hero = new Hero(world.scene, world, { onProgress: (f) => ui.setLoading(f) });
+  // The Mixamo hero and the glTF horse (each falls back to its placeholder if loading fails).
+  // The hero is most of the download: the bar runs 0..loadShare for him, the rest for the horse.
+  const HERO_SHARE = CONFIG.heroModel.loadShare;
+  const hero = new Hero(world.scene, world, { onProgress: (f) => ui.setLoading(f * HERO_SHARE) });
   await hero.init();
-  ui.setLoading(null);
 
   const sound = new Sound(); // placeholders: events only, no audio yet
-  const horse = new Horse(world.scene, world);
+  const horse = new Horse(world.scene, world, { onProgress: (f) => ui.setLoading(HERO_SHARE + f * (1 - HERO_SHARE)) });
   horse.sound = sound;
   await horse.init();
+  ui.setLoading(null);
 
   const cam = new FollowCamera(window.innerWidth / window.innerHeight, world);
   cam.snapTo(hero.position);

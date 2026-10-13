@@ -15,7 +15,7 @@ import { Gems } from '../src/gems.js';
 const world = new World(); await world.init();
 const scene = world.scene;
 const hero = new Hero(scene, world, heroAssets); await hero.init();
-const horse = new Horse(scene, world); await horse.init();
+const horse = new Horse(scene, world, heroAssets); await horse.init();
 const hits = [];
 const combat = new Combat(scene, hero, { onHit: (e) => hits.push(e) }); await combat.init();
 const abilities = new Abilities(hero, scene, world, combat); await abilities.init();

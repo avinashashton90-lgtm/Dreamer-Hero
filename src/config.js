@@ -217,6 +217,7 @@ export const CONFIG = {
     character: 'hero.fbx',   // the skinned character; its embedded clip is the idle
     height: 1.8,             // scaled to the hero's height (feet at the origin)
     textureMax: 1024,        // embedded textures are downsized to this (phones)
+    loadShare: 0.85,         // share of the loading bar for the hero (the horse is the rest)
     crossfade: 0.15,         // seconds to blend between clips
     clips: {
       run: { file: 'run', root: 'xz' },                         // root motion stripped; speed-matched
@@ -237,7 +238,7 @@ export const CONFIG = {
     armLayerWeight: 20,      // the throw arm overrides the body clip on the right arm
     runJumpSpeed: 4,         // take-off speed above which a jump uses the running jump
     runBlend: [0.3, 2.2],    // idle → run blend over this speed range
-    ride: { lift: 0.14, thighPitch: 0.8, spread: 0.85, knee: -0.4 },   // seated on the horse: hips up a little, thighs down and apart round its body, shins hanging
+    ride: { lift: 0.1, thighPitch: 1.05, spread: 0.45, knee: -0.25 },  // seated on the horse: hips up a little, thighs down and apart round its body, shins hanging
     hideBones: ['Backpack', 'RHoodieString2'], // costume only: AJ's backpack (skinned mostly to RHoodieString2), straps and pins are removed
     // Costume only (heroCostume): tint, cloak, mask, belt.
     tint: { pants: 0xc0262d, shoes: 0x6b3f1f, amount: 0.85 },
@@ -630,6 +631,37 @@ export const CONFIG = {
     rotateCheckMs: 250,
     hintHideMs: 8000,      // controls hint fades after this long
     toastMs: 2000,
+  },
+
+  // The horse model (public/models/horse/horse.gltf: horseModel.js), animated by speed.
+  // Collision, steering, hop, gallop and stamina stay in `horse` below.
+  horseModel: {
+    file: 'models/horse/horse.gltf',
+    backHeight: 1.65,        // top of the back at the saddle, above the hooves (AJ is 1.8 tall)
+    textureMax: 1024,        // any embedded textures are downsized to this (this horse has none: flat colours)
+    crossfade: 0.25,         // seconds to blend between gaits
+    seatBone: 'Torso2',      // the saddle rides on this back bone (follows the gallop's rocking)
+    saddleOffset: [0, 0.02, 0.05],     // AJ's hips relative to the top of the back over seatBone (x, y, z; +z forward)
+    passengerOffset: [0, 0.14, -0.42], // the girl's seat, same frame, behind him
+    // Clip roles → clip names, first one found wins (a missing gait falls back to the nearest).
+    roles: {
+      idle: ['Idle', 'Idle_2', 'Idle_Headlow'],     // standing, ridden
+      graze: ['Eating', 'Idle_Headlow', 'Idle'],    // waiting for the rider
+      walk: ['Walk', 'Trot', 'Gallop'],
+      trot: ['Trot', 'Canter', 'Gallop', 'Walk'],   // no trot in this file: the gallop, played slower
+      gallop: ['Gallop', 'Canter', 'Trot', 'Walk'],
+      jump: ['Gallop_Jump', 'Jump_toIdle'],         // the hop (scrubbed: take-off, apex, landing)
+    },
+    // Gaits blend by horse speed between these anchors; each plays at speed / ref (clamped).
+    gaits: [
+      { role: 'idle', speed: 0 },
+      { role: 'walk', speed: 2.5, ref: 2.2, min: 0.6, max: 1.6 },
+      { role: 'trot', speed: 7, ref: 10, min: 0.55, max: 1.2 },
+      { role: 'gallop', speed: 13, ref: 11, min: 0.8, max: 1.7 },
+    ],
+    gallopRate: 1.35,        // Gallop button: the gallop clip plays this much faster again
+    jumpWindow: [0.37, 0.73, 1.1],
+    rootBone: 'Body',        // held level in the jump clip (the hop does the height)
   },
 
   horse: {

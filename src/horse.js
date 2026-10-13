@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { CONFIG } from './config.js';
 import { makeFadeMaterial, addFadeAttribute } from './world.js';
+import { loadGltfHorse } from './horseModel.js';
 
 const HC = CONFIG.horse;
 const CP = CONFIG.checkpoints;
@@ -19,11 +20,27 @@ const { clamp, lerp } = THREE.MathUtils;
 // ---------------------------------------------------------------------------
 
 /**
+ * The horse model (origin at the hooves, facing +Z): the glTF horse with its gait clips
+ * (horseModel.js), or — if it fails to load — the code-built placeholder below.
+ * @param {{ readFile?, onProgress?, placeholder? }} [opts]
+ */
+export async function loadHorseModel(opts = {}) {
+  if (!opts.placeholder) {
+    try {
+      return await loadGltfHorse(opts);
+    } catch (e) {
+      console.warn('Horse model failed to load; using the placeholder horse.', e);
+    }
+  }
+  return buildPlaceholderHorse();
+}
+
+/**
  * Placeholder horse (origin at the hooves, facing +Z). Parts the animation needs are in
  * `userData`: `body` (bobs), `legs` (4 hip pivots, front-left/right then back-left/right),
- * `neck` (head pivot), `tail`, `seat` (rider's feet position, local).
+ * `neck` (head pivot), `tail`, `seat` (the rider's hip point, local to `body`).
  */
-export async function loadHorseModel() {
+function buildPlaceholderHorse() {
   const coat = new THREE.MeshLambertMaterial({ color: 0x8b5a2b, flatShading: true });
   const dark = new THREE.MeshLambertMaterial({ color: 0x2e1d10, flatShading: true });
   const light = new THREE.MeshLambertMaterial({ color: 0xe9dcc7, flatShading: true });
@@ -109,7 +126,7 @@ export async function loadHorseModel() {
     legs.push(hip);
   }
 
-  root.userData = { body, legs, neck, tail, seat: new THREE.Vector3(0, 1.98 + 0.07, -0.05) };
+  root.userData = { kind: 'placeholder', body, legs, neck, tail, seat: new THREE.Vector3(0, 1.98 + 0.07, -0.05) };
   return root;
 }
 
@@ -183,9 +200,11 @@ const MODES = { IDLE: 'idle', MOUNTING: 'mounting', RIDING: 'riding', DISMOUNTIN
  */
 export class Horse {
   /** @param {THREE.Scene} scene @param {import('./world.js').World} world */
-  constructor(scene, world) {
+  /** @param {object} [modelOptions]  passed to loadHorseModel (readFile, onProgress, placeholder) */
+  constructor(scene, world, modelOptions = {}) {
     this.scene = scene;
     this.world = world;
+    this.modelOptions = modelOptions;
     this.position = new THREE.Vector3();
     this.velocity = new THREE.Vector3();
     this.heading = HC.facing;
@@ -286,7 +305,7 @@ export class Horse {
   }
 
   async init() {
-    this.model = await loadHorseModel();
+    this.model = await loadHorseModel(this.modelOptions);
     this.shadow = new THREE.Mesh(
       new THREE.CircleGeometry(HC.shadowSize / 2, 16).scale(0.6, 1, 1),
       new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.28, depthWrite: false }),
@@ -678,7 +697,8 @@ export class Horse {
 
   /** Places the model (with gallop / idle animation); returns the rider's seat (world). */
   #syncModel(dt) {
-    const { body, legs, neck, tail, seat } = this.model.userData;
+    const u = this.model.userData;
+    const { body, legs, neck, tail, seat } = u;
     const s = Math.min(1.2, this.speedRatio); // animation amplitude (frequency still rises with speed)
     this.phase += dt * this.speed * HC.gallopStride * Math.PI * 2;
     const ph = this.phase;
@@ -705,7 +725,8 @@ export class Horse {
       }
       this.legPrev[i] = now;
     });
-    body.position.y = Math.abs(Math.sin(ph)) * HC.bobHeight * s;
+    // (the glTF horse's gallop clip has its own bob)
+    body.position.y = u.animator ? 0 : Math.abs(Math.sin(ph)) * HC.bobHeight * s;
     // Lean into turns (turning right = yaw rate < 0 = lean right = +Z roll).
     const leanTarget = this.mode === MODES.RIDING ? clamp(-this.yawRate * HC.leanFactor * Math.min(1, this.speedRatio), -HC.maxLean, HC.maxLean) : 0;
     this.lean += (leanTarget - this.lean) * (1 - Math.exp(-HC.leanSmoothing * dt));
@@ -721,16 +742,27 @@ export class Horse {
     this.shadow.position.set(this.position.x, g + 0.04, this.position.z);
     this.shadow.rotation.z = this.heading;
 
-    this.model.updateMatrixWorld();
-    body.updateMatrixWorld();
-    // The passenger (the girl) sits behind the rider and leans with the horse.
+    // The glTF horse: gaits by speed (grazing while it waits), the jump clip during a hop.
+    u.animator?.update(dt, {
+      speed: this.speed,
+      galloping: this.galloping,
+      grounded: this.grounded,
+      ridden: this.mode !== MODES.IDLE,
+      hopVelocity: HC.hopVelocity,
+      vy: this.velocity.y,
+    });
+
+    this.model.updateMatrixWorld(true);
+    // The saddle: on the glTF horse's back bone (so the rider rocks with the gallop), else
+    // fixed on the placeholder's body. The passenger (the girl) sits behind the rider.
+    const onHorse = (local, fallback) => (u.seatBone ? local.clone().applyMatrix4(u.seatBone.matrixWorld) : fallback.clone().applyMatrix4(body.matrixWorld));
     if (this.passenger) {
-      const back = new THREE.Vector3(seat.x, seat.y, seat.z - CONFIG.boss.girl.seatBack).applyMatrix4(body.matrixWorld);
+      const back = onHorse(u.passengerLocal, new THREE.Vector3(seat.x, seat.y, seat.z - CONFIG.boss.girl.seatBack));
       this.passenger.position.copy(back);
       this.passenger.rotation.set(0, this.heading, this.lean, 'YXZ');
     }
     this.#updatePrints(dt);
-    return this.#seat.copy(seat).applyMatrix4(body.matrixWorld);
+    return this.#seat.copy(onHorse(u.seatLocal, seat));
   }
 
   #stampPrint(x, z) {

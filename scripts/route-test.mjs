@@ -164,7 +164,7 @@ function cameraCheck(cam) {
 {
   const { Sound } = await import('../src/audio.js');
   const track = world.track, TRK = CONFIG.track, OB = CONFIG.obstacles, GC = CONFIG.gems;
-  const horse = new Horse(world.scene, world); await horse.init();
+  const horse = new Horse(world.scene, world, heroAssets); await horse.init();
   const sound = new Sound(); horse.sound = sound;
   const abilities = new Abilities(hero);
   const gems = new Gems(world.scene, world, { onUnlock: (c, a) => abilities.unlock(a) });

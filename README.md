@@ -60,6 +60,7 @@ src/
   quests.js     objectives, objective arrow and beacon
   guides.js     landing ring and next-branch glow while jumping
   horse.js      the horse: mount/dismount, riding, gallop, obstacles, dust & splashes, checkpoints
+  horseModel.js the glTF horse: gaits blended by speed, saddle on the back bone (placeholder fallback)
   audio.js      sound placeholders (events only for now)
   gems.js       collectible gems (yellow/blue/pink) and ability unlocks
   abilities.js  Batarang, Smoke Bomb, Flash Mode (unlocked by gems)
@@ -72,7 +73,7 @@ src/
   pit.js        the Lazarus Pit (water, glow, vapor, ripple, aura, heal pulse)
 ```
 
-The hero is AJ, a schoolboy in a cap and hoodie — the Mixamo character exactly as it comes (`public/models/hero/`, see [CREDITS.md](CREDITS.md)) with Mixamo animations; a loading bar shows while it downloads, and the game falls back to a code-built placeholder hero if anything fails to load. Other placeholder models are built in `loadXModel()` functions (`loadTerrainModel`, `loadHorseModel`, …) so real glTF assets can be swapped in later.
+The hero is AJ, a schoolboy in a cap and hoodie — the Mixamo character exactly as it comes (`public/models/hero/`, see [CREDITS.md](CREDITS.md)) with Mixamo animations; a loading bar shows while it downloads, and the game falls back to a code-built placeholder hero if anything fails to load. The horse is a low-poly animated glTF horse (`public/models/horse/`) whose walk / gallop / jump clips blend with its speed, also with a placeholder fallback. Other placeholder models are built in `loadXModel()` functions (`loadTerrainModel`, …) so real glTF assets can be swapped in later.
 
 The forest ride follows one trail spline: a 14-wide, ~1544-long dirt trail (at least `CONFIG.trailLength` = 1500; about 94 s at normal speed, ~64 s galloping) from the river to the cave, with wide curves, a hill climb and descent, a river ford half way, 6 jumpable logs/walls on straights, and 60 gems in rows and arcs along the centre lane. Trees stay outside a 22-wide corridor behind a continuous line of bushes and boulders, and invisible side walls keep the horse on the trail (it slides along them).
 
