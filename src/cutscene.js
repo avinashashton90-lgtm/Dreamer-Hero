@@ -90,7 +90,7 @@ const ART = {
       </g></g>
     </svg>`,
 
-  // 4. The dream begins — a purple swirl opens into another world; the masked hero appears.
+  // 4. The dream begins — a purple swirl opens into another world; the hero (AJ) appears.
   dream: `
     <svg viewBox="0 0 320 180">
       <defs>
@@ -108,14 +108,23 @@ const ART = {
       </g>
       <path d="M0 160 q40 -20 80 -6 q50 -26 100 -4 q60 -24 140 0 v30 h-320z" fill="#2a1659"/>
       <g class="ca-hero">
-        <path class="ca-cape" d="M142 84 L118 150 Q160 140 202 150 L178 84 Z" fill="#d62828" stroke="#222" stroke-width="2.5"/>
-        <rect x="140" y="80" width="40" height="62" rx="13" fill="#2b4dff" stroke="#222" stroke-width="2.5"/>
-        <path d="M152 100 l8 -6 l8 6 l-8 10z" fill="#ffd23f" stroke="#222" stroke-width="1.5"/>
+        <!-- AJ: black jeans and sneakers, grey hoodie over an orange tee, red cap on backwards, glasses -->
+        <rect x="146" y="134" width="12" height="24" rx="3" fill="#26262b" stroke="#222" stroke-width="2"/>
+        <rect x="162" y="134" width="12" height="24" rx="3" fill="#26262b" stroke="#222" stroke-width="2"/>
+        <path d="M142 160 q0 -6 10 -6 q8 0 8 6z M160 160 q0 -6 8 -6 q10 0 10 6z" fill="#d9dde2" stroke="#222" stroke-width="2"/>
+        <rect x="139" y="82" width="42" height="58" rx="13" fill="#8b9096" stroke="#222" stroke-width="2.5"/>
+        <path d="M151 82 l9 12 l9 -12z" fill="#f06a28" stroke="#222" stroke-width="1.5"/>
+        <path d="M160 94 v44" stroke="#3a3d42" stroke-width="2"/>
+        <path d="M154 92 v12 M166 92 v12" stroke="#eee" stroke-width="1.5" stroke-linecap="round"/>
         <circle cx="160" cy="60" r="21" fill="#f6cfa3" stroke="#222" stroke-width="2.5"/>
-        <path d="M139 56 q4 -26 21 -24 q19 -2 21 24 q-6 -10 -12 -10 q-4 6 -9 0 q-6 6 -9 0 q-6 0 -12 10z" fill="#3b2a1a" stroke="#222" stroke-width="2"/>
-        <path d="M138 58 h44 v10 h-44z M182 60 l12 -4 l-2 8z" fill="#111" stroke="#222" stroke-width="1.5"/>
-        <ellipse cx="152" cy="63" rx="4" ry="3" fill="#fff"/><ellipse cx="168" cy="63" rx="4" ry="3" fill="#fff"/>
-        <path d="M153 72 q7 5 14 0" stroke="#222" stroke-width="2" fill="none" stroke-linecap="round"/>
+        <path d="M140 58 q2 -8 8 -10 q-2 6 4 8 q2 -6 6 -8 q2 6 8 6 q2 -4 6 -6 q6 4 8 10z" fill="#3b2a1a"/>
+        <path d="M139 52 q1 -24 21 -24 q20 0 21 24z" fill="#e2401e" stroke="#222" stroke-width="2.5"/>
+        <path d="M178 46 q16 -2 24 8 q-12 4 -23 -1z" fill="#151515" stroke="#222" stroke-width="1.5"/>
+        <rect x="143" y="57" width="14" height="10" rx="3" fill="#fff" fill-opacity="0.35" stroke="#111" stroke-width="2.5"/>
+        <rect x="163" y="57" width="14" height="10" rx="3" fill="#fff" fill-opacity="0.35" stroke="#111" stroke-width="2.5"/>
+        <path d="M157 61 h6" stroke="#111" stroke-width="2"/>
+        <circle cx="150" cy="62" r="2" fill="#222"/><circle cx="170" cy="62" r="2" fill="#222"/>
+        <path d="M153 73 q7 5 14 0" stroke="#222" stroke-width="2" fill="none" stroke-linecap="round"/>
       </g>
     </svg>`,
 };

@@ -125,6 +125,11 @@ html, body {
 }
 .toast.show { opacity: 1; transform: none; }
 .fade { position: absolute; inset: 0; background: #000; opacity: 0; pointer-events: none; }
+/* Loading (the hero model) */
+.loading { position: fixed; inset: 0; z-index: 90; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 14px; background: #1b1638; color: #fff; font: 600 18px/1.2 system-ui, sans-serif; pointer-events: none; }
+.loading-bar { width: min(60vw, 420px); height: 12px; border-radius: 6px; background: rgba(255,255,255,.18); overflow: hidden; }
+.loading-bar i { display: block; height: 100%; background: linear-gradient(90deg, #f2b705, #ffd23f); transform-origin: left; transform: scaleX(0); transition: transform .15s; }
 
 /* Controls */
 .controls { position: absolute; inset: 0; pointer-events: none; }
@@ -368,8 +373,6 @@ html, body {
 @keyframes twinkle { 50% { transform: scale(0.4); opacity: 0.4; } }
 .ca-hero { transform-origin: 50% 100%; opacity: 0; animation: hero-in 1s ease-out calc(var(--swirl-ms) * 0.6) forwards; }
 @keyframes hero-in { from { opacity: 0; transform: translateY(20px) scale(0.6); } to { opacity: 1; transform: none; } }
-.ca-cape { transform-origin: 50% 0%; animation: cape 1.2s ease-in-out infinite; }
-@keyframes cape { 50% { transform: skewX(6deg) scaleX(1.05); } }
 
 @media (prefers-reduced-motion: reduce) {
   .slide-art svg *, .slide.in, .slide.in-swirl { animation: none !important; }

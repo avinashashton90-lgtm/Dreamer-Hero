@@ -49,7 +49,9 @@ src/
   state.js      state machine: intro / play / cutscene / gameover / ending
   world.js      map layout, terrain, sky, river, buildings, trees, trail edges, obstacles, cave, colliders
   track.js      the forest ride trail: curve, sampling, nearest-point queries
-  hero.js       hero movement & jumping
+  hero.js       hero movement & jumping (loadHeroModel: the Mixamo hero, or the placeholder)
+  heroModel.js  the Mixamo hero (AJ): load, retargeted clips, animation (optional costume behind heroCostume)
+  mixamo.js     FBX loading (progress, texture downsizing) and clip retargeting by bone name
   camera.js     third-person follow camera with collision
   input.js      joystick, camera drag, Jump/Mount/Gallop buttons, keyboard/mouse
   ui.js         HUD, rotate message, gameover & ending screens
@@ -70,7 +72,7 @@ src/
   pit.js        the Lazarus Pit (water, glow, vapor, ripple, aura, heal pulse)
 ```
 
-Placeholder models are built in `loadXModel()` functions (`loadHeroModel`, `loadTerrainModel`, `loadHorseModel`, …) so real glTF assets can be swapped in later.
+The hero is AJ, a schoolboy in a cap and hoodie — the Mixamo character exactly as it comes (`public/models/hero/`, see [CREDITS.md](CREDITS.md)) with Mixamo animations; a loading bar shows while it downloads, and the game falls back to a code-built placeholder hero if anything fails to load. Other placeholder models are built in `loadXModel()` functions (`loadTerrainModel`, `loadHorseModel`, …) so real glTF assets can be swapped in later.
 
 The forest ride follows one trail spline: a 14-wide, ~1544-long dirt trail (at least `CONFIG.trailLength` = 1500; about 94 s at normal speed, ~64 s galloping) from the river to the cave, with wide curves, a hill climb and descent, a river ford half way, 6 jumpable logs/walls on straights, and 60 gems in rows and arcs along the centre lane. Trees stay outside a 22-wide corridor behind a continuous line of bushes and boulders, and invisible side walls keep the horse on the trail (it slides along them).
 

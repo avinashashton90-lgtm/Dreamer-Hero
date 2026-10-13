@@ -3,6 +3,7 @@
 // and galloping, walls), the ending (horse slows, wide shot, ending state, stats) and Play
 // Again resetting everything.
 // Usage: npm run test:ending   (exits non-zero on failure)
+import { heroAssets } from './node-assets.mjs'; // the real Mixamo hero, read from public/
 import * as THREE from 'three';
 import { CONFIG, DIALOGUE } from '../src/config.js';
 import { GameState, STATES } from '../src/state.js';
@@ -24,7 +25,7 @@ import { LazarusPit } from '../src/pit.js';
 
 const world = new World(); await world.init();
 const scene = world.scene;
-const hero = new Hero(scene, world); await hero.init();
+const hero = new Hero(scene, world, heroAssets); await hero.init();
 const sound = new Sound();
 const horse = new Horse(scene, world); horse.sound = sound; await horse.init();
 const combat = new Combat(scene, hero); await combat.init();
@@ -184,7 +185,7 @@ for (const at of ['second line, mid-typewriter', 'first line']) {
     tt += dt;
     const s = horse.trackS / Lt;
     if (s > 0.08 && s < 0.12) { fEarly = story.fatigue; vEarly = Math.max(vEarly, horse.speed); }
-    if (s > 0.45 && s < 0.55) { fLate = Math.max(fLate, story.fatigue); vLate = Math.max(vLate, horse.speed); staminaCap = Math.min(staminaCap, 1 - EX.staminaLoss * (EX.horseFloor + (1 - EX.horseFloor) * story.fatigue)); slump = Math.max(slump, hero.model.userData.spine.rotation.x); }
+    if (s > 0.45 && s < 0.55) { fLate = Math.max(fLate, story.fatigue); vLate = Math.max(vLate, horse.speed); staminaCap = Math.min(staminaCap, 1 - EX.staminaLoss * (EX.horseFloor + (1 - EX.horseFloor) * story.fatigue)); slump = Math.max(slump, hero.appliedSlump); }
     if (pit.model.visible) pitHiddenBefore = false;
   }
   triggerAt = horse.trackS / Lt;
@@ -206,7 +207,7 @@ for (const at of ['second line, mid-typewriter', 'first line']) {
     if (view.lines.length >= 3 && pit.model.visible) revealedOnLook = true;
     if (view.lines.length <= 2 && horse.speed < 0.2) stopped = true;
     if (girl.kneeling && pit.active) kneeled = true;
-    if (hero.model.userData.cup.visible) cup = true;
+    if (hero.cupVisible) cup = true;
     if (pit.model.userData.pulse.visible) pulse = true;
     if (girl.smiling) smile = true;
     if (lives.hearts !== heartsSeq.at(-1)) heartsSeq.push(lives.hearts);

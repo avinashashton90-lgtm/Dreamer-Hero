@@ -1,5 +1,6 @@
 // Headless route test: runs the real hero physics against the generated map.
 // Usage: npm run test:route   (exits non-zero on failure)
+import { heroAssets } from './node-assets.mjs'; // the real Mixamo hero, read from public/
 import * as THREE from 'three';
 import { World } from '../src/world.js';
 import { Hero } from '../src/hero.js';
@@ -9,7 +10,7 @@ import { Horse } from '../src/horse.js';
 import { Gems } from '../src/gems.js';
 import { Abilities } from '../src/abilities.js';
 const world = new World(); await world.init();
-const hero = new Hero(world.scene, world); await hero.init();
+const hero = new Hero(world.scene, world, heroAssets); await hero.init();
 let respawns = 0; hero.onRespawn = () => respawns++;
 const dt = 1/60, L = world.layout, H = CONFIG.hero, Z = CONFIG.zones;
 const center = (p) => p.minX !== undefined ? { x: (p.minX+p.maxX)/2, z: (p.minZ+p.maxZ)/2 } : { x: p.x, z: p.z };

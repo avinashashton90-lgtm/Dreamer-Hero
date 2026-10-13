@@ -32,11 +32,16 @@ async function boot() {
   renderer.shadowMap.enabled = false;
   app.appendChild(renderer.domElement);
 
+  const ui = new UI(overlay);
+  ui.setLoading(0);
+
   const world = new World();
   await world.init();
 
-  const hero = new Hero(world.scene, world);
+  // The Mixamo hero (falls back to the placeholder if anything fails to load).
+  const hero = new Hero(world.scene, world, { onProgress: (f) => ui.setLoading(f) });
   await hero.init();
+  ui.setLoading(null);
 
   const sound = new Sound(); // placeholders: events only, no audio yet
   const horse = new Horse(world.scene, world);
@@ -46,7 +51,6 @@ async function boot() {
   const cam = new FollowCamera(window.innerWidth / window.innerHeight, world);
   cam.snapTo(hero.position);
 
-  const ui = new UI(overlay);
   const input = new Input(renderer.domElement, overlay);
   const cutscene = new Cutscene(overlay);
   const quests = new Quests(world.scene, world, ui, horse);
@@ -124,6 +128,8 @@ async function boot() {
 
   // --- Hearts, death and respawn ---
   let dying = false;
+  let deathDelay = -1; // seconds of the death fall left before the fade
+  let deathFade = null;
   const lifeEvents = {
     // Dying at the boss: it resets to full health (CONFIG.lives.bossResetsOnRespawn).
     onRespawn: () => boss.onHeroRespawn(),
@@ -137,7 +143,10 @@ async function boot() {
       // Out of hearts: fade out, then use a respawn (on the horse at the last checkpoint) or Game Over.
       dying = true;
       input.setEnabled(false);
-      ui.fadeOut(CONFIG.lives.deathFadeMs, () => {
+      // The death fall plays first (on foot, Mixamo hero), then the fade.
+      hero.die();
+      deathDelay = hero.riding || !hero.model.userData.animator ? 0 : CONFIG.heroModel.deathAnimMs / 1000;
+      deathFade = () => ui.fadeOut(CONFIG.lives.deathFadeMs, () => {
         if (lives.resolveDeath() === 'respawn') {
           abilities.clear();
           combat.reset();
@@ -229,6 +238,10 @@ async function boot() {
     // Hit-stop: heavy hits freeze the action for a moment (the camera keeps going).
     const dt = hitStop > 0 ? 0 : realDt;
     hitStop = Math.max(0, hitStop - realDt);
+    if (deathDelay >= 0 && !state.paused && (deathDelay -= realDt) <= 0) {
+      deathDelay = -1;
+      deathFade?.();
+    }
     const playing = !state.paused && state.is(STATES.PLAY);
     if (playing) {
       const inp = input.read();

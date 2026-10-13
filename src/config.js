@@ -203,6 +203,50 @@ export const CONFIG = {
     ridingDrop: 0.95,      // seated: the rig sits this much lower (hips on the saddle)
   },
 
+  // The hero is AJ exactly as Mixamo ships him (cap, glasses, grey hoodie, black jeans,
+  // sneakers, backpack). true puts the old code-built costume back on: golden cloak (with its
+  // cloth animation), eye mask, utility belt and pouches, chained dagger (drawn for the combo),
+  // red-jeans / brown-shoe tint, and AJ's backpack removed. Off, none of it is built or run.
+  heroCostume: false,
+
+  // The Mixamo hero (AJ, public/models/hero/: heroModel.js). Clip windows are times in the
+  // source clip (seconds); game timings (combat, dodge, throw, jump, drink) are unchanged —
+  // each clip is scrubbed so its key frame (hit, release, take-off, apex) lands on the game's.
+  heroModel: {
+    path: 'models/hero/',
+    character: 'hero.fbx',   // the skinned character; its embedded clip is the idle
+    height: 1.8,             // scaled to the hero's height (feet at the origin)
+    textureMax: 1024,        // embedded textures are downsized to this (phones)
+    crossfade: 0.15,         // seconds to blend between clips
+    clips: {
+      run: { file: 'run', root: 'xz' },                         // root motion stripped; speed-matched
+      jump: { file: 'jump', root: 'xyz', window: [0.56, 0.8, 1.11] },   // take-off, apex, landing
+      runjump: { file: 'runjump', root: 'xyz', window: [0.02, 0.3, 0.62] },
+      punch1: { file: 'punch1', root: 'xz', window: [0.4, 0.68, 0.95] }, // start, hit, end
+      punch2: { file: 'punch2', root: 'xz', window: [1.1, 1.38, 1.6] },
+      kick: { file: 'kick', root: 'xz', window: [0.5, 0.98, 1.45] },
+      roll: { file: 'roll', root: 'xz', window: [0.35, 1.9] },
+      throw: { file: 'throw', root: 'xz', window: [0.3, 0.5, 0.75, 1.05], armOnly: true }, // start, wound back, release, end
+      hit: { file: 'hit', root: 'xz', window: [0, 1.1], time: 0.6 },
+      death: { file: 'death', root: 'xz', window: [0, 2.0], time: 1.6 },
+      drink: { file: 'drink', root: 'xz', window: [2.2, 8.7], faceAt: 2.2 },   // faceAt: undo the turn baked in at this time
+      ride: { file: 'ride', root: 'xz' },
+      flying: { file: 'flying', root: 'xz' },                   // loaded for a later upgrade, not used yet
+    },
+    catchAt: 0.82,           // throw clip time used for the catch pose (arm out in front)
+    armLayerWeight: 20,      // the throw arm overrides the body clip on the right arm
+    runJumpSpeed: 4,         // take-off speed above which a jump uses the running jump
+    runBlend: [0.3, 2.2],    // idle → run blend over this speed range
+    ride: { lift: 0.14, thighPitch: 0.8, spread: 0.85, knee: -0.4 },   // seated on the horse: hips up a little, thighs down and apart round its body, shins hanging
+    hideBones: ['Backpack', 'RHoodieString2'], // costume only: AJ's backpack (skinned mostly to RHoodieString2), straps and pins are removed
+    // Costume only (heroCostume): tint, cloak, mask, belt.
+    tint: { pants: 0xc0262d, shoes: 0x6b3f1f, amount: 0.85 },
+    cloak: { width: 0.5, length: 0.92, drop: 0.07, gap: 0.025 },  // hangs from the upper back
+    mask: { height: 0.05, arc: 1.75, eyeWidth: 0.026, eyeHeight: 0.017, lift: 0.004, gap: 0.004 },
+    belt: { height: 0.06, tube: 0.022, above: 0.06 },             // round the hips, above the hip joint
+    deathAnimMs: 1100,       // the death clip plays this long before the respawn fade
+  },
+
   // Melee, dodge, lock-on and hit feedback (see combat.js).
   combat: {
     combo: [
@@ -340,7 +384,7 @@ export const CONFIG = {
       aura: { height: 6, time: 2.2, color: 0x2f78ff, opacity: 0.16 },
       pulse: { time: 1.1, size: 1.8, color: 0x5f9fff, opacity: 0.4 },
       walkSpeed: 2.4,        // the hero and girl walk to the pit
-      drink: { scoop: 0.9, raise: 0.7, sip: 1.0 }, // the hero's cup: scoop, raise to the lips, sip (s)
+      drink: { scoop: 1.4, raise: 1.0, sip: 1.4 }, // the hero's cup: scoop, raise to the lips, sip (s)
       kneelTime: 0.8,        // the girl kneels before touching the water
       hum: 1.2,              // the water lights up; then "Drink it."
       smileHold: 2,          // she smiles silently (close-up)
@@ -768,6 +812,7 @@ export const CONFIG = {
 
 // All story text / dialogue lives here.
 export const DIALOGUE = {
+  loading: 'Loading the hero…',
   title: 'Dreamer Hero',
   rotatePhone: 'Please rotate your phone to landscape',
   skip: 'Skip ▶▶',

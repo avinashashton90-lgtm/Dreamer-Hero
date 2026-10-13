@@ -162,7 +162,7 @@ export class Combat {
     this.stepT = 0;
     this.hitDone = false;
     this.queued = false;
-    hero.daggerDrawn = true;
+    if (CONFIG.heroCostume) hero.daggerDrawn = true; // the costume's dagger is drawn for the combo
     hero.moveScale = CB.attackMoveScale;
     // Soft lock: turn toward the locked target and lunge a little if it's close.
     const t = this.lockTarget;

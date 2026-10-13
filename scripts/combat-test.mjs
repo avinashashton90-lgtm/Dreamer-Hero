@@ -1,6 +1,7 @@
 // Headless combat test: combo timing, Batarang return, smoke paralysis expiry, Flash damage,
 // dodge invincibility, and the death → respawn → Game Over flow.
 // Usage: npm run test:combat   (exits non-zero on failure)
+import { heroAssets } from './node-assets.mjs'; // the real Mixamo hero, read from public/
 import * as THREE from 'three';
 import { CONFIG } from '../src/config.js';
 import { World } from '../src/world.js';
@@ -13,7 +14,7 @@ import { Gems } from '../src/gems.js';
 
 const world = new World(); await world.init();
 const scene = world.scene;
-const hero = new Hero(scene, world); await hero.init();
+const hero = new Hero(scene, world, heroAssets); await hero.init();
 const horse = new Horse(scene, world); await horse.init();
 const hits = [];
 const combat = new Combat(scene, hero, { onHit: (e) => hits.push(e) }); await combat.init();
@@ -125,16 +126,18 @@ const faceDummy = (d = 1.5, angle = 0) => {
   // Throw pose: wind back, swing forward, the Batarang leaves the hand at the release point.
   const TH = AB.throw;
   const notYet = !abilities.batarang && hero.throwAnim?.kind === 'throw';
-  const arm = hero.model.userData.arms[1].shoulder.rotation;
+  // How far forward of the shoulders the right hand is (works for any hero model).
+  const handFwd = () => { const h = hero.handPosition(); return (h.x - hero.position.x) * Math.sin(hero.facing) + (h.z - hero.position.z) * Math.cos(hero.facing); };
+  const fwd0 = handFwd();
   step(secs(TH.windup) - 1);
-  const back = arm.x;
+  const back = handFwd();
   const before = !abilities.batarang;
-  let swing = 0;
-  for (let i = 0; i < 30 && !abilities.batarang; i++) { step(1); swing = arm.x; } // the frame it leaves the hand
-  step(1); swing = Math.min(swing, arm.x);
+  let swing = -Infinity;
+  for (let i = 0; i < 30 && !abilities.batarang; i++) { step(1); swing = handFwd(); } // the frame it leaves the hand
+  step(1); swing = Math.max(swing, handFwd());
   const sp = abilities.lastSpawn;
   const body = hero.position.clone().setY(hero.position.y + 1.0);
-  check(notYet && before && abilities.batarang && back > 0.6 && swing < -1, `throw pose: nothing thrown until release, arm wound back (${back.toFixed(2)}) then swung forward (${swing.toFixed(2)})`);
+  check(notYet && before && abilities.batarang && back < fwd0 + 0.05 && swing > back + 0.25, `throw pose: nothing thrown until release, arm wound back (hand ${back.toFixed(2)} ahead) then swung forward (${swing.toFixed(2)} ahead)`);
   check(sp && sp.name === 'batarang' && sp.position.distanceTo(sp.hand) < 0.01 && sp.position.distanceTo(body) > 0.3, `batarang spawned at the hand (${sp.position.distanceTo(body).toFixed(2)} from the body centre)`);
   let caughtAt = -1;
   for (let i = 0; i < secs(AB.batarang.maxTime + 1); i++) { step(1); if (!abilities.batarangOut) { caughtAt = i * dt; break; } }

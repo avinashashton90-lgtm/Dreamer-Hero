@@ -99,6 +99,17 @@ export class UI {
     this.orientationListeners.push(fn);
   }
 
+  /** Loading bar (the hero model download): f in 0..1; `null` hides it. */
+  setLoading(f) {
+    if (!this.loadingEl) {
+      this.loadingEl = this.#el('div', 'loading');
+      this.loadingEl.innerHTML = `<p>${DIALOGUE.loading}</p><div class="loading-bar"><i></i></div>`;
+      this.loadingFill = this.loadingEl.querySelector('i');
+    }
+    this.loadingEl.style.display = f === null ? 'none' : '';
+    if (f !== null) this.loadingFill.style.transform = `scaleX(${Math.max(0, Math.min(1, f)).toFixed(3)})`;
+  }
+
   isPortrait() {
     return this.portrait;
   }

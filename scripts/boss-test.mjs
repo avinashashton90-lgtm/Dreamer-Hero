@@ -2,6 +2,7 @@
 // Smoke paralysis, Flash damage, auto-dismount at the arena, death during the fight + respawn
 // (boss reset), and the defeat (girl appears, quest moves on).
 // Usage: npm run test:boss   (exits non-zero on failure)
+import { heroAssets } from './node-assets.mjs'; // the real Mixamo hero, read from public/
 import * as THREE from 'three';
 import { CONFIG, DIALOGUE } from '../src/config.js';
 import { World } from '../src/world.js';
@@ -15,7 +16,7 @@ import { Quests } from '../src/quests.js';
 
 const world = new World(); await world.init();
 const scene = world.scene;
-const hero = new Hero(scene, world); await hero.init();
+const hero = new Hero(scene, world, heroAssets); await hero.init();
 const horse = new Horse(scene, world); await horse.init();
 const combat = new Combat(scene, hero); await combat.init();
 const abilities = new Abilities(hero, scene, world, combat); await abilities.init();

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { CONFIG } from './config.js';
+import { loadMixamoHero } from './heroModel.js';
 
 const H = CONFIG.hero;
 const O = CONFIG.outfit;
@@ -8,14 +9,33 @@ const O_EX = CONFIG.desert.exhaustion;
 const { clamp, lerp } = THREE.MathUtils;
 
 /**
- * Placeholder hero (origin at the feet, facing +Z): a human-proportioned rig of primitives —
- * head with a dark eye mask, torso, jointed arms and legs, red pants, brown leather high
- * boots, a utility belt with pouches, a golden cloak (animated cloth plane) and a dagger on
- * the hip with a chain wrapped around the handle (a second dagger in the right hand is shown
- * while attacking). Swap for a glTF later; the animation drives the pivots in `userData`.
+ * The hero model (origin at the feet, facing +Z): the Mixamo character AJ with its clips
+ * (heroModel.js), or — if anything fails to load — the code-built placeholder below.
+ * @param {{ readFile?, onProgress?, placeholder? }} [opts]  readFile(url) → ArrayBuffer (Node
+ *   tests); onProgress(0..1) for the loading bar; placeholder: skip the download.
  */
-export async function loadHeroModel() {
+export async function loadHeroModel(opts = {}) {
+  if (!opts.placeholder) {
+    try {
+      return await loadMixamoHero(opts);
+    } catch (e) {
+      console.warn('Hero model failed to load; using the placeholder hero.', e);
+    }
+  }
+  return buildPlaceholderHero();
+}
+
+/**
+ * Placeholder hero, used only if the Mixamo hero fails to load (origin at the feet, facing
+ * +Z): a human-proportioned rig of primitives — head, torso, jointed arms and legs, red pants,
+ * brown high boots. With CONFIG.heroCostume it also wears the old costume: a dark eye mask, a
+ * utility belt with pouches, a golden cloak (animated cloth plane) and a chained dagger on the
+ * hip (a second one in the right hand while attacking). The animation drives the pivots in
+ * `userData`.
+ */
+function buildPlaceholderHero() {
   const O = CONFIG.outfit;
+  const costume = CONFIG.heroCostume;
   const mats = [];
   const mat = (color, extra = {}) => {
     const m = new THREE.MeshLambertMaterial({ color, flatShading: true, ...extra });
@@ -62,27 +82,34 @@ export async function loadHeroModel() {
     legs.push({ hip, knee });
   }
 
-  // Torso (rotates for punches), utility belt with pouches and a gold buckle.
+  // Torso (rotates for punches); costume: utility belt with pouches and a gold buckle.
   const spine = new THREE.Group();
   pelvis.add(spine);
   spine.add(mesh(new THREE.BoxGeometry(0.3, 0.16, 0.19), pants, 0, 0.03, 0));
   spine.add(mesh(new THREE.BoxGeometry(0.36, 0.42, 0.21), suit, 0, 0.33, 0));
-  spine.add(mesh(new THREE.OctahedronGeometry(0.06, 0).scale(1, 1.3, 0.4), gold, 0, 0.38, 0.11)); // emblem
-  spine.add(mesh(new THREE.BoxGeometry(0.38, 0.07, 0.23), belt, 0, 0.12, 0));
-  spine.add(mesh(new THREE.BoxGeometry(0.07, 0.06, 0.03), gold, 0, 0.12, 0.12));
-  for (const [x, z] of [[-0.14, 0.1], [0.14, 0.1], [-0.19, -0.02], [0, -0.12]]) {
-    spine.add(mesh(new THREE.BoxGeometry(0.07, 0.08, 0.06), pouch, x, 0.1, z));
+  if (costume) {
+    spine.add(mesh(new THREE.OctahedronGeometry(0.06, 0).scale(1, 1.3, 0.4), gold, 0, 0.38, 0.11)); // emblem
+    spine.add(mesh(new THREE.BoxGeometry(0.38, 0.07, 0.23), belt, 0, 0.12, 0));
+    spine.add(mesh(new THREE.BoxGeometry(0.07, 0.06, 0.03), gold, 0, 0.12, 0.12));
+    for (const [x, z] of [[-0.14, 0.1], [0.14, 0.1], [-0.19, -0.02], [0, -0.12]]) {
+      spine.add(mesh(new THREE.BoxGeometry(0.07, 0.08, 0.06), pouch, x, 0.1, z));
+    }
   }
 
-  // Head: skin, hair, and the dark mask over the eyes (with white eye slits).
+  // Head: skin, hair, eyes (costume: the dark mask over them, with white eye slits).
   spine.add(mesh(new THREE.CylinderGeometry(0.05, 0.06, 0.08, 6), skin, 0, 0.57, 0));
   const head = new THREE.Group();
   head.position.y = 0.7;
   head.add(mesh(new THREE.SphereGeometry(0.14, 10, 8), skin));
   head.add(mesh(new THREE.SphereGeometry(0.146, 10, 6, 0, Math.PI * 2, 0, Math.PI * 0.45), hair, 0, 0.01, -0.005));
-  head.add(mesh(new THREE.CylinderGeometry(0.148, 0.148, 0.065, 12, 1, true), mask, 0, 0.01, 0));
-  const eyeWhite = new THREE.MeshBasicMaterial({ color: 0xffffff });
-  for (const side of [-1, 1]) head.add(mesh(new THREE.BoxGeometry(0.045, 0.018, 0.01), eyeWhite, side * 0.05, 0.012, 0.145));
+  if (costume) {
+    head.add(mesh(new THREE.CylinderGeometry(0.148, 0.148, 0.065, 12, 1, true), mask, 0, 0.01, 0));
+    const eyeWhite = new THREE.MeshBasicMaterial({ color: 0xffffff });
+    for (const side of [-1, 1]) head.add(mesh(new THREE.BoxGeometry(0.045, 0.018, 0.01), eyeWhite, side * 0.05, 0.012, 0.145));
+  } else {
+    const eye = new THREE.MeshBasicMaterial({ color: 0x222222 });
+    for (const side of [-1, 1]) head.add(mesh(new THREE.SphereGeometry(0.018, 6, 5), eye, side * 0.05, 0.015, 0.13));
+  }
   spine.add(head);
 
   // Arms: shoulder and elbow pivots, fists.
@@ -115,25 +142,31 @@ export async function loadHeroModel() {
     d.add(mesh(new THREE.BoxGeometry(0.035, 0.2, 0.012).translate(0, 0.17, 0), blade));
     return d;
   };
-  const daggerHip = makeDagger();
-  daggerHip.position.set(0.21, 0.04, 0.03);
-  daggerHip.rotation.set(0, 0, Math.PI - 0.15); // blade down
-  spine.add(daggerHip);
-  const daggerHand = makeDagger();
-  daggerHand.position.set(0, -0.3, 0.02);
-  daggerHand.rotation.set(Math.PI, 0, 0); // blade continues past the fist
-  daggerHand.visible = false;
-  arms[1].elbow.add(daggerHand);
+  let daggerHip = null;
+  let daggerHand = null;
+  let cloak = null;
+  let cloakPivot = null;
+  if (costume) {
+    daggerHip = makeDagger();
+    daggerHip.position.set(0.21, 0.04, 0.03);
+    daggerHip.rotation.set(0, 0, Math.PI - 0.15); // blade down
+    spine.add(daggerHip);
+    daggerHand = makeDagger();
+    daggerHand.position.set(0, -0.3, 0.02);
+    daggerHand.rotation.set(Math.PI, 0, 0); // blade continues past the fist
+    daggerHand.visible = false;
+    arms[1].elbow.add(daggerHand);
 
-  // Golden cloak: a segmented double-sided plane hanging from the shoulders (animated).
-  const [cw, ch] = O.cloakSegments;
-  const cloakGeo = new THREE.PlaneGeometry(0.44, 0.95, cw, ch).translate(0, -0.475, 0);
-  const cloak = new THREE.Mesh(cloakGeo, mat(O.cloak, { side: THREE.DoubleSide }));
-  cloak.userData.rest = Float32Array.from(cloakGeo.attributes.position.array);
-  const cloakPivot = new THREE.Group();
-  cloakPivot.position.set(0, 0.54, -0.12);
-  cloakPivot.add(cloak);
-  spine.add(cloakPivot);
+    // Golden cloak: a segmented double-sided plane hanging from the shoulders (animated).
+    const [cw, ch] = O.cloakSegments;
+    const cloakGeo = new THREE.PlaneGeometry(0.44, 0.95, cw, ch).translate(0, -0.475, 0);
+    cloak = new THREE.Mesh(cloakGeo, mat(O.cloak, { side: THREE.DoubleSide }));
+    cloak.userData.rest = Float32Array.from(cloakGeo.attributes.position.array);
+    cloakPivot = new THREE.Group();
+    cloakPivot.position.set(0, 0.54, -0.12);
+    cloakPivot.add(cloak);
+    spine.add(cloakPivot);
+  }
 
   // A small cup (the Lazarus Pit): held in the right fist, shown only while drinking.
   const cup = new THREE.Group();
@@ -145,7 +178,7 @@ export async function loadHeroModel() {
   arms[1].elbow.add(cup);
 
   const handLocal = new THREE.Vector3(0, -0.29, 0); // the right fist, in the elbow's frame
-  root.userData = { rig, pelvis, spine, head, legs, arms, cloak, cloakPivot, daggerHip, daggerHand, cup, mats, handLocal };
+  root.userData = { kind: 'placeholder', rig, pelvis, spine, head, legs, arms, cloak, cloakPivot, daggerHip, daggerHand, cup, mats, handLocal };
   return root;
 }
 
@@ -163,9 +196,11 @@ export class Hero {
    * @param {THREE.Scene} scene
    * @param {import('./world.js').World} world  provides groundAt / collide / isHazard
    */
-  constructor(scene, world) {
+  /** @param {object} [modelOptions]  passed to loadHeroModel (readFile, onProgress, placeholder) */
+  constructor(scene, world, modelOptions = {}) {
     this.scene = scene;
     this.world = world;
+    this.modelOptions = modelOptions;
     this.position = new THREE.Vector3();
     this.velocity = new THREE.Vector3();
     this.facing = 0; // yaw radians
@@ -192,9 +227,12 @@ export class Hero {
     this.exhaustion = 0; // 0..1: slumped in the saddle, breathing heavily (desert, on 1 heart)
     this.drink = null; // { t } scoop from the pit with a cup and sip (Lazarus Pit scene)
     this.facePitch = 0; // scripted: look up / down (radians)
+    this.hitT = 0; // seconds left of the hit reaction (taking damage)
+    this.deathT = -1; // seconds into the death fall (≥ 0 after the last heart is lost)
+    this.appliedSlump = 0; // how far the exhaustion slump bends the spine this frame (radians)
     this.phase = 0; // walk cycle
     this.time = 0;
-    this.moveSpeed = 0; // measured horizontal speed (smoothed; riding included) for the cloak
+    this.moveSpeed = 0; // measured horizontal speed (smoothed; riding included): run speed, cloak
     this.prevPos = new THREE.Vector3();
   }
 
@@ -204,7 +242,7 @@ export class Hero {
   }
 
   async init() {
-    this.model = await loadHeroModel();
+    this.model = await loadHeroModel(this.modelOptions);
     this.shadow = makeBlobShadow();
     this.scene.add(this.model, this.shadow);
     this.reset();
@@ -216,8 +254,9 @@ export class Hero {
     this.shadow.visible = true;
     this.attack = null;
     this.throwAnim = null;
-    this.dodgeT = this.dodgeCooldown = this.iframes = this.hurtT = this.glow = this.redFlicker = 0;
+    this.dodgeT = this.dodgeCooldown = this.iframes = this.hurtT = this.glow = this.redFlicker = this.hitT = 0;
     this.exhaustion = this.facePitch = 0;
+    this.deathT = -1;
     this.drink = null;
     const first = this.world.boxes[0];
     this.lastSafe.copy(first.safe);
@@ -229,6 +268,7 @@ export class Hero {
 
   startRiding() {
     this.riding = true;
+    this.deathT = -1;
     this.velocity.set(0, 0, 0);
     this.platform = null;
     this.shadow.visible = false;
@@ -280,6 +320,7 @@ export class Hero {
   hurt(fromX, fromZ, knockback = true) {
     this.iframes = Math.max(this.iframes, CB.hurtInvincible);
     this.hurtT = CB.hurtInvincible;
+    this.hitT = CONFIG.heroModel.clips.hit.time; // hit reaction (Mixamo model)
     if (this.riding || !knockback) return;
     const dx = this.position.x - fromX;
     const dz = this.position.z - fromZ;
@@ -306,12 +347,26 @@ export class Hero {
     this.#sync();
   }
 
+  /** Out of hearts: the death fall plays (until the respawn puts him back on the horse). */
+  die() {
+    if (this.deathT < 0) this.deathT = 0;
+    this.attack = null;
+    this.throwAnim = null;
+    this.dodgeT = 0;
+  }
+
+  /** The Lazarus Pit cup is in his hand. */
+  get cupVisible() {
+    return !!this.model.userData.cup?.visible;
+  }
+
   /** World position of the right hand (where thrown items leave and are caught). */
   handPosition(out = new THREE.Vector3()) {
     const u = this.model.userData;
-    if (!u.arms) return out.set(this.position.x, this.position.y + 1.2, this.position.z);
+    const handBone = u.bones?.rightHand ?? u.arms?.[1].elbow;
+    if (!handBone) return out.set(this.position.x, this.position.y + 1.2, this.position.z);
     this.model.updateMatrixWorld(true);
-    out.copy(u.handLocal).applyMatrix4(u.arms[1].elbow.matrixWorld);
+    out.copy(u.handLocal).applyMatrix4(handBone.matrixWorld);
     // If the model lags the physics position this frame, carry the hand along with the body.
     out.x += this.position.x - this.model.position.x;
     out.y += this.position.y - this.model.position.y;
@@ -331,6 +386,7 @@ export class Hero {
 
   /** Back to the last safe platform after a fall. */
   respawn() {
+    this.deathT = -1;
     this.#placeAt(this.lastSafe);
     this.onRespawn?.(this.position);
   }
@@ -446,20 +502,66 @@ export class Hero {
     this.shadow.scale.setScalar(1 / (1 + lift * 0.25));
   }
 
-  /** Pose the rig: walk/run cycle, jump tuck, combo punches/kick, dodge roll, riding, cloak. */
+  /** Pose the hero (Mixamo clips or the placeholder rig), then the costume extras and the glow. */
   #animate(dt) {
     const u = this.model.userData;
-    if (!u.rig) return;
     this.time += dt;
-    // Measured speed (works while the horse carries us too) drives the cloak and legs.
+    // Measured speed (works while the horse carries us too) drives the run and the cloak.
     if (dt > 0) {
       const v = Math.hypot(this.position.x - this.prevPos.x, this.position.z - this.prevPos.z) / dt;
       this.moveSpeed += (Math.min(v, 40) - this.moveSpeed) * (1 - Math.exp(-8 * dt));
     }
     this.prevPos.copy(this.position);
-    const run = clamp(this.moveSpeed / H.walkSpeed, 0, 1.5);
-    const { rig, spine, head, legs, arms, cloak, cloakPivot, daggerHip, daggerHand, mats } = u;
+    this.hitT = Math.max(0, this.hitT - dt);
+    if (this.deathT >= 0) this.deathT += dt;
+    if (u.animator) {
+      u.animator.update(dt, this);
+      this.appliedSlump = u.animator.slump;
+    } else if (u.rig) this.#posePlaceholder(dt, u);
+    else return;
+    const { cloak, cloakPivot, daggerHip, daggerHand, mats } = u;
+    const th = this.throwAnim;
+    u.cup.visible = !!this.drink;
+    // Costume only (CONFIG.heroCostume): the drawn dagger and the cloak's cloth animation.
+    if (daggerHand) {
+      daggerHand.visible = this.daggerDrawn && !this.riding && !th;
+      daggerHip.visible = !daggerHand.visible;
+    }
+    if (cloak) this.#flutterCloak(dt, cloak, cloakPivot);
+    this.#glow(dt, mats);
+  }
 
+  /** The cloak swings back and ripples more the faster we move. */
+  #flutterCloak(dt, cloak, cloakPivot) {
+    const flow = clamp(this.moveSpeed / (CONFIG.horse.maxSpeed * 0.8), 0, 1);
+    cloakPivot.rotation.x = 0.1 + O.cloakLift * flow + (this.grounded || this.riding ? 0 : 0.35);
+    const pos = cloak.geometry.attributes.position;
+    const rest = cloak.userData.rest;
+    const amp = 0.02 + O.cloakFlutter * flow;
+    for (let i = 0; i < pos.count; i++) {
+      const x = rest[i * 3];
+      const y = rest[i * 3 + 1]; // 0 at the shoulders … -1.05 at the hem
+      pos.setZ(i, rest[i * 3 + 2] + Math.sin(this.time * (5 + 7 * flow) + y * 5 + x * 4) * amp * -y);
+    }
+    pos.needsUpdate = true;
+  }
+
+  /** Flash Mode glow, the red flicker when paying hearts for it, and the hurt blink. */
+  #glow(dt, mats) {
+    this.redFlicker = Math.max(0, this.redFlicker - dt);
+    const red = this.redFlicker > 0 && Math.sin(this.redFlicker * 40) > 0;
+    const g = this.glow;
+    for (const m of mats) {
+      m.emissive.setHex(red ? CONFIG.abilities.flashMode.hurtColor : CONFIG.abilities.flashMode.glowColor);
+      m.emissiveIntensity = red ? 0.9 : g * 0.8;
+    }
+    this.model.visible = this.deathT >= 0 || !(this.hurtT > 0 && Math.floor(this.hurtT * 12) % 2 === 0); // no blink while falling dead
+  }
+
+  /** The placeholder rig: walk/run cycle, jump tuck, combo, roll, riding, throw, drink. */
+  #posePlaceholder(dt, u) {
+    const run = clamp(this.moveSpeed / H.walkSpeed, 0, 1.5);
+    const { rig, spine, head, legs, arms } = u;
     // Reset to neutral, then layer poses.
     rig.position.set(0, 0, 0);
     rig.rotation.set(0, 0, 0);
@@ -545,7 +647,7 @@ export class Hero {
       arms.forEach((a) => (a.shoulder.rotation.x += 0.35 * ex));
     }
     head.rotation.x += this.facePitch;
-    u.cup.visible = !!this.drink;
+    this.appliedSlump = spine.rotation.x;
 
     // Combo: punches alternate arms (right first), the third hit is a heavy kick.
     const atk = this.attack;
@@ -600,30 +702,5 @@ export class Hero {
         a.elbow.rotation.x = -0.5 - give;
       }
     }
-    daggerHand.visible = this.daggerDrawn && !this.riding && !th;
-    daggerHip.visible = !daggerHand.visible;
-
-    // Cloak: swings back and ripples more the faster we move.
-    const flow = clamp(this.moveSpeed / (CONFIG.horse.maxSpeed * 0.8), 0, 1);
-    cloakPivot.rotation.x = 0.1 + O.cloakLift * flow + (this.grounded || this.riding ? 0 : 0.35);
-    const pos = cloak.geometry.attributes.position;
-    const rest = cloak.userData.rest;
-    const amp = 0.02 + O.cloakFlutter * flow;
-    for (let i = 0; i < pos.count; i++) {
-      const x = rest[i * 3];
-      const y = rest[i * 3 + 1]; // 0 at the shoulders … -1.05 at the hem
-      pos.setZ(i, rest[i * 3 + 2] + Math.sin(this.time * (5 + 7 * flow) + y * 5 + x * 4) * amp * -y);
-    }
-    pos.needsUpdate = true;
-
-    // Flash Mode glow, the red flicker when paying hearts for it, and the hurt blink.
-    this.redFlicker = Math.max(0, this.redFlicker - dt);
-    const red = this.redFlicker > 0 && Math.sin(this.redFlicker * 40) > 0;
-    const g = this.glow;
-    for (const m of mats) {
-      m.emissive.setHex(red ? CONFIG.abilities.flashMode.hurtColor : CONFIG.abilities.flashMode.glowColor);
-      m.emissiveIntensity = red ? 0.9 : g * 0.8;
-    }
-    this.model.visible = !(this.hurtT > 0 && Math.floor(this.hurtT * 12) % 2 === 0);
   }
 }
