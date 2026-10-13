@@ -8,9 +8,9 @@ Files: `public/models/hero/*.fbx`. Mixamo characters and animations are provided
 
 AJ is shown as he comes, with his own textures. The only code-built prop on him is the cup he drinks from in the Lazarus Pit scene (`src/heroModel.js`); an optional code-built costume (`CONFIG.heroCostume`, off) is not part of the Mixamo assets.
 
-## Horse
+## Horse — Quaternius
 
-The horse is a low-poly animated horse in `public/models/horse/horse.gltf` (exported from Blender with the Khronos glTF exporter; flat material colours, no textures; clips: Idle, Idle_2, Idle_Headlow, Eating, Walk, Gallop, Gallop_Jump, Jump_toIdle, Attack_Headbutt, Attack_Kick, Idle_HitReact1/2, Death). Its rig and clip names match [Quaternius](https://quaternius.com)'s CC0 animated animal packs. *Source and licence to be confirmed by whoever added the file.*
+The horse (`public/models/horse/horse.gltf`) is from the **Ultimate Animated Animal Pack** (July 2021) by [Quaternius](https://quaternius.com), licensed [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) (public domain). It is used as it comes: flat material colours, no textures, with its own clips (Idle, Idle_2, Idle_Headlow, Eating, Walk, Gallop, Gallop_Jump, Jump_toIdle, Attack_Headbutt, Attack_Kick, Idle_HitReact1/2, Death).
 
 ## Engine
 
