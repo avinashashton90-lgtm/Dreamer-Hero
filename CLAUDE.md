@@ -119,6 +119,7 @@ Town rooftops (x≈-142…-72) → giant swamp trees with walkable branches (…
 - [x] Trail spline rebuild: 14-wide trail ≥1500 long, 22-wide tree-free corridor, invisible side walls, continuous bush/boulder edge, spline-sampled trees/gems/obstacles, 60 gems, no hurdles near the cave
 - [x] Long flowing forest track: ~1480-long trail (~90 s), wide curves, hills, ford at half way, 6 fair obstacles, gem rows/arcs, smooth horse-relative steering with path assist, checkpoints every 25%
 - [ ] Real sounds (placeholders fire today)
+- [ ] Mixamo girl (assets ready, not wired in yet): `public/models/girl/girl.glb` (Ch46, ~0.4 MB: converted from the 28 MB `girl.fbx` by `scripts/girl-to-glb.mjs` — skeleton kept in the Mixamo FBX's centimetres under a 0.01 root so the animation FBX files in the same folder retarget onto it unchanged, textures 1024 px WebP, meshopt-compressed: load with `GLTFLoader.setMeshoptDecoder(MeshoptDecoder)`). `girl.fbx` is git-ignored.
 - [x] Hero combat: new outfit/rig, 3-hit combo, dodge, soft lock-on, hit feedback
 - [x] Abilities: Batarang, Smoke Bomb, Flash Mode
 - [x] Lives: 5 hearts + 3 respawns, respawn on the horse, Game Over → Retry the ride
