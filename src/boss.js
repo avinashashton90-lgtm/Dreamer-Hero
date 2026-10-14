@@ -206,10 +206,12 @@ export class Boss {
    * @param {import('./world.js').World} world
    * @param {{ onHitHero?: (hearts:number, x:number, z:number, opts?:{knockback?:boolean, source?:string}) => void, onSlam?: Function, onDefeat?: Function, onWake?: Function }} [events]
    */
-  constructor(scene, world, events = {}) {
+  /** @param {object} [girlModelOptions]  passed to loadGirlModel (readFile, onProgress, placeholder) */
+  constructor(scene, world, events = {}, girlModelOptions = {}) {
     this.scene = scene;
     this.world = world;
     this.events = events;
+    this.girlModelOptions = girlModelOptions;
     this.position = new THREE.Vector3();
     this.radius = B.radius;
     this.height = B.height;
@@ -231,7 +233,7 @@ export class Boss {
     this.dizzy = await loadDizzyModel();
     this.dizzy.scale.setScalar(2.2);
     this.model.add(this.dizzy);
-    this.girl = await loadGirlModel();
+    this.girl = await loadGirlModel(this.girlModelOptions);
     this.fireCone = await loadFireConeModel();
     this.fireMesh = await loadFireModel(F.particles);
     this.shock = await loadShockwaveModel();

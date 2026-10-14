@@ -1,15 +1,32 @@
 import * as THREE from 'three';
 import { CONFIG } from './config.js';
+import { loadMixamoGirl } from './girlModel.js';
 
 const G = CONFIG.boss.girl;
 const CI = CONFIG.cinematic;
 
 /**
- * Placeholder girl (origin at the feet, facing +Z): long dress, head with long dark hair, eyes
- * (their material glows for the witch hint) and arms on shoulder/elbow pivots (hands clasped
- * when frightened). Swap for a glTF later; keep the userData pivots.
+ * The girl's model (origin at the feet, facing +Z): Amy, the Mixamo character, with her clips
+ * (girlModel.js) — or, if anything fails to load, the code-built placeholder below.
+ * @param {{ readFile?, onProgress?, placeholder? }} [opts]
  */
-export async function loadGirlModel() {
+export async function loadGirlModel(opts = {}) {
+  if (!opts.placeholder) {
+    try {
+      return await loadMixamoGirl(opts);
+    } catch (e) {
+      console.warn('Girl model failed to load; using the placeholder girl.', e);
+    }
+  }
+  return buildPlaceholderGirl();
+}
+
+/**
+ * Placeholder girl, used only if Amy fails to load (origin at the feet, facing +Z): long
+ * dress, head with long dark hair, eyes (their material glows for the witch hint) and arms on
+ * shoulder/elbow pivots (hands clasped when frightened), posed procedurally.
+ */
+function buildPlaceholderGirl() {
   const dressMat = new THREE.MeshLambertMaterial({ color: G.color, flatShading: true });
   const skin = new THREE.MeshLambertMaterial({ color: G.skin });
   const hairMat = new THREE.MeshLambertMaterial({ color: G.hair, flatShading: true });
@@ -59,7 +76,7 @@ export async function loadGirlModel() {
     arms.push({ shoulder, elbow });
   }
   body.add(dress, torso, head);
-  group.userData = { body, head, arms, eyeMat, dressMat, mouth: { neutral, smile } };
+  group.userData = { kind: 'placeholder', body, head, arms, eyeMat, dressMat, mouth: { neutral, smile } };
   return group;
 }
 
@@ -70,10 +87,13 @@ export async function loadGirlModel() {
 export async function loadWitchShadowModel() {
   const S = G.shadow;
   const mat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: S.opacity, depthWrite: false, side: THREE.DoubleSide });
+  // Her own shadow: legs, shorts, top, a bob of hair.
   const girl = new THREE.Shape();
-  girl.moveTo(-0.38, 0).lineTo(0.38, 0).lineTo(0.16, 0.62).lineTo(0.1, 0.8).lineTo(-0.1, 0.8).lineTo(-0.16, 0.62).closePath();
+  girl.moveTo(-0.14, 0).lineTo(-0.07, 0).lineTo(-0.03, 0.36).lineTo(0.03, 0.36).lineTo(0.07, 0).lineTo(0.14, 0)
+    .lineTo(0.13, 0.42).lineTo(0.15, 0.48).lineTo(0.16, 0.72).lineTo(0.08, 0.8).lineTo(-0.08, 0.8).lineTo(-0.16, 0.72)
+    .lineTo(-0.15, 0.48).lineTo(-0.13, 0.42).closePath();
   const head = new THREE.Shape();
-  head.absarc(0, 0.9, 0.1, 0, Math.PI * 2, false);
+  head.moveTo(-0.13, 0.78).lineTo(0.13, 0.78).lineTo(0.13, 0.9).quadraticCurveTo(0.13, 1.02, 0, 1.02).quadraticCurveTo(-0.13, 1.02, -0.13, 0.9).closePath();
   const witch = new THREE.Shape();
   witch.moveTo(-0.42, 0).lineTo(0.42, 0).lineTo(0.17, 0.62).lineTo(0.1, 0.8).lineTo(0.3, 0.86).lineTo(0.02, 1.32).lineTo(-0.3, 0.86).lineTo(-0.1, 0.8).lineTo(-0.17, 0.62).closePath();
   const staff = new THREE.Shape();
@@ -95,9 +115,12 @@ export async function loadWitchShadowModel() {
 }
 
 /**
- * The girl from the cave: frightened (hands clasped, trembling) until rescued, then rides
- * behind the hero. `hint()` plays the witch hint: her eyes flicker purple and her shadow on
- * the cave wall shows a pointed hat and a long staff, then all is normal again.
+ * The girl from the cave: frightened (scared) until rescued, then rides behind the hero.
+ * `hint()` plays the witch hint: a faint purple glow flickers over her eyes and her shadow on
+ * the cave wall shows a pointed hat and a long staff, then all is normal again (with
+ * CONFIG.girlWitchForm both stay — the hook for her later transformation). The story sets the
+ * flags (frightened, riding, talking, lookAtHero, pointing, walking, kneeling, smiling);
+ * `pose` is the resulting base pose and drives Amy's clips (or the placeholder's pivots).
  */
 export class Girl {
   /** @param {THREE.Object3D} model  (loadGirlModel) */
@@ -114,6 +137,7 @@ export class Girl {
     this.kneeling = false; // at the pit, a hand in the water
     this.walking = false;
     this.smiling = false;
+    this.talking = false; // one of her lines is up
     model.userData.onMount = () => (this.riding = true);
     model.userData.onDismount = () => (this.riding = false);
   }
@@ -128,7 +152,7 @@ export class Girl {
   reset() {
     this.frightened = true;
     this.riding = false;
-    this.lookAtHero = this.pointing = this.kneeling = this.walking = this.smiling = false;
+    this.lookAtHero = this.pointing = this.kneeling = this.walking = this.smiling = this.talking = false;
     this.hintT = 0;
     this.hints = 0;
     this.shadow.visible = false;
@@ -144,9 +168,41 @@ export class Girl {
     return this.hintT > 0;
   }
 
+  /** Base pose: ride → kneel → happy (the smile) → walk → scared → idle. */
+  get pose() {
+    if (this.riding) return 'ride';
+    if (this.kneeling) return 'kneel';
+    if (this.smiling) return 'happy';
+    if (this.walking) return 'walk';
+    if (this.frightened) return 'scared';
+    return 'idle';
+  }
+
+  /** The witch's eye glow: flickering during the hint, steady in her witch form. */
+  get eyesGlowing() {
+    return CONFIG.girlWitchForm || (this.hinting && Math.sin(this.time * 47) > -0.3);
+  }
+
   update(dt, groundY = 0) {
     this.time += dt;
     this.hintT = Math.max(0, this.hintT - dt);
+    const u = this.model.userData;
+    if (u.animator) u.animator.update(dt, this);
+    else this.#posePlaceholder();
+    // Witch hint on the cave wall: her shadow flickers to the hat-and-staff shape.
+    const flick = this.eyesGlowing;
+    if (this.shadow) {
+      // (her shadow on the cave wall only exists while she stands at the cave mouth)
+      const atCave = Math.hypot(this.model.position.x - G.shadow.x, this.model.position.z - G.shadow.z) < 15;
+      this.shadow.visible = this.model.visible && !this.riding && atCave;
+      this.shadow.position.y = groundY;
+      this.shadow.userData.hint.visible = flick;
+      this.shadow.userData.normal.visible = !flick;
+    }
+  }
+
+  /** The placeholder's pivots (the fallback model). */
+  #posePlaceholder() {
     const { body, head, arms, eyeMat } = this.model.userData;
     body.position.set(0, 0, 0);
     body.rotation.set(0, 0, 0);
@@ -195,16 +251,6 @@ export class Girl {
     const { neutral, smile } = this.model.userData.mouth;
     smile.visible = this.smiling;
     neutral.visible = !this.smiling;
-    // Witch hint: eyes flicker purple; the wall shadow flickers to the hat-and-staff shape.
-    const flick = this.hinting && Math.sin(this.time * 47) > -0.3;
-    eyeMat.color.setHex(flick ? CI.hintColor : 0x222222);
-    if (this.shadow) {
-      // (her shadow on the cave wall only exists while she stands at the cave mouth)
-      const atCave = Math.hypot(this.model.position.x - G.shadow.x, this.model.position.z - G.shadow.z) < 15;
-      this.shadow.visible = this.model.visible && !this.riding && atCave;
-      this.shadow.position.y = groundY;
-      this.shadow.userData.hint.visible = flick;
-      this.shadow.userData.normal.visible = !flick;
-    }
+    eyeMat.color.setHex(this.eyesGlowing ? CI.hintColor : 0x222222);
   }
 }

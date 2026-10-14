@@ -14,8 +14,20 @@ globalThis.ProgressEvent ??= class ProgressEvent extends Event {
     Object.assign(this, { lengthComputable: false, loaded: 0, total: 0, ...init });
   }
 };
-THREE.TextureLoader.prototype.load = function () {
-  return new THREE.Texture();
+// No images in Node: textures stay empty but still report "loaded" (GLTFLoader waits for them),
+// and WebP counts as supported (EXT_texture_webp in the girl's glb).
+THREE.TextureLoader.prototype.load = function (url, onLoad) {
+  const t = new THREE.Texture();
+  if (onLoad) setTimeout(() => onLoad(t));
+  return t;
+};
+globalThis.Image ??= class {
+  set src(v) {
+    setTimeout(() => {
+      this.height = this.width = 1;
+      this.onload?.();
+    });
+  }
 };
 
 const publicDir = new URL('../public/', import.meta.url);

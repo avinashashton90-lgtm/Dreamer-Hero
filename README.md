@@ -68,6 +68,7 @@ src/
   lives.js      hearts and respawns
   boss.js       the cave monster fight
   girl.js       the girl (frightened, riding, the witch hint)
+  girlModel.js  Amy, the Mixamo girl: glb + meshopt, retargeted clips, eye glow
   cinematic.js  reusable cutscenes: camera moves, typewriter dialogue, Skip
   story.js      end of Part 1: girl's scene, desert ride, exhaustion + Lazarus Pit, ending, Play Again
   pit.js        the Lazarus Pit (water, glow, vapor, ripple, aura, heal pulse)

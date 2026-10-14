@@ -10,7 +10,7 @@ AJ is shown as he comes, with his own textures. The only code-built prop on him 
 
 ## Girl — Mixamo
 
-The girl (`public/models/girl/girl.glb`, Mixamo character Ch46) and her animations (`public/models/girl/*.fbx`: walk, talk, point, kneel, scared, happy, ride, cast, magic, float, fly, dodge, hit, death…) are from [Mixamo](https://www.mixamo.com) (Adobe), under the same terms as the hero above. `girl.glb` was converted from Mixamo's `girl.fbx` (textures resized to 1024 px; see `scripts/girl-to-glb.mjs`).
+The girl is **Amy** (`public/models/girl/girl.glb`, Mixamo character Ch46), shown as she comes; her animations (`public/models/girl/*.fbx`: walk, talk, point, kneel, scared, happy, ride, cast, magic, float, fly, dodge, hit, death…) are from [Mixamo](https://www.mixamo.com) (Adobe), under the same terms as the hero above. `girl.glb` was converted from Mixamo's `girl.fbx` (textures resized to 1024 px; see `scripts/girl-to-glb.mjs`).
 
 ## Horse — Quaternius
 
@@ -21,4 +21,4 @@ The horse (`public/models/horse/horse.gltf`) is from the **Ultimate Animated Ani
 - [three.js](https://threejs.org) (MIT), including `FBXLoader` and `GLTFLoader`.
 - [Vite](https://vitejs.dev) (MIT).
 
-Everything else (world, girl, monster, effects) is built in code.
+Everything else (world, monster, effects) is built in code.

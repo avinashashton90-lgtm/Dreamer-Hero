@@ -28,7 +28,7 @@ const boss = new Boss(scene, world, {
   onHitHero: (n, x, z, opts = {}) => { if (hero.invincible) return; heroHits++; hero.hurt(x, z, opts.knockback !== false); lives.damage(n); },
   onSlam: () => slams++,
   onDefeat: () => defeated++,
-});
+}, heroAssets);
 await boss.init();
 combat.addTarget(boss);
 const BC = CONFIG.boss, CV = CONFIG.cave, dt = 1 / 60;

@@ -39,16 +39,15 @@ async function boot() {
   await world.init();
 
   // The Mixamo hero and the glTF horse (each falls back to its placeholder if loading fails).
-  // The hero is most of the download: the bar runs 0..loadShare for him, the rest for the horse.
-  const HERO_SHARE = CONFIG.heroModel.loadShare;
-  const hero = new Hero(world.scene, world, { onProgress: (f) => ui.setLoading(f * HERO_SHARE) });
+  // One loading bar over the three downloads (shares by size): the hero, the horse, the girl.
+  const SH = CONFIG.heroModel.loadShares;
+  const hero = new Hero(world.scene, world, { onProgress: (f) => ui.setLoading(f * SH.hero) });
   await hero.init();
 
   const sound = new Sound(); // placeholders: events only, no audio yet
-  const horse = new Horse(world.scene, world, { onProgress: (f) => ui.setLoading(HERO_SHARE + f * (1 - HERO_SHARE)) });
+  const horse = new Horse(world.scene, world, { onProgress: (f) => ui.setLoading(SH.hero + f * SH.horse) });
   horse.sound = sound;
   await horse.init();
-  ui.setLoading(null);
 
   const cam = new FollowCamera(window.innerWidth / window.innerHeight, world);
   cam.snapTo(hero.position);
@@ -80,8 +79,9 @@ async function boot() {
     onHitHero: (hearts, x, z, opts) => damageHero(hearts, x, z, opts),
     onSlam: () => cam.shake(CONFIG.boss.slam.shake, CONFIG.combat.shake.time * 1.6),
     onDefeat: () => ui.banner(DIALOGUE.victory),
-  });
-  await boss.init();
+  }, { onProgress: (f) => ui.setLoading(SH.hero + SH.horse + f * SH.girl) });
+  await boss.init(); // (loads the girl)
+  ui.setLoading(null);
   combat.addTarget(boss);
   quests.boss = boss;
   const girl = new Girl(world.scene, boss.girl);

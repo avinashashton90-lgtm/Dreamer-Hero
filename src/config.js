@@ -217,7 +217,7 @@ export const CONFIG = {
     character: 'hero.fbx',   // the skinned character; its embedded clip is the idle
     height: 1.8,             // scaled to the hero's height (feet at the origin)
     textureMax: 1024,        // embedded textures are downsized to this (phones)
-    loadShare: 0.85,         // share of the loading bar for the hero (the horse is the rest)
+    loadShares: { hero: 0.5, horse: 0.12, girl: 0.38 }, // loading bar split (by download size)
     crossfade: 0.15,         // seconds to blend between clips
     clips: {
       run: { file: 'run', root: 'xz' },                         // root motion stripped; speed-matched
@@ -633,6 +633,40 @@ export const CONFIG = {
     toastMs: 2000,
   },
 
+  // The girl is Amy (Mixamo Ch46, public/models/girl/: girlModel.js), as she comes. Her
+  // skeleton is in centimetres under a 0.01 root (scripts/girl-to-glb.mjs), like the animation
+  // FBX files, so they retarget onto it unchanged.
+  girlModel: {
+    path: 'models/girl/',
+    file: 'girl.glb',        // meshopt-compressed; its embedded clip is the idle
+    height: 1.62,            // a little shorter than AJ (1.8)
+    textureMax: 1024,
+    crossfade: 0.25,
+    // Animation-only FBX files in the same folder (all loaded; the last ones are unused for now).
+    clips: {
+      scared: { file: 'scared' },   // the cave, before and during her cutscene
+      talk: { file: 'talk' },       // while one of her lines is up (upper body)
+      point: { file: 'point', hold: 1.2 }, // "Look." — held with the arm out (upper body)
+      walk: { file: 'walk' },       // to the Lazarus Pit (speed-matched)
+      kneel: { file: 'kneel' },     // at the pit, a hand to the water
+      happy: { file: 'happy' },     // the silent smile (close-up)
+      ride: { file: 'ride' },       // behind AJ on the horse
+      magic1: { file: 'magic1' }, magic2: { file: 'magic2' }, magic3: { file: 'magic3' },
+      magic_big1: { file: 'magic_big1' }, magic_big2: { file: 'magic_big2' },
+      cast: { file: 'cast' }, float: { file: 'float' }, fly: { file: 'fly' },
+      dodge: { file: 'dodge' }, hit: { file: 'hit' }, death: { file: 'death' },
+    },
+    upperBones: ['Spine', 'Neck', 'Head', 'Shoulder', 'Arm', 'ForeArm', 'Hand'], // talk / point layers
+    layerWeight: 20,         // the upper-body layer overrides the base clip on those bones
+    // Seated behind AJ: the ride clip is a chair pose, so the hips go onto the horse's back and
+    // the legs hang down its sides (clear of the rump).
+    ride: { lift: 0.06, thighPitch: 1.1, spread: 0.5, knee: -0.3 },
+    lookAtHero: { yaw: 0.5, pitch: 0.12 }, // riding, turning to look at him (head + upper spine)
+    // Witch hint: a faint purple glow over each eye (on the head bone), flickering.
+    eyes: { up: 0.072, apart: 0.032, back: 0.018, size: 0.028, color: 0xb04dff, opacity: 0.75 },
+  },
+  girlWitchForm: false,      // hook for her later transformation: eyes glow and the wall shadow keeps the hat and staff
+
   // The horse model (public/models/horse/horse.gltf: horseModel.js), animated by speed.
   // Collision, steering, hop, gallop and stamina stay in `horse` below.
   horseModel: {
@@ -642,7 +676,7 @@ export const CONFIG = {
     crossfade: 0.25,         // seconds to blend between gaits
     seatBone: 'Torso2',      // the saddle rides on this back bone (follows the gallop's rocking)
     saddleOffset: [0, 0.02, 0.05],     // AJ's hips relative to the top of the back over seatBone (x, y, z; +z forward)
-    passengerOffset: [0, 0.14, -0.42], // the girl's seat, same frame, behind him
+    passengerOffset: [0, 0.04, -0.5],  // the girl's hips, same frame, behind him
     // Clip roles → clip names, first one found wins (a missing gait falls back to the nearest).
     roles: {
       idle: ['Idle', 'Idle_2', 'Idle_Headlow'],     // standing, ridden

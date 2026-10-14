@@ -48,6 +48,8 @@ export class Story {
     const { hero, boss, horse, state } = this;
     // The boss fight leaves the hero on his last heart; it stays there through the desert.
     if (boss.defeated && !this.exhausted && !this.pitDone) this.#exhaust();
+    // She talks (upper body) while one of her lines is up.
+    this.girl.talking = !!(this.cinematic.active && this.cinematic.current?.step?.say === 'girl');
     this.#updateFatigue(counting ? dt : 0);
     this.#updateScripted(counting ? dt : 0);
     this.pit?.update(counting ? dt : 0);

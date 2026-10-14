@@ -33,7 +33,7 @@ const abilities = new Abilities(hero, scene, world, combat); await abilities.ini
 combat.abilities = abilities;
 const lives = new Lives();
 const gems = new Gems(scene, world, { onUnlock: (c, a) => abilities.unlock(a) }); await gems.init();
-const boss = new Boss(scene, world, {}); await boss.init();
+const boss = new Boss(scene, world, {}, heroAssets); await boss.init();
 combat.addTarget(boss);
 const girl = new Girl(scene, boss.girl); await girl.init();
 const ui = { toast() {}, setQuest(t) { this.text = t; } };
@@ -110,7 +110,9 @@ const afterBoss = async () => {
   await run(0.15);
   const typedLater = view.typed.length;
   check(typedEarly > 0 && typedLater > typedEarly && !view.complete && view.speaker === DIALOGUE.speakers.hero, `typewriter: "${view.typed}" … (${typedLater} chars after 0.15 s), speaker ${view.speaker}`);
-  check(girl.frightened && Math.abs(boss.girl.userData.arms[0].elbow.rotation.x) > 1, 'girl frightened: hands clasped, trembling');
+  // (Amy plays her scared clip; the placeholder clasps its hands)
+  const posed = boss.girl.userData.animator ? boss.girl.userData.animator.primary === 'scared' : Math.abs(boss.girl.userData.arms[0].elbow.rotation.x) > 1;
+  check(girl.frightened && girl.pose === 'scared' && posed, `girl frightened (pose ${girl.pose}, ${boss.girl.userData.kind} model)`);
   check(view.shown, 'dialogue view shown');
   // Taps: complete the line, then continue; record the hint as it plays.
   let readFor = 0, hintSeen = false, eyesPurple = false, shadowHat = false, hintEndedAt = -1, tHint = -1, t = 0, minDist = Infinity;
@@ -119,7 +121,7 @@ const afterBoss = async () => {
     await frame();
     t += dt;
     minDist = Math.min(minDist, cam.camera.position.distanceTo(g));
-    if (girl.hinting) { if (!hintSeen) tHint = t; hintSeen = true; if (boss.girl.userData.eyeMat.color.equals(purple)) eyesPurple = true; if (girl.shadow.userData.hint.visible) shadowHat = true; }
+    if (girl.hinting) { if (!hintSeen) tHint = t; hintSeen = true; if (girl.eyesGlowing && (boss.girl.userData.eyes?.visible ?? boss.girl.userData.eyeMat.color.equals(purple))) eyesPurple = true; if (girl.shadow.userData.hint.visible) shadowHat = true; }
     else if (hintSeen && hintEndedAt < 0) hintEndedAt = t;
     // Tap when a line is fully shown (like a player reading it), a moment later.
     if (view.complete && (readFor = (readFor ?? 0) + dt) > 0.4) { readFor = 0; cinematic.tap(); }
@@ -132,7 +134,7 @@ const afterBoss = async () => {
   check(Math.abs(wrap(hero.facing - heroFacing)) < 1e-6 || hero.riding, 'the hero doesn\'t notice (no reaction)');
   await run(0.1);
   check(!cinematic.active && !view.shown && state.is(STATES.PLAY), `cutscene over, controls back (state ${state.current})`);
-  check(story.girlJoined && story.phase === 'desert' && horse.mode === 'riding' && hero.riding && horse.passenger === boss.girl && girl.riding, 'the girl rides behind the hero');
+  check(story.girlJoined && story.phase === 'desert' && horse.mode === 'riding' && hero.riding && horse.passenger === boss.girl && girl.riding && girl.pose === 'ride', 'the girl rides behind the hero');
   check(horse.route === world.desertTrack && world.activeTrack === world.desertTrack && horse.position.x > DS.startX, `on the desert trail (x ${horse.position.x.toFixed(0)})`);
   await run(0.1, NEUTRAL);
   check(quests.current?.id === 'castle' && ui.text === DIALOGUE.quests.castle, `quest: "${ui.text}"`);
@@ -199,9 +201,16 @@ for (const at of ['second line, mid-typewriter', 'first line']) {
   // Play the scene, reading each line and tapping on.
   view.lines = [];
   let readFor = 0, lookedAtHero = false, pointed = false, revealedOnLook = false, stopped = false, kneeled = false, cup = false, pulse = false, smile = false, heartsSeq = [lives.hearts], camSide = false, t2 = 0;
+  const amy = boss.girl.userData.animator; // Amy's clips (absent with the placeholder girl)
+  const clipsSeen = new Set(), layers = new Set();
   while (cinematic.active && t2 < 90) {
     await frame();
     t2 += dt;
+    if (amy) {
+      clipsSeen.add(amy.primary);
+      if (amy.weights.talkUpper > 0.5) layers.add('talk');
+      if (amy.weights.pointUpper > 0.5) layers.add('point');
+    }
     if (girl.lookAtHero) lookedAtHero = true;
     if (girl.pointing) pointed = true;
     if (view.lines.length >= 3 && pit.model.visible) revealedOnLook = true;
@@ -217,6 +226,8 @@ for (const at of ['second line, mid-typewriter', 'first line']) {
   const expected = [`${S.girl}: ${PL.stop}`, `${S.hero}: ${PL.fine}`, `${S.girl}: ${PL.look}`, `${S.girl}: ${PL.drink}`, `${S.hero}: ${PL.who}`];
   check(JSON.stringify(view.lines) === JSON.stringify(expected), `pit dialogue in order:\n       ${view.lines.join('\n       ')}`);
   check(lookedAtHero && pointed && stopped && revealedOnLook, `girl looks at him ${lookedAtHero}, horse halts ${stopped}, she points ${pointed}, pit revealed ${revealedOnLook}`);
+  if (amy) check(['ride', 'walk', 'kneel', 'happy'].every((c) => clipsSeen.has(c)) && layers.has('talk') && layers.has('point'),
+    `Amy's clips in the pit scene: ${[...clipsSeen].join(', ')}; layers ${[...layers].join(', ')}`);
   check(kneeled && sound.counts.hum >= 1 && cup && pulse && smile, `she kneels and the water wakes (hum ${sound.counts.hum}), cup ${cup}, heal pulse ${pulse}, silent smile ${smile}`);
   check(JSON.stringify(heartsSeq) === JSON.stringify([1, 2, 3, 4, 5]), `hearts refill one by one: ${heartsSeq.join(' → ')}`);
   await run(0.1);
