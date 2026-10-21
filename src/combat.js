@@ -70,6 +70,7 @@ export class Combat {
     this.queued = false;
     this.hitDone = false;
     this.hits = 0; // landed hits (stats / tests)
+    this.lunge = null; // { x, z, left, speed }: the attack's step toward the lock-on target
     if (this.hero) {
       this.hero.attack = null;
       this.hero.moveScale = 1;
@@ -109,6 +110,15 @@ export class Combat {
 
     if (this.step >= 0) {
       const S = CB.combo[this.step];
+      // The lunge (done before the hit frame).
+      const L = this.lunge;
+      if (L) {
+        const m = Math.min(L.left, L.speed * dt);
+        hero.position.x += L.x * m;
+        hero.position.z += L.z * m;
+        L.left -= m;
+        if (L.left <= 1e-4) this.lunge = null;
+      }
       this.stepT += dt;
       if (!this.hitDone && this.stepT >= S.hitAt) {
         this.hitDone = true;
@@ -163,17 +173,19 @@ export class Combat {
     this.queued = false;
     if (CONFIG.heroCostume) hero.daggerDrawn = true; // the costume's dagger is drawn for the combo
     hero.moveScale = CB.attackMoveScale;
-    // Soft lock: turn toward the locked target and lunge a little if it's close.
+    // Soft lock: turn toward the locked target and lunge up to CB.lunge toward it (stopping
+    // CB.lungeStop short of its edge), so a hit thrown from a step or two away still lands.
     const t = this.lockTarget;
+    this.lunge = null;
     if (t) {
       const dx = t.position.x - hero.position.x;
       const dz = t.position.z - hero.position.z;
       const d = Math.hypot(dx, dz);
-      if (d < CB.combo[i].reach + t.radius + 3) {
+      const edge = d - t.radius;
+      if (edge < CB.combo[i].reach + CB.lunge + 1 && d > 1e-3) {
         hero.facing = Math.atan2(dx, dz);
-        const step = Math.max(0, Math.min(CB.lunge * 0.15, d - t.radius - 1.2));
-        hero.position.x += (dx / d) * step;
-        hero.position.z += (dz / d) * step;
+        const left = Math.min(CB.lunge, Math.max(0, edge - CB.lungeStop));
+        if (left > 0) this.lunge = { x: dx / d, z: dz / d, left, speed: left / CB.lungeTime };
       }
     }
   }
@@ -181,6 +193,7 @@ export class Combat {
   #endStep() {
     this.lastStep = this.step;
     this.step = -1;
+    this.lunge = null;
     this.sinceStep = 0;
     this.hero.attack = null;
     this.hero.moveScale = 1;

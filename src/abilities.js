@@ -158,7 +158,7 @@ export async function loadLightningModels() {
  * - Flash Mode: a one-shot charge. The bar starts full; using Flash costs 5 pink gems and 30%
  *   of the hero's hearts (only if he has more than that — never lethal), empties the bar
  *   (it reloads over flashReloadSeconds), charges a gold glow, and the next landed punch takes
- *   50% of the target's max HP.
+ *   damageFraction (40%) of the target's max HP.
  */
 export class Abilities {
   /**
@@ -537,16 +537,20 @@ export class Abilities {
       const fx = this.#fxFor(t);
       const inside = t.alive && this.clouds.some((c) => Math.hypot(t.position.x - c.x, t.position.z - c.z) < SB.radius + t.radius * 0.5);
       const paralyzed = t.paralyzed > 0;
-      if (t.alive && inside && !paralyzed) {
+      // Some beasts shrug the powder off for a while after a paralysis (the boss: 20 s).
+      const resists = !!t.resistsParalysis?.();
+      if (inside && resists && !paralyzed && !t.smokeResistShown) this.onEvent?.('smokeResisted', t);
+      t.smokeResistShown = inside && resists;
+      if (t.alive && inside && !paralyzed && !resists) {
         t.smokeExposure = (t.smokeExposure ?? 0) + dt;
         this.#inhale(t, dt);
         if (t.smokeExposure >= SB.exposure) {
-          t.paralyze(SB.paralyze);
+          t.paralyze(SB.paralyze); // (the target may cap it: the boss is paralyzed for less)
           t.smokeExposure = 0;
           this.#burst(t);
           this.onEvent?.('paralyzed');
         }
-      } else if (!inside || !t.alive) t.smokeExposure = 0;
+      } else if (!inside || !t.alive || resists) t.smokeExposure = 0;
       if (!fx) continue;
       const nowParalyzed = t.paralyzed > 0;
       const target = nowParalyzed ? 1 : t.smokeExposure > 0 ? t.smokeExposure / SB.exposure : 0;
@@ -565,7 +569,7 @@ export class Abilities {
       // Timer ring under it, shrinking with the time left.
       fx.ring.visible = nowParalyzed;
       if (nowParalyzed) {
-        const frac = Math.min(1, t.paralyzed / SB.paralyze);
+        const frac = Math.min(1, t.paralyzed / (t.paralyzeTotal ?? SB.paralyze));
         fx.ring.position.set(t.position.x, t.position.y + 0.06, t.position.z);
         fx.ring.scale.setScalar(Math.max(1, t.radius + 0.6));
         const n = fx.ring.userData.indexCount;

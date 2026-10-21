@@ -178,6 +178,7 @@ function buildPlaceholderHero() {
   arms[1].elbow.add(cup);
 
   const handLocal = new THREE.Vector3(0, -0.29, 0); // the right fist, in the elbow's frame
+  rig.scale.multiplyScalar(CONFIG.heroModel.height / CONFIG.hero.height); // drawn as tall as AJ
   root.userData = { kind: 'placeholder', rig, pelvis, spine, head, legs, arms, cloak, cloakPivot, daggerHip, daggerHand, cup, mats, handLocal };
   return root;
 }

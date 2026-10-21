@@ -89,7 +89,7 @@ const faceDummy = (d = 1.5, angle = 0) => {
   check(combat.step === 1, `tap during a hit is buffered (step ${combat.step})`);
   step(secs(1));
   // Out of range / behind: no hit.
-  faceDummy(CB.combo[0].reach + dummy.radius + 1.5);
+  faceDummy(CB.combo[0].reach + CB.lunge + dummy.radius + 1); // (beyond reach even after the lunge)
   step(1, { attackPressed: true }); step(secs(0.4));
   const outOfRange = hits.length === 0;
   faceDummy(1.4); hero.facing += Math.PI; combat.lockTarget = null;
@@ -138,7 +138,8 @@ const faceDummy = (d = 1.5, angle = 0) => {
   step(1); swing = Math.max(swing, handFwd());
   const sp = abilities.lastSpawn;
   const body = hero.position.clone().setY(hero.position.y + 1.0);
-  check(notYet && before && abilities.batarang && back < fwd0 + 0.05 && swing > back + 0.25, `throw pose: nothing thrown until release, arm wound back (hand ${back.toFixed(2)} ahead) then swung forward (${swing.toFixed(2)} ahead)`);
+  const k = CONFIG.heroModel.height / CONFIG.hero.height; // (AJ is drawn this much larger: hand offsets scale)
+  check(notYet && before && abilities.batarang && back < fwd0 + 0.05 * k + 0.01 && swing > back + 0.25, `throw pose: nothing thrown until release, arm wound back (hand ${back.toFixed(2)} ahead) then swung forward (${swing.toFixed(2)} ahead)`);
   check(sp && sp.name === 'batarang' && sp.position.distanceTo(sp.hand) < 0.01 && sp.position.distanceTo(body) > 0.3, `batarang spawned at the hand (${sp.position.distanceTo(body).toFixed(2)} from the body centre)`);
   let caughtAt = -1;
   for (let i = 0; i < secs(AB.batarang.maxTime + 1); i++) { step(1); if (!abilities.batarangOut) { caughtAt = i * dt; break; } }

@@ -12,7 +12,7 @@ const { clamp } = THREE.MathUtils;
 /**
  * The cave monster: Warrok (Mixamo) from public/models/boss/boss.glb (meshopt-compressed,
  * skeleton in centimetres under a 0.01 root) with the animation FBX files beside it,
- * retargeted by bone name. Scaled to the boss height (~3x AJ), feet at the origin, facing +Z.
+ * retargeted by bone name. Scaled to the boss height (~2.4x AJ), feet at the origin, facing +Z.
  * `userData` keeps the placeholder's interface for the Boss: `head`, `jaw`, `arms`
  * [{shoulder, elbow}], `legs` [{hip, knee}] (bones), `mouth` (fire-breath glow on the jaw),
  * `mats` (hit flash / green tint / fade), `fists()` and the `animator`.

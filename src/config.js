@@ -215,7 +215,7 @@ export const CONFIG = {
   heroModel: {
     path: 'models/hero/',
     character: 'hero.fbx',   // the skinned character; its embedded clip is the idle
-    height: 1.8,             // scaled to the hero's height (feet at the origin)
+    height: 2.07,            // AJ is drawn 15% taller than the hero's 1.8 capsule (feet at the origin; physics unchanged)
     textureMax: 1024,        // embedded textures are downsized to this (phones)
     loadShares: { hero: 0.42, horse: 0.1, girl: 0.31, boss: 0.17 }, // loading bar split (by download size)
     crossfade: 0.15,         // seconds to blend between clips
@@ -251,15 +251,18 @@ export const CONFIG = {
   // Melee, dodge, lock-on and hit feedback (see combat.js).
   combat: {
     combo: [
-      // kind, damage, reach (from the hero's centre), active-hit time, duration, knockback
-      { kind: 'punch', damage: 10, reach: 2.0, hitAt: 0.1, duration: 0.3, knockback: 1.5 },
-      { kind: 'punch', damage: 10, reach: 2.0, hitAt: 0.1, duration: 0.3, knockback: 1.5 },
-      { kind: 'kick', damage: 22, reach: 2.4, hitAt: 0.16, duration: 0.45, knockback: 7, heavy: true },
+      // kind, damage, reach, active-hit time, duration, knockback
+      // (reach is measured from the target's edge — its collision body — not its centre)
+      { kind: 'punch', damage: 10, reach: 2.2, hitAt: 0.1, duration: 0.3, knockback: 1.5 },
+      { kind: 'punch', damage: 10, reach: 2.2, hitAt: 0.1, duration: 0.3, knockback: 1.5 },
+      { kind: 'kick', damage: 22, reach: 2.2, hitAt: 0.16, duration: 0.45, knockback: 7, heavy: true },
     ],
     comboWindow: 0.5,      // tap again within this long after a hit to continue the combo
     frontDot: 0.45,        // hits land only on targets roughly in front (cos of the half-angle)
     attackMoveScale: 0.25, // movement while attacking
-    lunge: 2.5,            // small step forward on each hit
+    lunge: 1.5,            // each attack lunges up to this far toward the lock-on target...
+    lungeTime: 0.08,       // ...over this long (done before the hit frame)...
+    lungeStop: 0.5,        // ...stopping this far from its edge
     lockRange: 12,         // soft lock-on: nearest target within this range...
     lockDot: -0.2,         // ...not behind the hero
     lockRingColor: 0xffd23f,
@@ -322,7 +325,7 @@ export const CONFIG = {
       hurtColor: 0xff2a2a,
       chargeTime: 1,         // charge-up (gold glow, sparks, energy into the hands) before the bolt
       range: 12,             // a living target must be this close (the lock-on range)
-      damageFraction: 0.5,   // of the target's max HP
+      damageFraction: 0.4,   // of the target's max HP
       knockback: 12,
       glowColor: 0xffc400,
       // Charge-up: electric sparks crackling up round his feet...
@@ -457,8 +460,8 @@ export const CONFIG = {
   // The cave monster (boss.js). Arena = CONFIG.cave.center / radius.
   boss: {
     hp: 100,
-    height: 5.4,             // ~3x the hero
-    radius: 1.7,             // body (hit / push) radius
+    height: 5.0,             // ~2.4x AJ (heroModel.height)
+    radius: 1.6,             // body (hit / push) radius — the hero's melee reach is measured from its edge
     guard: [114, 0],         // waits here, in front of the cave mouth, until the hero enters the arena
     walkSpeed: 3.4,
     turnRate: 2.6,           // rad/s
@@ -481,11 +484,22 @@ export const CONFIG = {
     melee: { range: 4, reach: 4.6, frontDot: 0.3, windup: 0.6, strike: 0.4, damage: 1, recover: 2, kinds: ['swipe', 'punch'] },
     charge: { minRange: 7, chaseBefore: 1.6, windup: 1, speed: 17, maxTime: 1.8, damage: 1, hitPad: 0.5, stun: 2, knockback: 9 },
     recover: 1.3,            // pause after every attack (the hero's chance to hit back)
-    enrageAt: 0.4,           // below this fraction of HP...
-    enrageTime: 0.65,        // ...wind-ups and recovery take this fraction of the time...
-    enrageWalk: 1.35,        // ...and it walks faster
-    paralyzedBonus: 1.5,     // damage multiplier while paralyzed (Smoke Bomb)
-    stunnedBonus: 1.5,       // ...and while stunned (charged into a boulder)
+    // Damage it takes, as a fraction of its max HP per hit, whatever the hit's own number:
+    // each combo hit (punches and the kick) 3%, a Batarang 2%, the Flash bolt 40%.
+    hitPct: { melee: 0.03, batarang: 0.02, flash: 0.4 },
+    // Phase 2 below 50% HP: faster wind-ups, shorter recoveries, a faster walk, and it slams
+    // more often — each phase-2 slam cracks the ground open (`onCrack`: slimes come out of the
+    // cracks once they're added).
+    enrageAt: 0.5,           // below this fraction of HP...
+    enrageTime: 0.65,        // ...wind-ups take this fraction of the time...
+    enrageRecover: 0.5,      // ...recoveries this fraction...
+    enrageWalk: 1.35,        // ...it walks faster...
+    enrageSlamChance: 0.4,   // ...and up close it slams instead of swiping/punching this often
+    crack: { arms: 7, length: [2.4, 4.2], width: 0.22, color: 0x140a06, glow: 0xff5a14, glowOpacity: 0.55, life: 9, fade: 1.5, max: 6 },
+    // Smoke Bomb on the boss: paralyzed only 4 s (other monsters: smokeBomb.paralyze), taking
+    // +20% damage meanwhile, then it resists paralysis for 20 s.
+    paralysis: { duration: 4, bonus: 1.2, resist: 20 },
+    stunnedBonus: 1.5,       // damage multiplier while stunned (charged into a boulder)
     dying: { stumble: 0.7, fall: 0.9, fade: 1.2 },
     dismountRange: 30,       // riding this close to the arena: the horse slows and the hero gets off
     autoBrake: 26,           // how hard the horse stops there
@@ -956,6 +970,7 @@ export const DIALOGUE = {
   notEnoughHealth: 'Not enough health',
   needGems: (n, color) => `Need ${n} ${color} gems`,
   noTarget: 'No target in range',
+  smokeResisted: 'It shrugs off the smoke!',
   flashReloading: 'Flash is recharging',
   gallop: 'Gallop',
   objectiveComplete: 'Objective complete!',

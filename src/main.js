@@ -61,7 +61,7 @@ async function boot() {
   const combat = new Combat(world.scene, hero, {
     onHit: (e) => {
       const p = e.position.clone().project(cam.camera);
-      if (p.z < 1) ui.damageNumber(((p.x + 1) / 2) * window.innerWidth, ((1 - p.y) / 2) * window.innerHeight, Math.round(e.amount), e.flash ? 'flash' : e.heavy ? 'heavy' : '');
+      if (p.z < 1) ui.damageNumber(((p.x + 1) / 2) * window.innerWidth, ((1 - p.y) / 2) * window.innerHeight, Math.round(e.amount * 10) / 10, e.flash ? 'flash' : e.heavy ? 'heavy' : '');
       cam.shake(e.shake, CONFIG.combat.shake.time);
       hitStop = Math.max(hitStop, e.hitStop);
     },
@@ -79,6 +79,7 @@ async function boot() {
     }
     if (name === 'flashStrike') ui.screenFlash();
     if (name === 'paralyzed') sound.play('paralyze');
+    if (name === 'smokeResisted') ui.toast(DIALOGUE.smokeResisted);
   };
   let damageHero = () => false; // defined below (needs the state machine)
   const boss = new Boss(world.scene, world, {

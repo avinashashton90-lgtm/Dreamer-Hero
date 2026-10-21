@@ -15,7 +15,7 @@ const { clamp, lerp } = THREE.MathUtils;
 // ---------------------------------------------------------------------------
 
 /**
- * The cave monster's model (origin at the feet, facing +Z, ~3x the hero's height): Warrok, the
+ * The cave monster's model (origin at the feet, facing +Z, ~2.4x AJ's height): Warrok, the
  * Mixamo character, with his clips (monsterModel.js) — or, if anything fails to load, the
  * code-built placeholder below.
  * @param {{ readFile?, onProgress?, placeholder? }} [opts]
@@ -32,7 +32,7 @@ export async function loadMonsterModel(opts = {}) {
 }
 
 /**
- * Placeholder cave monster (origin at the feet, facing +Z, ~3x the hero's height): a hunched
+ * Placeholder cave monster (origin at the feet, facing +Z, ~2.4x AJ's height): a hunched
  * body, horned head with glowing eyes, long arms with huge fists (pivots for the slam) and
  * stubby legs. Pivots the animation needs are in `userData`.
  */
@@ -189,6 +189,59 @@ export async function loadShockwaveModel() {
   return ring;
 }
 
+/**
+ * Placeholder ground crack (a phase-2 slam cracks the arena floor open): jagged dark fissures
+ * running out from the impact, each with a hot orange glow down its middle. Flat, lies on the
+ * ground at its origin; `userData.mats` = [dark, glow] for fading.
+ */
+export async function loadCrackModel() {
+  const C = B.crack;
+  const dark = [];
+  const glow = [];
+  const quad = (out, x0, z0, x1, z1, w0, w1) => {
+    const dx = x1 - x0;
+    const dz = z1 - z0;
+    const l = Math.hypot(dx, dz) || 1;
+    const nx = -dz / l;
+    const nz = dx / l;
+    const a = [x0 + nx * w0, z0 + nz * w0], b = [x0 - nx * w0, z0 - nz * w0];
+    const c = [x1 - nx * w1, z1 - nz * w1], d = [x1 + nx * w1, z1 + nz * w1];
+    for (const [x, z] of [a, b, c, a, c, d]) out.push(x, 0, z);
+  };
+  for (let i = 0; i < C.arms; i++) {
+    let ang = (i / C.arms) * Math.PI * 2 + (Math.random() - 0.5) * 0.6;
+    const len = C.length[0] + Math.random() * (C.length[1] - C.length[0]);
+    const segs = 4;
+    let x = 0, z = 0;
+    for (let k = 0; k < segs; k++) {
+      ang += (Math.random() - 0.5) * 0.7;
+      const nx = x + Math.sin(ang) * (len / segs);
+      const nz = z + Math.cos(ang) * (len / segs);
+      const w0 = C.width * (1 - k / segs) + 0.02;
+      const w1 = C.width * (1 - (k + 1) / segs) + 0.02;
+      quad(dark, x, z, nx, nz, w0, w1);
+      quad(glow, x, z, nx, nz, w0 * 0.4, w1 * 0.4);
+      x = nx;
+      z = nz;
+    }
+  }
+  const mesh = (arr, mat, y) => {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(arr, 3));
+    const m = new THREE.Mesh(g, mat);
+    m.position.y = y;
+    m.renderOrder = 7;
+    return m;
+  };
+  const darkMat = new THREE.MeshBasicMaterial({ color: C.color, transparent: true, opacity: 0.9, depthWrite: false, side: THREE.DoubleSide });
+  const glowMat = new THREE.MeshBasicMaterial({ color: C.glow, transparent: true, opacity: C.glowOpacity, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending });
+  const group = new THREE.Group();
+  group.add(mesh(dark, darkMat, 0.05), mesh(glow, glowMat, 0.06));
+  group.userData.mats = [darkMat, glowMat];
+  group.visible = false;
+  return group;
+}
+
 // ---------------------------------------------------------------------------
 // Boss
 // ---------------------------------------------------------------------------
@@ -218,7 +271,7 @@ const S = BOSS_STATES;
  * at mid range (rears up 0.8 s over a red warning circle, then smashes both fists into the
  * ground), Fire Breath (head back with a glowing mouth over a red cone, then 2 s of fire with
  * damage over time) or Charge (head down, 1 s pause, straight rush; a boulder stuns it for
- * 2 s) → Recover. Below 40% HP it attacks faster.
+ * 2 s) → Recover. Phase 2 below 50% HP: faster wind-ups, shorter recoveries, more slams (that crack the ground).
  * Smoke Bomb paralysis stops everything; paralyzed or stunned it takes bonus damage.
  * A combat target (see combat.js).
  */
@@ -267,7 +320,9 @@ export class Boss {
     this.fireCone = await loadFireConeModel();
     this.fireMesh = await loadFireModel(F.particles);
     this.shock = await loadShockwaveModel();
-    this.scene.add(this.model, this.warning, this.girl, this.fireCone, this.fireMesh, this.shock);
+    this.cracks = [];
+    for (let i = 0; i < B.crack.max; i++) this.cracks.push({ model: await loadCrackModel(), age: Infinity });
+    this.scene.add(this.model, this.warning, this.girl, this.fireCone, this.fireMesh, this.shock, ...this.cracks.map((c) => c.model));
     this.reset();
   }
 
@@ -281,8 +336,14 @@ export class Boss {
     this.timer = 0;
     this.stateTime = 0;
     this.paralyzed = 0;
+    this.paralyzeTotal = B.paralysis.duration;
+    this.paralysisResist = 0; // seconds it still shrugs off the Smoke Bomb
     this.smokeExposure = 0;
     this.flash = 0;
+    for (const c of this.cracks ?? []) {
+      c.age = Infinity;
+      c.model.visible = false;
+    }
     this.chargeHit = false;
     this.recoverFor = B.recover;
     this.fireCooldown = 0;
@@ -327,20 +388,23 @@ export class Boss {
     return this.hp <= this.maxHp * B.enrageAt;
   }
 
-  /** Timing multiplier: attacks come faster below 40% HP. */
+  /** Timing multiplier: wind-ups come faster in phase 2 (below enrageAt of its HP). */
   get pace() {
     return this.enraged ? B.enrageTime : 1;
   }
 
-  takeHit({ amount, flash = false }) {
+  takeHit({ amount, flash = false, source = 'melee' }) {
     if (!this.alive) return 0;
     if (this.state === S.GUARD) this.#set(S.CHASE);
-    let dmg = amount;
-    // Flash Mode removes exactly 50% of max HP; other hits do bonus damage while it's helpless.
-    if (!flash && this.state === S.PARALYZED) dmg *= B.paralyzedBonus;
+    // Its own scale: a fixed share of max HP per kind of hit (B.hitPct) — melee 3%, Batarang 2%,
+    // the Flash bolt exactly 40%; other hits do bonus damage while it's helpless.
+    const pct = B.hitPct[flash ? 'flash' : source];
+    let dmg = pct != null ? this.maxHp * pct : amount;
+    if (!flash && this.state === S.PARALYZED) dmg *= B.paralysis.bonus;
     else if (!flash && this.state === S.STUNNED) dmg *= B.stunnedBonus;
-    dmg = Math.min(this.hp, Math.round(dmg));
+    dmg = Math.min(this.hp, Math.round(dmg * 100) / 100);
     this.hp -= dmg;
+    if (this.hp < 1e-6) this.hp = 0;
     this.flash = CONFIG.combat.hitFlash;
     if (this.hp <= 0) {
       this.warning.visible = false;
@@ -349,12 +413,19 @@ export class Boss {
     return dmg;
   }
 
-  /** Smoke Bomb: stops all actions for `seconds`. */
+  /** Smoke Bomb: stops all actions (at most B.paralysis.duration); refused while it resists. */
   paralyze(seconds) {
-    if (!this.alive) return;
-    this.paralyzed = seconds;
+    if (!this.alive || this.resistsParalysis()) return false;
+    this.paralyzed = Math.min(seconds, B.paralysis.duration);
+    this.paralyzeTotal = this.paralyzed;
     if (this.warning) this.warning.visible = false;
     this.#set(S.PARALYZED);
+    return true;
+  }
+
+  /** For a while after a paralysis wears off it shrugs off the Smoke Bomb. */
+  resistsParalysis() {
+    return this.paralysisResist > 0;
   }
 
   /** World position of the mouth (the smoke is breathed in here). */
@@ -426,7 +497,9 @@ export class Boss {
       case S.CHASE: {
         if (!onFoot) break; // hero left on the horse: wait
         this.#turnTo(dx, dz, dt);
-        if (dist <= B.melee.range) {
+        if (dist <= B.melee.range && this.enraged && this.random() < B.enrageSlamChance) {
+          this.#startSlam(); // phase 2: slams (cracking the ground) more often, even up close
+        } else if (dist <= B.melee.range) {
           // Up close: a swipe or a punch (at random), aimed where the hero is now.
           this.meleeKind = B.melee.kinds[Math.floor(this.random() * B.melee.kinds.length) % B.melee.kinds.length];
           this.facing = Math.atan2(dx, dz);
@@ -449,6 +522,7 @@ export class Boss {
           this.#set(S.SLAM);
           this.stats.slams++;
           this.events.onSlam?.(this.slamAt);
+          if (this.enraged) this.#crack(this.slamAt);
           if (onFoot && Math.hypot(hero.position.x - this.slamAt.x, hero.position.z - this.slamAt.z) < B.slam.radius) {
             this.stats.slamHits++;
             this.events.onHitHero?.(B.slam.damage, this.slamAt.x, this.slamAt.z);
@@ -540,7 +614,10 @@ export class Boss {
         break;
       case S.PARALYZED:
         this.paralyzed = Math.max(0, this.paralyzed - dt);
-        if (this.paralyzed <= 0) this.#set(S.RECOVER);
+        if (this.paralyzed <= 0) {
+          this.paralysisResist = B.paralysis.resist;
+          this.#set(S.RECOVER);
+        }
         break;
       case S.DYING: {
         const D = B.dying;
@@ -557,7 +634,9 @@ export class Boss {
         break;
     }
     if (this.state !== S.PARALYZED) this.paralyzed = 0;
+    if (this.state !== S.PARALYZED) this.paralysisResist = Math.max(0, this.paralysisResist - dt);
     this.fireCooldown = Math.max(0, this.fireCooldown - dt);
+    this.#updateCracks(dt);
     this.position.y = this.world.heightAt(this.position.x, this.position.z);
 
     // Solid body: the hero is pushed out of it (not while dying).
@@ -573,9 +652,9 @@ export class Boss {
     this.#pose(dt);
   }
 
-  /** @param {number} [recoverFor]  RECOVER only: how long (default B.recover, faster enraged) */
+  /** @param {number} [recoverFor]  RECOVER only: how long (default B.recover; shorter in phase 2) */
   #set(state, recoverFor) {
-    if (state === S.RECOVER) this.recoverFor = recoverFor ?? B.recover * this.pace;
+    if (state === S.RECOVER) this.recoverFor = (recoverFor ?? B.recover) * (this.enraged ? B.enrageRecover : 1);
     this.state = state;
     this.stateTime = 0;
     this.visited.add(state);
@@ -605,6 +684,32 @@ export class Boss {
     const cos = (vx * this.fireDir.x + vz * this.fireDir.y) / d;
     const angle = Math.acos(clamp(cos, -1, 1));
     return angle <= F.halfAngle + Math.atan(pad / d);
+  }
+
+  /** A phase-2 slam cracks the ground open (slimes will come out of the cracks later). */
+  #crack(at) {
+    const c = this.cracks?.reduce((a, b) => (b.age > a.age ? b : a)); // a free one, or the oldest
+    this.stats.cracks = (this.stats.cracks ?? 0) + 1;
+    if (c) {
+      c.age = 0;
+      c.model.position.copy(at);
+      c.model.rotation.y = this.random() * Math.PI * 2;
+      c.model.visible = true;
+    }
+    this.events.onCrack?.(at.clone());
+  }
+
+  #updateCracks(dt) {
+    const C = B.crack;
+    for (const c of this.cracks ?? []) {
+      if (!c.model.visible) continue;
+      c.age += dt;
+      const fade = clamp((C.life - c.age) / C.fade, 0, 1);
+      const [dark, glow] = c.model.userData.mats;
+      dark.opacity = 0.9 * fade;
+      glow.opacity = C.glowOpacity * fade * (0.75 + 0.25 * Math.sin(c.age * 5));
+      if (c.age >= C.life) c.model.visible = false;
+    }
   }
 
   #startSlam() {

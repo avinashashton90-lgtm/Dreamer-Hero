@@ -71,7 +71,11 @@ const runUntil = (pred, maxS, opts) => { let t = 0; while (t < maxS) { step(1, {
   for (let a = 0; a < Math.PI * 2; a += 0.3) for (let r = 0; r < CV.radius - 2; r += 2) { const h = world.heightAt(cx + Math.cos(a) * r, cz + Math.sin(a) * r); mn = Math.min(mn, h); mx = Math.max(mx, h); }
   const near = world.obstacles.filter((o) => Math.hypot(o.cx - world.caveArch.x, o.cz - world.caveArch.z) < CONFIG.obstacles.caveClear).length;
   check(mx - mn < 0.5 && world.arenaRocks.length >= 14 && near === 0 && CV.radius * 2 >= 38, `arena ${CV.radius * 2} wide, height range ${(mx - mn).toFixed(2)}, ${world.arenaRocks.length} boulders (the east side is the cave mouth), obstacles within ${CONFIG.obstacles.caveClear} of the cave: ${near}`);
-  check(BC.height / CONFIG.hero.height > 2.8 && CV.archRadius >= 9 * CONFIG.horse.height, `monster ${(BC.height / CONFIG.hero.height).toFixed(1)}x the hero; cave mouth ${(CV.archRadius / CONFIG.horse.height).toFixed(1)}x the horse`);
+  const ratio = BC.height / CONFIG.heroModel.height;
+  const box = new THREE.Box3().setFromObject(hero.model, true);
+  const ajH = box.max.y - box.min.y;
+  check(Math.abs(CONFIG.heroModel.height / CONFIG.hero.height - 1.15) < 0.01 && (heroAssets.placeholder || Math.abs(ajH - CONFIG.heroModel.height) < 0.12), `AJ drawn ${CONFIG.heroModel.height} tall (+15% over ${CONFIG.hero.height}; model measures ${ajH.toFixed(2)})`);
+  check(ratio > 2.3 && ratio < 2.5 && CV.archRadius >= 9 * CONFIG.horse.height, `monster ${BC.height} tall = ${ratio.toFixed(2)}x AJ; cave mouth ${(CV.archRadius / CONFIG.horse.height).toFixed(1)}x the horse`);
 }
 
 // 1) Riding up to the arena: the horse slows and the hero gets off within ~30; the horse waits.
@@ -247,7 +251,7 @@ const runUntil = (pred, maxS, opts) => { let t = 0; while (t < maxS) { step(1, {
   const dealt = combat.hitTarget(boss, { amount: 10 });
   const tRec = runUntil(() => boss.state === S.RECOVER, 3);
   check(tWind >= 0 && Math.abs(tCharge - BC.charge.windup) < 0.05, `charge wind-up ${tCharge.toFixed(2)}s (head down)`);
-  check(stunned && boss.stats.stuns >= 1 && dealt === 10 * BC.stunnedBonus && boss.hp === hp - dealt, `charged into a boulder → stunned; hit for ${dealt} (bonus x${BC.stunnedBonus})`);
+  check(stunned && boss.stats.stuns >= 1 && dealt === boss.maxHp * BC.hitPct.melee * BC.stunnedBonus && boss.hp === hp - dealt, `charged into a boulder → stunned; hit for ${dealt} (bonus x${BC.stunnedBonus})`);
   check(Math.abs(tRec - BC.charge.stun) < 0.06, `stunned ${tRec.toFixed(2)}s, then recover`);
   // Standing in its path: the charge hits the hero.
   lives.reset();
@@ -270,27 +274,52 @@ const runUntil = (pred, maxS, opts) => { let t = 0; while (t < maxS) { step(1, {
   check(boss.enraged && Math.abs(tSlam - BC.slam.windup * BC.enrageTime) < 0.05, `enraged at ${boss.hp} HP: slam wind-up ${tSlam.toFixed(2)}s (was ${BC.slam.windup})`);
 }
 
-// 6) Smoke Bomb: paralyzed (stops everything) for 10 s, takes bonus damage, then recovers.
+// 6) Smoke Bomb on the boss: paralyzed (stops everything) for only 4 s, takes +20% damage,
+// then resists paralysis for 20 s (the powder does nothing), after which it works again.
 {
+  const P = BC.paralysis;
   lives.reset();
+  const resisted = [];
+  abilities.onEvent = (name) => { if (name === 'smokeResisted') resisted.push(name); };
+  const throwSmoke = () => {
+    placeHero(cx - 6, cz, Math.PI / 2);
+    abilities.cooldowns.smokeBomb = 0;
+    step(2, {}, { each: () => { boss.position.set(cx, 0, cz); if (boss.state !== S.PARALYZED) { boss.state = S.RECOVER; boss.stateTime = 0; } } });
+    return abilities.use('smokeBomb');
+  };
   placeHero(cx - 6, cz, Math.PI / 2);
   freshBoss(cx, cz, -Math.PI / 2, S.RECOVER);
-  abilities.cooldowns.smokeBomb = 0;
-  step(2);
-  const thrown = abilities.use('smokeBomb');
+  const thrown = throwSmoke();
   const tPar = runUntil(() => boss.state === S.PARALYZED, 4, { each: () => { boss.position.set(cx, 0, cz); } });
   const pos = boss.position.clone();
   const hearts = lives.hearts;
   placeHero(cx - 2.5, cz, Math.PI / 2); // right in front of it
-  step(secs(4));
+  step(secs(2));
   const frozen = boss.state === S.PARALYZED && boss.position.distanceTo(pos) < 0.01 && lives.hearts === hearts;
   const hp = boss.hp;
   const dealt = combat.hitTarget(boss, { amount: 10 });
+  const ringFrac = abilities.fx.get(boss)?.ringFrac;
   placeHero(cx - 8, cz, Math.PI / 2);
   const tEnd = runUntil(() => boss.state !== S.PARALYZED, 8);
+  const base = boss.maxHp * BC.hitPct.melee;
   check(thrown && tPar > 0 && frozen, `smoke: paralyzed after ${tPar.toFixed(2)}s; no moving or attacking while paralyzed`);
-  check(dealt === 10 * BC.paralyzedBonus && boss.hp === hp - dealt, `paralyzed bonus damage ${dealt} (x${BC.paralyzedBonus})`);
-  check(tEnd > 0 && Math.abs(4 + tEnd - CONFIG.abilities.smokeBomb.paralyze) < 0.2 && boss.state === S.RECOVER, `paralysis wore off after ~${(4 + tEnd).toFixed(1)}s → ${boss.state}`);
+  check(Math.abs(dealt - base * P.bonus) < 1e-6 && Math.abs(boss.hp - (hp - dealt)) < 1e-6, `paralyzed: a ${base} hit does ${dealt} (+${Math.round((P.bonus - 1) * 100)}%)`);
+  check(tEnd > 0 && Math.abs(2 + tEnd - P.duration) < 0.1 && boss.state === S.RECOVER && Math.abs(ringFrac - (1 - 2 / P.duration)) < 0.03, `boss paralysis lasts ${(2 + tEnd).toFixed(1)}s (${P.duration} s; timer ring counts down from ${P.duration} s; other monsters ${CONFIG.abilities.smokeBomb.paralyze} s) → ${boss.state}`);
+  // Resistant for 20 s: a second bomb straight away does nothing.
+  check(boss.resistsParalysis() && Math.abs(boss.paralysisResist - P.resist) < 0.1, `resists paralysis for ${P.resist} s afterwards`);
+  step(secs(CONFIG.abilities.smokeBomb.cooldown) - 2, {}, { each: () => { boss.position.set(cx, 0, cz); boss.state = S.RECOVER; boss.stateTime = 0; } });
+  throwSmoke();
+  const t2 = runUntil(() => boss.state === S.PARALYZED, 3, { each: () => { boss.position.set(cx, 0, cz); if (boss.state !== S.PARALYZED) { boss.state = S.RECOVER; boss.stateTime = 0; } } });
+  check(t2 < 0 && resisted.length >= 1, `smoke within the ${P.resist} s: no paralysis ("${DIALOGUE.smokeResisted}")`);
+  // After the resistance wears off it works again.
+  runUntil(() => !boss.resistsParalysis(), P.resist, { each: () => { boss.position.set(cx, 0, cz); boss.state = S.RECOVER; boss.stateTime = 0; } });
+  abilities.clear();
+  throwSmoke();
+  const t3 = runUntil(() => boss.state === S.PARALYZED, 4, { each: () => { boss.position.set(cx, 0, cz); if (boss.state !== S.PARALYZED) { boss.state = S.RECOVER; boss.stateTime = 0; } } });
+  check(t3 > 0, `after ${P.resist} s the smoke paralyzes it again`);
+  runUntil(() => boss.state !== S.PARALYZED, 6);
+  abilities.onEvent = null;
+  abilities.clear();
 }
 
 // 7) Flash Mode's bolt removes damageFraction of its max HP; Batarang hits it too.
@@ -309,7 +338,74 @@ const runUntil = (pred, maxS, opts) => { let t = 0; while (t < maxS) { step(1, {
   step(2, {}, { each: () => { boss.state = S.RECOVER; boss.stateTime = 0; } });
   abilities.use('batarang');
   runUntil(() => !abilities.batarangOut, 4, { each: () => { boss.state = S.RECOVER; boss.stateTime = 0; } });
-  check(hb - boss.hp === CONFIG.abilities.batarang.damage, `batarang hit the boss for ${hb - boss.hp} and came back`);
+  check(Math.abs(hb - boss.hp - boss.maxHp * BC.hitPct.batarang) < 1e-6, `batarang hit the boss for ${(hb - boss.hp).toFixed(2)} (${BC.hitPct.batarang * 100}% of max HP) and came back`);
+}
+
+// 7b) Reach: all three combo hits land on a stationary boss from normal standing distance
+// (walked up against it), from a step back (lunge), and each takes 3% of its max HP.
+{
+  lives.reset();
+  const hold = { each: () => { if (boss.state !== S.DYING) { boss.state = S.RECOVER; boss.stateTime = 0; } } };
+  const combo = () => {
+    const before = boss.hp, hits0 = combat.hits, from = hero.position.clone();
+    step(1, { attackPressed: true }, hold);
+    step(secs(CONFIG.combat.lungeTime) + 1, {}, hold);
+    const lunged = from.distanceTo(hero.position); // the first hit's lunge
+    for (let k = 1; k < 3; k++) { step(secs(0.2), {}, hold); step(1, { attackPressed: true }, hold); step(secs(0.25), {}, hold); }
+    step(secs(0.6), {}, hold);
+    return { hits: combat.hits - hits0, dmg: before - boss.hp, lunged };
+  };
+  // Walk up to it until its body stops him.
+  freshBoss(cx, cz, -Math.PI / 2, S.RECOVER);
+  placeHero(cx - 7, cz, Math.PI / 2);
+  step(secs(2), { moveX: 0, moveY: 1 }, { ...hold, each: () => { hold.each(); hero.update(0, { ...none, moveX: 0, moveY: 1 }, -Math.PI / 2); } });
+  step(secs(1.2), { moveX: 0, moveY: 1 }, hold);
+  for (let i = 0; i < secs(1.5); i++) { hero.update(dt, { ...none, moveX: 0, moveY: 1 }, Math.PI / 2 + Math.PI); boss.update(dt, hero); hold.each(); }
+  combat.reset();
+  const edge0 = Math.hypot(hero.position.x - boss.position.x, hero.position.z - boss.position.z) - boss.radius;
+  const r0 = combo();
+  const per = boss.maxHp * BC.hitPct.melee;
+  check(r0.hits === 3 && Math.abs(r0.dmg - 3 * per) < 1e-6, `standing against it (${edge0.toFixed(2)} from its edge): ${r0.hits}/3 combo hits land, ${r0.dmg} damage (${BC.hitPct.melee * 100}% each)`);
+  // From further back: the lunge carries him in (up to 1.5) and every hit lands.
+  for (const back of [CONFIG.combat.combo[0].reach, CONFIG.combat.combo[0].reach + CONFIG.combat.lunge * 0.9]) {
+    freshBoss(cx, cz, -Math.PI / 2, S.RECOVER);
+    placeHero(cx - boss.radius - back, cz, Math.PI / 2);
+    combat.reset(); step(2, {}, hold);
+    const r = combo();
+    check(r.hits === 3 && r.lunged <= CONFIG.combat.lunge + 0.01 && r.lunged > 0.5, `${back.toFixed(1)} from its edge: ${r.hits}/3 hits land (first lunge ${r.lunged.toFixed(2)}, max ${CONFIG.combat.lunge})`);
+  }
+  // No lunge past the stopping point (never into its body).
+  const edge = Math.hypot(hero.position.x - boss.position.x, hero.position.z - boss.position.z) - boss.radius;
+  check(edge >= CONFIG.hero.radius - 0.01, `lunge stops short of its body (${edge.toFixed(2)} from its edge)`);
+}
+
+// 7c) Phase 2 (below 50% HP): shorter recoveries and up-close slams that crack the ground.
+{
+  lives.reset();
+  const cracks = [];
+  boss.events.onCrack = (p) => cracks.push(p);
+  freshBoss(cx, cz, -Math.PI / 2, S.CHASE);
+  placeHero(cx - 2.6, cz, Math.PI / 2);
+  boss.random = () => 0.1; // (below enrageSlamChance)
+  step(1);
+  const phase1 = boss.state;
+  freshBoss(cx, cz, -Math.PI / 2, S.CHASE);
+  boss.hp = boss.maxHp * BC.enrageAt - 1;
+  placeHero(cx - 2.6, cz, Math.PI / 2);
+  step(1);
+  const phase2 = boss.state;
+  runUntil(() => boss.state === S.SLAM, 2);
+  const crackShown = boss.cracks.some((c) => c.model.visible);
+  runUntil(() => boss.state === S.RECOVER, 2);
+  const rec2 = boss.recoverFor;
+  boss.random = () => 0.9;
+  check(phase1 === S.MELEE_WINDUP && phase2 === S.SLAM_WINDUP, `up close: phase 1 → ${phase1}, phase 2 (below ${BC.enrageAt * 100}%) → ${phase2} (${BC.enrageSlamChance * 100}% of the time)`);
+  check(cracks.length === 1 && crackShown, `phase-2 slam cracks the ground open (onCrack, ${cracks.length} crack shown)`);
+  check(Math.abs(rec2 - BC.recover * BC.enrageRecover) < 1e-6, `phase-2 recovery ${rec2.toFixed(2)} s (phase 1: ${BC.recover} s)`);
+  step(secs(BC.crack.life + 0.1), {}, { each: () => { boss.state = S.RECOVER; boss.stateTime = 0; } });
+  check(!boss.cracks.some((c) => c.model.visible), `cracks fade after ${BC.crack.life} s`);
+  boss.events.onCrack = null;
+  boss.random = Math.random;
 }
 
 // 8) Dying during the fight: a respawn puts the hero on the horse at the last checkpoint and
