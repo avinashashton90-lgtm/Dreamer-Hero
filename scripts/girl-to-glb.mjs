@@ -1,4 +1,5 @@
-// How public/models/girl/girl.glb was made from the Mixamo girl.fbx (28 MB, not in the repo).
+// How public/models/girl/girl.glb (from the 28 MB girl.fbx) and public/models/boss/boss.glb
+// (from the 12 MB boss.fbx) were made; neither FBX is in the repo.
 // The tools are not project dependencies; run it in a scratch folder:
 //   npm i fbx2gltf@0.9.7-p1 @gltf-transform/core@4.5.1 @gltf-transform/extensions@4.5.1 \
 //         @gltf-transform/functions@4.5.1 sharp meshoptimizer

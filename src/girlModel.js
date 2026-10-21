@@ -99,23 +99,23 @@ function makeEyeGlow(amy, head) {
       let bi = -1;
       for (let k = 0; k < 4; k++) if (sw.getComponent(i, k) > best) (best = sw.getComponent(i, k)), (bi = si.getComponent(i, k));
       if (bi !== headIndex) continue;
-      v.fromBufferAttribute(pos, i).applyMatrix4(o.matrixWorld);
+      o.getVertexPosition(i, v).applyMatrix4(o.matrixWorld); // (skinned + dequantized)
       if (Math.abs(v.x - hp.x) < 0.03 && v.y > hp.y + E.up - 0.03 && v.y < hp.y + E.up + 0.03) front = Math.max(front, v.z);
     }
   });
   if (!Number.isFinite(front)) front = hp.z + 0.09;
   const mat = new THREE.MeshBasicMaterial({ color: E.color, transparent: true, opacity: E.opacity, depthWrite: false, blending: THREE.AdditiveBlending, fog: false });
+  // On the head bone: positions from world (metres) into its frame, sizes by its scale.
   const group = new THREE.Group();
+  const k = head.getWorldScale(new THREE.Vector3()).x;
   for (const side of [-1, 1]) {
-    const glow = new THREE.Mesh(new THREE.SphereGeometry(E.size, 10, 8), mat);
-    glow.position.set(hp.x + side * E.apart, hp.y + E.up, front - E.back);
+    const glow = new THREE.Mesh(new THREE.SphereGeometry(E.size / k, 10, 8), mat);
+    glow.position.copy(head.worldToLocal(new THREE.Vector3(hp.x + side * E.apart, hp.y + E.up, front - E.back)));
     glow.renderOrder = 9;
     group.add(glow);
   }
   group.visible = false;
-  amy.add(group);
-  group.updateMatrixWorld(true);
-  head.attach(group); // keeps its place, then follows the head
+  head.add(group);
   return group;
 }
 

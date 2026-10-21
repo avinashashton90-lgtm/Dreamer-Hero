@@ -6,3 +6,7 @@ dist/
 # The girl's source FBX (28 MB) — use public/models/girl/girl.glb (see scripts/girl-to-glb.mjs)
 public/models/girl/girl.fbx
 public/models/girl/girl.fbm/
+
+# The boss source FBX (12 MB) — use public/models/boss/boss.glb (converted like the girl, scripts/girl-to-glb.mjs)
+public/models/boss/boss.fbx
+public/models/boss/boss.fbm/

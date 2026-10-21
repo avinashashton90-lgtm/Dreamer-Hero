@@ -67,6 +67,7 @@ src/
   combat.js     melee combo, lock-on, hit feedback
   lives.js      hearts and respawns
   boss.js       the cave monster fight
+  monsterModel.js Warrok, the Mixamo boss: glb + meshopt, clips by state
   girl.js       the girl (frightened, riding, the witch hint)
   girlModel.js  Amy, the Mixamo girl: glb + meshopt, retargeted clips, eye glow
   cinematic.js  reusable cutscenes: camera moves, typewriter dialogue, Skip

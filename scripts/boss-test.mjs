@@ -36,6 +36,7 @@ const [cx, cz] = CV.center;
 let failed = false;
 const check = (ok, msg) => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${msg}`); if (!ok) failed = true; };
 const none = { moveX: 0, moveY: 0, jumpPressed: false };
+const clipsByState = {}; // Warrok's clip seen in each boss state
 const step = (n, inp = {}, opts = {}) => {
   for (let i = 0; i < n; i++) {
     const input = { ...none, ...(i === 0 ? inp : {}) };
@@ -44,6 +45,8 @@ const step = (n, inp = {}, opts = {}) => {
     combat.update(dt, input, { mounted: hero.riding });
     abilities.update(dt);
     boss.update(dt, hero);
+    const anim = boss.model.userData.animator;
+    if (anim) (clipsByState[boss.state] ??= new Set()).add(anim.clip);
     if (opts.each?.() === false) break;
   }
 };
@@ -132,15 +135,13 @@ const runUntil = (pred, maxS, opts) => { let t = 0; while (t < maxS) { step(1, {
   placeHero(cx, cz, Math.PI / 2);
   freshBoss(cx + 3.5, cz, -Math.PI / 2, S.CHASE);
   runUntil(() => boss.state === S.SLAM_WINDUP, 2);
-  step(secs(BC.slam.windup * 0.95));
-  boss.model.updateMatrixWorld(true);
-  const fist = (i) => boss.model.userData.arms[i].elbow.children[1].getWorldPosition(new THREE.Vector3());
-  const raised = Math.min(fist(0).y, fist(1).y) - boss.position.y;
+  // Highest both fists get during the wind-up (raised overhead / the leap of the jump attack).
+  let raised = -Infinity;
+  for (let i = 0; i < secs(BC.slam.windup * 0.95); i++) { step(1); const f = boss.fistPositions(); raised = Math.max(raised, Math.min(f[0].y, f[1].y) - boss.position.y); }
   const feet0 = boss.position.clone();
   runUntil(() => boss.state === S.SLAM, 1);
   step(secs(BC.slam.smash) + 1);
-  boss.model.updateMatrixWorld(true);
-  const f = [fist(0), fist(1)];
+  const f = boss.fistPositions();
   const onGround = f.every((p) => p.y - world.heightAt(p.x, p.z) < 0.8);
   const inCircle = f.every((p) => Math.hypot(p.x - boss.slamAt.x, p.z - boss.slamAt.z) < BC.slam.radius * 0.5);
   check(raised > BC.height && onGround && inCircle && boss.shock.visible, `slam: fists raised ${raised.toFixed(1)} high, then both on the ground inside the circle (${f.map((p) => Math.hypot(p.x - boss.slamAt.x, p.z - boss.slamAt.z).toFixed(2)).join(', ')} from its centre), shockwave shown`);
@@ -160,7 +161,9 @@ const runUntil = (pred, maxS, opts) => { let t = 0; while (t < maxS) { step(1, {
   runUntil(() => boss.state === S.FIRE_WINDUP, 2);
   step(secs(0.6));
   const u = boss.model.userData;
-  const warn = boss.fireCone.visible && u.head.rotation.x < -0.3 && u.mouth.visible && u.mouth.material.opacity > 0.4 && u.jaw.rotation.x > 0.2;
+  // Head back / jaw open: the placeholder's pivots, or Warrok's roar clip.
+  const headBack = u.animator ? u.animator.clip === 'roar' : u.head.rotation.x < -0.3 && u.jaw.rotation.x > 0.2;
+  const warn = boss.fireCone.visible && headBack && u.mouth.visible && u.mouth.material.opacity > 0.4;
   const tFire = runUntil(() => boss.state === S.FIRE, 2) + 0.6;
   const h0 = lives.hearts, hits0 = boss.stats.fireHits;
   const tEnd = runUntil(() => boss.state !== S.FIRE, 3);
@@ -307,6 +310,13 @@ const runUntil = (pred, maxS, opts) => { let t = 0; while (t < maxS) { step(1, {
   check(fightText === DIALOGUE.quests.boss && ui.text === DIALOGUE.quests.enterCave, `quest: "${fightText}" → "${ui.text}"`);
   boss.onHeroRespawn();
   check(boss.defeated && boss.state === S.DEAD, 'a defeated boss stays defeated after a respawn');
+}
+
+// Warrok: each state plays its clip.
+if (boss.model.userData.animator) {
+  const want = { chase: 'walk', recover: 'idle', slamWindup: 'jumpattack', slam: 'jumpattack', fireWindup: 'roar', fire: 'roar', chargeWindup: 'roar', charge: 'run', stunned: 'hit', paralyzed: 'hit', dying: 'death' };
+  const wrong = Object.entries(want).filter(([st, c]) => !(clipsByState[st]?.size === 1 && clipsByState[st].has(c)));
+  check(wrong.length === 0, `Warrok's clips by state: ${Object.entries(want).map(([st]) => `${st}=${[...(clipsByState[st] ?? [])].join('/')}`).join(', ')}${wrong.length ? ' — WRONG: ' + wrong.map(([st]) => st).join(', ') : ''}`);
 }
 
 const all = Object.values(S).filter((s) => !boss.visited.has(s) && s !== S.GUARD);

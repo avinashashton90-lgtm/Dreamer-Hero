@@ -3,6 +3,7 @@ import { CONFIG } from './config.js';
 import { loadDizzyModel } from './combat.js';
 import { makeFadeMaterial, addFadeAttribute } from './world.js';
 import { loadGirlModel } from './girl.js';
+import { loadMixamoMonster } from './monsterModel.js';
 
 const B = CONFIG.boss;
 const CV = CONFIG.cave;
@@ -14,11 +15,28 @@ const { clamp, lerp } = THREE.MathUtils;
 // ---------------------------------------------------------------------------
 
 /**
+ * The cave monster's model (origin at the feet, facing +Z, ~3x the hero's height): Warrok, the
+ * Mixamo character, with his clips (monsterModel.js) — or, if anything fails to load, the
+ * code-built placeholder below.
+ * @param {{ readFile?, onProgress?, placeholder? }} [opts]
+ */
+export async function loadMonsterModel(opts = {}) {
+  if (!opts.placeholder) {
+    try {
+      return await loadMixamoMonster(opts);
+    } catch (e) {
+      console.warn('Boss model failed to load; using the placeholder monster.', e);
+    }
+  }
+  return buildPlaceholderMonster();
+}
+
+/**
  * Placeholder cave monster (origin at the feet, facing +Z, ~3x the hero's height): a hunched
  * body, horned head with glowing eyes, long arms with huge fists (pivots for the slam) and
  * stubby legs. Pivots the animation needs are in `userData`.
  */
-export async function loadMonsterModel() {
+function buildPlaceholderMonster() {
   const C = B.colors;
   const mats = [];
   const mat = (color, extra = {}) => {
@@ -105,7 +123,8 @@ export async function loadMonsterModel() {
     root.add(hip);
     legs.push({ hip, knee });
   }
-  root.userData = { body, head, jaw, mouth, arms, legs, mats };
+  const fists = () => arms.map((a) => a.elbow.children[1].getWorldPosition(new THREE.Vector3()));
+  root.userData = { kind: 'placeholder', body, head, jaw, mouth, arms, legs, mats, fists };
   return root;
 }
 
@@ -201,17 +220,22 @@ const S = BOSS_STATES;
  * A combat target (see combat.js).
  */
 export class Boss {
+  static STATES = BOSS_STATES;
+
   /**
    * @param {THREE.Scene} scene
    * @param {import('./world.js').World} world
    * @param {{ onHitHero?: (hearts:number, x:number, z:number, opts?:{knockback?:boolean, source?:string}) => void, onSlam?: Function, onDefeat?: Function, onWake?: Function }} [events]
    */
-  /** @param {object} [girlModelOptions]  passed to loadGirlModel (readFile, onProgress, placeholder) */
-  constructor(scene, world, events = {}, girlModelOptions = {}) {
+  /**
+   * @param {object} [modelOptions]  for loadMonsterModel / loadGirlModel: readFile, placeholder,
+   *   and per model `monster: { onProgress }`, `girl: { onProgress }`
+   */
+  constructor(scene, world, events = {}, modelOptions = {}) {
     this.scene = scene;
     this.world = world;
     this.events = events;
-    this.girlModelOptions = girlModelOptions;
+    this.modelOptions = modelOptions;
     this.position = new THREE.Vector3();
     this.radius = B.radius;
     this.height = B.height;
@@ -228,12 +252,13 @@ export class Boss {
   }
 
   async init() {
-    this.model = await loadMonsterModel();
+    const { monster, girl, ...shared } = this.modelOptions;
+    this.model = await loadMonsterModel({ ...shared, ...monster });
     this.warning = await loadSlamWarningModel();
     this.dizzy = await loadDizzyModel();
     this.dizzy.scale.setScalar(2.2);
     this.model.add(this.dizzy);
-    this.girl = await loadGirlModel(this.girlModelOptions);
+    this.girl = await loadGirlModel({ ...shared, ...girl });
     this.fireCone = await loadFireConeModel();
     this.fireMesh = await loadFireModel(F.particles);
     this.shock = await loadShockwaveModel();
@@ -273,7 +298,14 @@ export class Boss {
       this.shock.visible = false;
       this.girl.visible = false;
       this.#pose(0);
+      this.model.userData.animator?.snap();
     }
+  }
+
+  /** Both fists (world positions), whatever the model. */
+  fistPositions() {
+    this.model.updateMatrixWorld(true);
+    return this.model.userData.fists();
   }
 
   get alive() {
@@ -653,19 +685,56 @@ export class Boss {
     fade.needsUpdate = true;
   }
 
-  /** Animation for the current state. */
+  /** Animation and effects for the current state. */
   #pose(dt) {
     if (!this.model) return;
-    const { body, head, jaw, mouth, arms, legs, mats } = this.model.userData;
+    const u = this.model.userData;
+    const { mats } = u;
     // Breathing the smoke in: the chest heaves, the jaw hangs open.
     const inhale = this.state !== S.PARALYZED && this.smokeExposure > 0 ? Math.min(1, this.smokeExposure / CONFIG.abilities.smokeBomb.exposure) : 0;
-    const heave = 1 + CONFIG.abilities.smokeBomb.heave * inhale * (0.5 + 0.5 * Math.sin((this.clock ?? 0) * 13));
-    body.scale.set(heave, 1 + (heave - 1) * 0.5, heave);
     const t = this.stateTime;
     const P = this.pace;
     const SL = B.slam;
     this.model.position.copy(this.position);
     this.model.rotation.set(0, this.facing, 0);
+
+    // Shared effects: the red slam circle, the mouth glow and fire cone, the death fade.
+    let glow = 0;
+    if (this.state === S.SLAM_WINDUP) {
+      const p = Math.min(1, t / (SL.windup * P));
+      this.warning.userData.fill.scale.setScalar(SL.radius * (0.2 + 0.8 * p));
+      this.warning.userData.rim.scale.setScalar(SL.radius);
+      this.warning.userData.fill.material.opacity = 0.2 + 0.3 * p;
+    } else if (this.state === S.FIRE_WINDUP) {
+      const p = Math.min(1, t / (F.windup * P));
+      glow = 0.3 + 0.7 * p * (0.8 + 0.2 * Math.sin(t * 30));
+      this.fireCone.material.opacity = 0.18 + 0.22 * (0.5 + 0.5 * Math.sin(t * 14));
+    } else if (this.state === S.FIRE) {
+      glow = 1;
+      this.fireCone.material.opacity = 0.14;
+    } else if (this.state === S.DYING) {
+      const D = B.dying;
+      const fade = clamp((t - D.stumble - D.fall) / D.fade, 0, 1);
+      for (const m of mats) {
+        m.transparent = fade > 0;
+        m.opacity = 1 - fade;
+      }
+    }
+
+    // The body: Warrok's clips, or the placeholder's pivots.
+    if (u.animator) u.animator.update(dt, this, { inhale });
+    else this.#posePlaceholder(dt, inhale);
+    this.#effects(dt, glow);
+  }
+
+  /** The placeholder monster's pivots for the current state. */
+  #posePlaceholder(dt, inhale) {
+    const { body, head, jaw, arms, legs } = this.model.userData;
+    const heave = 1 + CONFIG.abilities.smokeBomb.heave * inhale * (0.5 + 0.5 * Math.sin((this.clock ?? 0) * 13));
+    body.scale.set(heave, 1 + (heave - 1) * 0.5, heave);
+    const t = this.stateTime;
+    const P = this.pace;
+    const SL = B.slam;
     body.rotation.set(0, 0, 0);
     body.position.set(0, 0, 0);
     head.rotation.set(0, 0, 0);
@@ -678,8 +747,6 @@ export class Boss {
       l.hip.rotation.set(0, 0, 0);
       l.knee.rotation.set(0, 0, 0);
     }
-    let glow = 0;
-
     const walking = this.state === S.CHASE || this.state === S.CHARGE;
     if (walking) {
       const fast = this.state === S.CHARGE;
@@ -713,9 +780,6 @@ export class Boss {
           a.shoulder.rotation.set(-3.0 * p, 0, (i ? 1 : -1) * 0.15 * p);
           a.elbow.rotation.x = -0.45 * p;
         });
-        this.warning.userData.fill.scale.setScalar(SL.radius * (0.2 + 0.8 * p));
-        this.warning.userData.rim.scale.setScalar(SL.radius);
-        this.warning.userData.fill.material.opacity = 0.2 + 0.3 * p;
         break;
       }
       case S.SLAM: {
@@ -744,8 +808,6 @@ export class Boss {
         head.rotation.x = -0.7 * p;
         jaw.rotation.x = 0.55 * p;
         arms.forEach((a, i) => a.shoulder.rotation.set(-0.4 * p, 0, (i ? -1 : 1) * 0.7 * p));
-        glow = 0.3 + 0.7 * p * (0.8 + 0.2 * Math.sin(t * 30));
-        this.fireCone.material.opacity = 0.18 + 0.22 * (0.5 + 0.5 * Math.sin(t * 14));
         break;
       }
       case S.FIRE:
@@ -755,8 +817,6 @@ export class Boss {
         jaw.rotation.x = 0.75;
         arms.forEach((a, i) => a.shoulder.rotation.set(-0.2, 0, (i ? -1 : 1) * 0.35));
         legs.forEach((l, i) => (l.hip.rotation.x = i ? 0.25 : -0.25)); // braced
-        glow = 1;
-        this.fireCone.material.opacity = 0.14;
         break;
       case S.CHARGE_WINDUP: {
         const p = Math.min(1, t / 0.3);
@@ -788,17 +848,19 @@ export class Boss {
           const p = Math.min(1, (t - D.stumble) / D.fall);
           body.rotation.x = 0.2 + p * (Math.PI / 2 - 0.2);
           legs.forEach((l) => (l.hip.rotation.x = -p * 0.8));
-          const fade = clamp((t - D.stumble - D.fall) / D.fade, 0, 1);
-          for (const m of mats) {
-            m.transparent = fade > 0;
-            m.opacity = 1 - fade;
-          }
         }
         break;
       }
       default:
         break;
     }
+  }
+
+  /** Shared effects after the pose (continues #pose). */
+  #effects(dt, glow) {
+    const { mouth, mats } = this.model.userData;
+    const t = this.stateTime;
+    const SL = B.slam;
     mouth.material.opacity = glow;
     mouth.scale.setScalar(0.6 + 0.6 * glow);
     mouth.visible = glow > 0.01;
@@ -824,7 +886,11 @@ export class Boss {
       else m.emissive.setScalar(0);
     }
     this.dizzy.visible = this.state === S.PARALYZED || this.state === S.STUNNED;
-    this.dizzy.position.set(0, B.height + 0.4, 0.6);
+    if (this.model.userData.animator) {
+      // Above Warrok's head, wherever the clip has put it.
+      const head = this.model.userData.head.getWorldPosition(new THREE.Vector3());
+      this.dizzy.position.copy(this.model.worldToLocal(head)).add(new THREE.Vector3(0, B.model.dizzyAbove, 0));
+    } else this.dizzy.position.set(0, B.height + 0.4, 0.6);
     if (this.dizzy.visible) this.dizzy.rotation.y += dt * 4;
 
     // The girl steps out at the cave mouth after the victory (until she leaves with the hero).

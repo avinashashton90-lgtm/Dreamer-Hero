@@ -12,6 +12,10 @@ AJ is shown as he comes, with his own textures. The only code-built prop on him 
 
 The girl is **Amy** (`public/models/girl/girl.glb`, Mixamo character Ch46), shown as she comes; her animations (`public/models/girl/*.fbx`: walk, talk, point, kneel, scared, happy, ride, cast, magic, float, fly, dodge, hit, death…) are from [Mixamo](https://www.mixamo.com) (Adobe), under the same terms as the hero above. `girl.glb` was converted from Mixamo's `girl.fbx` (textures resized to 1024 px; see `scripts/girl-to-glb.mjs`).
 
+## Boss — Mixamo
+
+The cave monster is **Warrok** (`public/models/boss/boss.glb`) with his animations (`public/models/boss/*.fbx`: idle, walk, run, jump attack, swipe, punch, roar, hit, death) from [Mixamo](https://www.mixamo.com) (Adobe), under the same terms as the hero above. `boss.glb` was converted from Mixamo's `boss.fbx` (textures resized to 1024 px; see `scripts/girl-to-glb.mjs`).
+
 ## Horse — Quaternius
 
 The horse (`public/models/horse/horse.gltf`) is from the **Ultimate Animated Animal Pack** (July 2021) by [Quaternius](https://quaternius.com), licensed [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) (public domain). It is used as it comes: flat material colours, no textures, with its own clips (Idle, Idle_2, Idle_Headlow, Eating, Walk, Gallop, Gallop_Jump, Jump_toIdle, Attack_Headbutt, Attack_Kick, Idle_HitReact1/2, Death).
@@ -21,4 +25,4 @@ The horse (`public/models/horse/horse.gltf`) is from the **Ultimate Animated Ani
 - [three.js](https://threejs.org) (MIT), including `FBXLoader` and `GLTFLoader`.
 - [Vite](https://vitejs.dev) (MIT).
 
-Everything else (world, monster, effects) is built in code.
+Everything else (world, effects) is built in code.

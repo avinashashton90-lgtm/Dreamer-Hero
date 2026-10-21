@@ -217,7 +217,7 @@ export const CONFIG = {
     character: 'hero.fbx',   // the skinned character; its embedded clip is the idle
     height: 1.8,             // scaled to the hero's height (feet at the origin)
     textureMax: 1024,        // embedded textures are downsized to this (phones)
-    loadShares: { hero: 0.5, horse: 0.12, girl: 0.38 }, // loading bar split (by download size)
+    loadShares: { hero: 0.42, horse: 0.1, girl: 0.31, boss: 0.17 }, // loading bar split (by download size)
     crossfade: 0.15,         // seconds to blend between clips
     clips: {
       run: { file: 'run', root: 'xz' },                         // root motion stripped; speed-matched
@@ -467,6 +467,30 @@ export const CONFIG = {
     autoBrake: 26,           // how hard the horse stops there
     dismountSpeed: 1.5,      // ...and the hero dismounts once it is this slow
     colors: { skin: 0x5b3f78, belly: 0x9c7fb5, horn: 0xe8dcc0, eye: 0xff2a2a },
+    // The boss model: Warrok (Mixamo, public/models/boss/: monsterModel.js). boss.glb was
+    // converted from the 12 MB boss.fbx like the girl's (skeleton in centimetres under a 0.01
+    // root), so the animation FBX files beside it retarget by bone name unchanged. The fight's
+    // timings are the game's: timed clips are scrubbed so their key frames land on them.
+    model: {
+      path: 'models/boss/',
+      file: 'boss.glb',
+      crossfade: 0.2,
+      mouthSize: 0.16,        // fire-breath glow in the mouth (on the jaw bone)
+      jawOpen: { inhale: 0.35, fireWindup: 0.45, fire: 0.6 }, // radians
+      clips: ['idle', 'walk', 'run', 'jumpattack', 'swipe', 'punch', 'roar', 'hit', 'death'],
+      walkRef: 2.86,          // m/s the walk clip covers at this scale (speed-matched to walkSpeed)
+      runRef: 8.6,            // ...and the run clip (speed-matched to the charge)
+      // Clip times (seconds in the source clip):
+      slamWindup: [0.2, 1.68],      // crouch, leap … the fists hit the ground at 1.68
+      slamImpact: [1.68, 2.3],      // landed, fists on the ground (damage at 1.68 = SLAM start)
+      fireWindup: [0.3, 1.3],       // roar: rears up, head thrown back
+      fire: [1.75, 3.3],            // roar: head thrust forward and low, roaring (fire from the mouth)
+      chargeWindup: [0.6, 1.9],     // roar: rears back, then head down ready to rush
+      stunned: { xs: [0, 0.2, 0.75, 1], ts: [0, 0.55, 0.6, 1.33] }, // hit: doubles over, holds, recovers
+      paralyzedAt: 0.55,            // hit, frozen doubled over (Smoke Bomb)
+      dying: [0, 3.1],              // death: staggers, falls on its back (over stumble + fall)
+      dizzyAbove: 1.0,              // dizzy stars this far above the head bone
+    },
     warningColor: 0xff2020,
     girl: {
       position: [116.5, -16.5], // at the cave mouth, by the left wall of the arch
