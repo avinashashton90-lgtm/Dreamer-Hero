@@ -354,6 +354,7 @@ export class Boss {
     this.girlTime = -1;
     this.girlTaken = false; // she has left with the hero (Story)
     this.phase = 0;
+    this.marksPassed = 0; // how many of B.hpMarks its health has fallen below
     if (this.model) {
       this.model.visible = true;
       for (const m of this.model.userData.mats) {
@@ -405,6 +406,11 @@ export class Boss {
     dmg = Math.min(this.hp, Math.round(dmg * 100) / 100);
     this.hp -= dmg;
     if (this.hp < 1e-6) this.hp = 0;
+    // Health marks (75 / 50 / 25%): each fires once per fight (a ring of arena gems appears).
+    while (this.marksPassed < B.hpMarks.length && this.hp < this.maxHp * B.hpMarks[this.marksPassed]) {
+      const mark = this.marksPassed++;
+      this.events.onHpMark?.(mark);
+    }
     this.flash = CONFIG.combat.hitFlash;
     if (this.hp <= 0) {
       this.warning.visible = false;

@@ -484,6 +484,7 @@ export const CONFIG = {
     melee: { range: 4, reach: 4.6, frontDot: 0.3, windup: 0.6, strike: 0.4, damage: 1, recover: 2, kinds: ['swipe', 'punch'] },
     charge: { minRange: 7, chaseBefore: 1.6, windup: 1, speed: 17, maxTime: 1.8, damage: 1, hitPad: 0.5, stun: 2, knockback: 9 },
     recover: 1.3,            // pause after every attack (the hero's chance to hit back)
+    hpMarks: [0.75, 0.5, 0.25], // falling below each fires onHpMark(i) (a ring of arena gems)
     // Damage it takes, as a fraction of its max HP per hit, whatever the hit's own number:
     // each combo hit (punches and the kick) 3%, a Batarang 2%, the Flash bolt 40%.
     hitPct: { melee: 0.03, batarang: 0.02, flash: 0.4 },
@@ -908,11 +909,11 @@ export const CONFIG = {
 
   gems: {
     colors: { yellow: 0xffd23f, blue: 0x3fa9ff, pink: 0xff5fc8 },
-    // Layout: 9 groups of 5 along the trail's centre lane — yellow, blue, pink, repeated
-    // (15 of each). Rows on the centre line, gentle arcs within the lane, and arcs in the
-    // air above three obstacles (a jump collects them). Unlocks still trigger at 5.
+    // Layout: 18 groups of 5 along the trail's centre lane — yellow, blue, pink, repeated
+    // (30 of each): rows on the safe line (through the high walls' gaps too) and arcs in the
+    // air above the logs and the rock wall (a jump collects them). Unlocks still trigger at 5.
     needed: 5,
-    groups: 12,              // in total, air arcs included (20 of each colour)
+    groups: 18,              // in total, air arcs included (30 of each colour)
     laneMax: 4,              // every gem within this distance of the centre line
     groupSize: 5,
     spacing: 3.2,            // between gems in a group
@@ -931,6 +932,15 @@ export const CONFIG = {
     airLift: 0.6,            // above the hop's own arc, so only a jump reaches them
     riderReach: 1.4,         // collect point above the horse's hooves (body centre)
     abilities: { yellow: 'batarang', blue: 'smokeBomb', pink: 'flashMode' },
+    // Using a respawn (zero hearts): every trail gem from the checkpoint to the cave comes back
+    // and the stock is topped up to at least this many of each colour. Retry after Game Over
+    // starts the gems afresh (0 of each, unlocks cleared).
+    respawnMinGems: 10,
+    // Arena gems: when the boss drops below each of boss.hpMarks a ring of gems appears at the
+    // arena's edge (perColor of each colour), collected by walking over them. Reset with the boss.
+    arena: { perColor: 2, inset: 4, turn: 20 },  // inset from the arena edge; each ring turned `turn`°
+    // Minions drop one gem of a random colour when defeated (a small pool per colour).
+    drops: { perColor: 4, height: 1.0 },
     height: 1.4,             // ground gems: above the ground (or water surface)
     collectHeight: 1.3,      // vertical reach from the collector's body centre
     collectRadius: 1.9,
@@ -1008,6 +1018,7 @@ export const DIALOGUE = {
   needGems: (n, color) => `Need ${n} ${color} gems`,
   noTarget: 'No target in range',
   smokeResisted: 'It shrugs off the smoke!',
+  arenaGems: 'Gems at the arena edge!',
   flashReloading: 'Flash is recharging',
   gallop: 'Gallop',
   objectiveComplete: 'Objective complete!',

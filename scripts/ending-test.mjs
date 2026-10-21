@@ -316,7 +316,7 @@ for (const at of ['second line, mid-typewriter', 'first line']) {
   const stats = story.stats();
   check(tStop > 0 && horse.hold && horse.mode === 'riding', `the horse slows to a stop near the castle in ${tStop.toFixed(1)} s`);
   check(behind.dot(f) < -CONFIG.ending.shot.back * 0.8 && behind.y > CONFIG.ending.shot.height * 0.8, `wide shot from behind (${(-behind.dot(f)).toFixed(1)} back, ${behind.y.toFixed(1)} up)`);
-  check(tEnd >= 0 && story.phase === 'done' && stats.time > rn.tt && stats.gems >= rn.gemsGot && stats.deaths === 0 && stats.gemsTotal === gems.gems.length,
+  check(tEnd >= 0 && story.phase === 'done' && stats.time > rn.tt && stats.gems >= rn.gemsGot && stats.deaths === 0 && stats.gemsTotal === gems.gems.filter((g) => g.zone !== 'drop').length,
     `ending state; summary: gems ${stats.gems}/${stats.gemsTotal}, time ${stats.time.toFixed(1)} s, deaths ${stats.deaths}`);
   check(camBefore.distanceTo(cam.camera.position) > 1, 'the camera moved for the ending shot');
   const rg = await ride(true);
@@ -352,7 +352,7 @@ for (const at of ['second line, mid-typewriter', 'first line']) {
   const start = world.boxes[0].safe;
   const [hx, hz] = CONFIG.horse.position;
   const checks = {
-    gems: gems.remaining === gems.gems.length && Object.values(gems.counts).every((n) => n === 0) && gems.unlocked.size === 0,
+    gems: gems.remaining === gems.trailGems.length && gems.gems.every((g) => g.zone === 'forest' || g.zone === 'desert' || g.hidden) && Object.values(gems.counts).every((n) => n === 0) && gems.unlocked.size === 0,
     lives: lives.hearts === CONFIG.lives.hearts && lives.respawns === CONFIG.lives.respawns && lives.deaths === 0 && !lives.dead,
     boss: boss.hp === boss.maxHp && boss.state === BOSS_STATES.GUARD && !boss.defeated && !boss.girlTaken && !boss.girl.visible,
     girl: girl.frightened && !girl.riding && !girl.hinting,

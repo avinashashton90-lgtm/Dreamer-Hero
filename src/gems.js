@@ -82,6 +82,18 @@ export class Gems {
         this.gems.push({ ...sp, kind: grp.kind, zone: grp.zone, group: gi, color, index: perColor[color] - 1, collected: false, pop: 0 });
       }
     });
+    // Hidden until they appear: arena rings (one per boss.hpMarks) and minion drops.
+    const slot = (zone, color, extra) => {
+      perColor[color] = (perColor[color] ?? 0) + 1;
+      const g = { s: 0, lateral: 0, position: new THREE.Vector3(), kind: zone, zone, color, index: perColor[color] - 1, collected: false, pop: 0, hidden: true, ...extra };
+      this.gems.push(g);
+      return g;
+    };
+    CONFIG.boss.hpMarks.forEach((_, ring) => {
+      for (const color of COLORS) for (let k = 0; k < G.arena.perColor; k++) slot('arena', color, { ring });
+    });
+    for (const color of COLORS) for (let k = 0; k < G.drops.perColor; k++) slot('drop', color);
+    this.#placeRings();
     this.perColor = perColor;
     this.counts = {};
     this.unlocked = new Set();
@@ -105,11 +117,89 @@ export class Gems {
     }
     for (const c of COLORS) this.counts[c] = 0;
     this.unlocked.clear();
-    this.#render();
+    this.resetArena();
+  }
+
+  /** Gems laid out along the trails (forest + desert; not arena rings or drops). */
+  get trailGems() {
+    return this.gems.filter((g) => g.zone === 'forest' || g.zone === 'desert');
   }
 
   get remaining() {
-    return this.gems.filter((g) => !g.collected).length;
+    return this.trailGems.filter((g) => !g.collected).length;
+  }
+
+  /**
+   * A respawn (zero hearts): every forest trail gem from the checkpoint at `fromS` to the cave
+   * comes back, and the stock is topped up to at least G.respawnMinGems of each colour
+   * (unlocking what that reaches).
+   */
+  restock(fromS) {
+    for (const g of this.gems) {
+      if (g.zone === 'forest' && g.s >= fromS) {
+        g.collected = false;
+        g.pop = 0;
+      }
+    }
+    for (const c of COLORS) {
+      if (this.counts[c] < G.respawnMinGems) this.counts[c] = G.respawnMinGems;
+      this.#checkUnlock(c);
+    }
+    this.events.onSpend?.(); // (the HUD counters)
+    this.#render();
+  }
+
+  /** Arena rings and minion drops hidden again (new fight: the boss reset). */
+  resetArena() {
+    for (const g of this.gems) {
+      if (g.zone !== 'arena' && g.zone !== 'drop') continue;
+      g.hidden = true;
+      g.collected = false;
+      g.pop = 0;
+    }
+    this.#render();
+  }
+
+  /** The boss fell below boss.hpMarks[ring]: that ring of gems appears at the arena's edge. */
+  revealRing(ring) {
+    for (const g of this.gems) if (g.zone === 'arena' && g.ring === ring) g.hidden = false;
+    this.#render();
+  }
+
+  /** A defeated minion drops one gem of a random colour at `position` (null if the pool is out). */
+  drop(position, random = Math.random) {
+    const order = [...COLORS].sort(() => random() - 0.5);
+    for (const color of order) {
+      const g = this.gems.find((q) => q.zone === 'drop' && q.color === color && (q.hidden || q.collected));
+      if (!g) continue;
+      g.hidden = false;
+      g.collected = false;
+      g.pop = 0;
+      g.position.set(position.x, this.world.heightAt(position.x, position.z) + G.drops.height, position.z);
+      this.#render();
+      return g;
+    }
+    return null;
+  }
+
+  /** Ring positions: evenly round the arena, `inset` in from its edge, each ring turned a little. */
+  #placeRings() {
+    const [cx, cz] = CONFIG.cave.center;
+    const r = CONFIG.cave.radius - G.arena.inset;
+    const per = COLORS.length * G.arena.perColor;
+    CONFIG.boss.hpMarks.forEach((_, ring) => {
+      const list = this.gems.filter((g) => g.zone === 'arena' && g.ring === ring);
+      // Colours alternate round the ring.
+      list.sort((a, b) => a.index - b.index || COLORS.indexOf(a.color) - COLORS.indexOf(b.color));
+      const byColor = COLORS.map((c) => list.filter((g) => g.color === c));
+      for (let k = 0; k < per; k++) {
+        const g = byColor[k % COLORS.length][Math.floor(k / COLORS.length)];
+        const a = (k / per) * Math.PI * 2 + (ring * G.arena.turn * Math.PI) / 180;
+        const x = cx + Math.cos(a) * r;
+        const z = cz + Math.sin(a) * r;
+        g.position.set(x, this.world.heightAt(x, z) + G.height, z);
+      }
+    });
   }
 
   /**
@@ -119,6 +209,7 @@ export class Gems {
   update(dt, body) {
     this.time += dt;
     for (const g of this.gems) {
+      if (g.hidden) continue;
       if (g.collected) {
         if (g.pop < 1) g.pop = Math.min(1, g.pop + dt / G.popTime);
         continue;
@@ -141,7 +232,7 @@ export class Gems {
 
   /** Debug: collect every remaining gem (unlocks everything). */
   grantAll() {
-    for (const g of this.gems) if (!g.collected) this.#collect(g);
+    for (const g of this.gems) if (!g.collected && !g.hidden) this.#collect(g);
     this.#render();
   }
 
@@ -150,9 +241,14 @@ export class Gems {
     g.pop = 0;
     const count = ++this.counts[g.color];
     this.events.onCollect?.(g.color, count, G.needed);
-    if (count === G.needed && !this.unlocked.has(g.color)) {
-      this.unlocked.add(g.color);
-      this.events.onUnlock?.(g.color, G.abilities[g.color]);
+    this.#checkUnlock(g.color);
+  }
+
+  /** 5 of a colour unlocks its ability (once). */
+  #checkUnlock(color) {
+    if (this.counts[color] >= G.needed && !this.unlocked.has(color)) {
+      this.unlocked.add(color);
+      this.events.onUnlock?.(color, G.abilities[color]);
     }
   }
 
@@ -169,9 +265,9 @@ export class Gems {
       for (const g of this.gems) {
         if (g.color !== color) continue;
         const bob = Math.sin(this.time * G.bobSpeed + g.position.x * 0.3) * G.bobHeight;
-        let scale = 1;
+        let scale = g.hidden ? 0 : 1;
         let lift = 0;
-        if (g.collected) {
+        if (g.collected && !g.hidden) {
           // Pop: swell, rise and vanish.
           scale = g.pop < 1 ? (1 + g.pop * 0.8) * (1 - g.pop) : 0;
           lift = g.pop * 1.2;
@@ -252,16 +348,14 @@ export function layoutGroups(world) {
       else if (!bad(base - d)) mid = base - d;
     }
     for (const o of items) if (Math.abs(mid - o.s) < clear) mid = o.s - clear;
-    const arc = i % 2 === 1;
-    const side = i % 4 === 1 ? 1 : -1;
     const spots = [];
     for (let k = 0; k < G.groupSize; k++) {
       const s = mid - span / 2 + k * G.spacing;
-      const lateral = clamp(safe(s) + (arc ? side * G.arcLateral[k] : 0), -G.laneMax, G.laneMax);
+      const lateral = clamp(safe(s), -G.laneMax, G.laneMax); // a line on the safe line
       const { x, z } = at(s, lateral);
       spots.push({ s, lateral, position: new THREE.Vector3(x, groundY(x, z) + G.height, z) });
     }
-    groups.push({ kind: arc ? 'arc' : 'row', s: mid, spots });
+    groups.push({ kind: 'row', s: mid, spots });
   }
   return groups.sort((a, b) => a.s - b.s);
 }

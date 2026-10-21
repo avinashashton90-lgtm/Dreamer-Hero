@@ -13,6 +13,7 @@ import { Abilities } from '../src/abilities.js';
 import { Lives } from '../src/lives.js';
 import { Boss, BOSS_STATES as S } from '../src/boss.js';
 import { Quests } from '../src/quests.js';
+import { Gems } from '../src/gems.js';
 
 const world = new World(); await world.init();
 const scene = world.scene;
@@ -424,6 +425,84 @@ const runUntil = (pred, maxS, opts) => { let t = 0; while (t < maxS) { step(1, {
   check(lives.hearts === CONFIG.lives.hearts && r === 'respawn' && lives.respawns === CONFIG.lives.respawns - 1 && hero.riding && Math.hypot(horse.position.x - cp.x, horse.position.z - cp.z) < 0.01,
     `killed by the boss in ${t.toFixed(1)}s → respawn on the horse at checkpoint 3 (respawns left ${lives.respawns})`);
   check(boss.hp === boss.maxHp && boss.state === S.GUARD, `boss reset to ${boss.hp} HP on guard (bossResetsOnRespawn = ${CONFIG.lives.bossResetsOnRespawn})`);
+}
+
+// 8b) Gem supply: ~30 of each colour on the ride; a respawn brings back the trail gems from the
+// checkpoint to the cave and tops the stock up to respawnMinGems; Retry starts from 0; rings of
+// arena gems at 75 / 50 / 25% HP (walked over to collect); minions drop a gem; one fight's
+// supply covers at least 2 Flash, 3 Smoke and 6 Batarang uses.
+{
+  const G = CONFIG.gems, AB = CONFIG.abilities;
+  const gems = new Gems(scene, world); await gems.init();
+  const forest = gems.gems.filter((g) => g.zone === 'forest');
+  const per = {};
+  for (const g of forest) per[g.color] = (per[g.color] ?? 0) + 1;
+  check(Object.values(per).every((n) => n >= 28 && n <= 32), `forest ride: ${JSON.stringify(per)} gems (~30 of each)`);
+  // Respawn: trail gems from the checkpoint on come back; the stock is topped up to 10.
+  for (const g of forest) { g.collected = true; }
+  gems.counts.yellow = 3; gems.counts.blue = 25; gems.counts.pink = 0;
+  horse.lastCheckpoint = 2;
+  const cpS = horse.checkpoints[2].s;
+  gems.restock(cpS); // (main's lifeEvents.onRespawn)
+  const back = forest.filter((g) => !g.collected);
+  check(back.length > 0 && back.every((g) => g.s >= cpS) && forest.filter((g) => g.s >= cpS).every((g) => !g.collected), `respawn at checkpoint 2 (s ${cpS.toFixed(0)}): the ${back.length} trail gems from there to the cave are back, the ones before stay collected`);
+  check(gems.counts.yellow === G.respawnMinGems && gems.counts.pink === G.respawnMinGems && gems.counts.blue === 25 && gems.unlocked.size === 3,
+    `stock topped up to at least ${G.respawnMinGems}: ${JSON.stringify(gems.counts)} (more is kept), every ability unlocked`);
+  gems.reset(); // (Retry after Game Over)
+  check(Object.values(gems.counts).every((n) => n === 0) && gems.unlocked.size === 0 && gems.remaining === gems.trailGems.length, 'Retry after Game Over: a fresh start with 0 gems, every trail gem back');
+  // Arena rings at 75 / 50 / 25%.
+  boss.events.onHpMark = (i) => gems.revealRing(i);
+  freshBoss(cx, cz, -Math.PI / 2, S.RECOVER);
+  const shown = () => gems.gems.filter((g) => g.zone === 'arena' && !g.hidden);
+  const before = shown().length;
+  const rings = [];
+  const pct = [];
+  while (boss.hp > 10) {
+    combat.hitTarget(boss, { amount: 10 });
+    boss.state = S.RECOVER;
+    if (shown().length !== (rings.at(-1) ?? 0)) { rings.push(shown().length); pct.push(Math.round((boss.hp / boss.maxHp) * 100)); }
+  }
+  const ring0 = gems.gems.filter((g) => g.zone === 'arena' && g.ring === 0);
+  const edge = ring0.map((g) => Math.hypot(g.position.x - cx, g.position.z - cz));
+  const colors = {};
+  for (const g of ring0) colors[g.color] = (colors[g.color] ?? 0) + 1;
+  check(before === 0 && rings.join(',') === '6,12,18' && pct[0] < 75 && pct[0] >= 72 && pct[1] < 50 && pct[2] < 25,
+    `arena rings: none at first, 6 more gems at ${pct.map((p) => p + '%').join(', ')} HP (${rings.join(' → ')} shown)`);
+  check(Object.values(colors).every((n) => n === G.arena.perColor) && edge.every((d) => Math.abs(d - (CV.radius - G.arena.inset)) < 0.01), `each ring: ${JSON.stringify(colors)}, at the arena's edge (${edge[0].toFixed(1)} from the centre)`);
+  // Walk over one.
+  const g0 = ring0[0];
+  const c0 = gems.counts[g0.color];
+  placeHero(g0.position.x - 3, g0.position.z, Math.PI / 2);
+  for (let i = 0; i < secs(1); i++) {
+    hero.update(dt, { moveX: 0, moveY: 0, jumpPressed: false }, 0);
+    hero.position.x += 3 * dt;
+    gems.update(dt, hero.position.clone().setY(hero.position.y + 0.9));
+  }
+  check(g0.collected && gems.counts[g0.color] === c0 + 1, `walking over an arena gem collects it (${g0.color} ${c0} → ${gems.counts[g0.color]})`);
+  boss.reset(); gems.resetArena(); // (respawn: the boss resets, so do its rings)
+  check(shown().length === 0, 'rings hidden again when the boss resets');
+  // A minion drops one gem of a random colour where it falls.
+  const minion = { minion: true, position: new THREE.Vector3(cx - 5, world.heightAt(cx - 5, cz + 3), cz + 3), radius: 0.5, height: 1.5, hp: 5, maxHp: 5, alive: true,
+    takeHit({ amount }) { const d = Math.min(this.hp, amount); this.hp -= d; if (this.hp <= 0) this.alive = false; return d; } };
+  const drops = [];
+  combat.events.onDefeat = (t) => { if (t.minion) drops.push(gems.drop(t.position)); };
+  combat.hitTarget(minion, { amount: 10 });
+  combat.events.onDefeat = undefined;
+  check(drops.length === 1 && drops[0] && !drops[0].hidden && drops[0].position.distanceTo(minion.position) < 1.5, `a defeated minion drops 1 ${drops[0]?.color} gem where it fell`);
+  // One fight's supply: arriving with the ride's gems plus the three arena rings.
+  const arena = CONFIG.boss.hpMarks.length * G.arena.perColor;
+  const supply = Object.fromEntries(Object.entries(per).map(([c, n]) => [c, n + arena]));
+  const uses = { batarang: Math.floor(supply.yellow / AB.batarang.gemCost), smokeBomb: Math.floor(supply.blue / AB.smokeBomb.gemCost), flashMode: Math.floor(supply.pink / AB.flashMode.gemCost) };
+  check(uses.flashMode >= 2 && uses.smokeBomb >= 3 && uses.batarang >= 6, `one fight's supply ${JSON.stringify(supply)} (ride + ${arena} per colour in the arena): Flash ${uses.flashMode}x, Smoke ${uses.smokeBomb}x, Batarang ${uses.batarang}x (needs 2 / 3 / 6)`);
+  // After a respawn at the last checkpoint: the top-up, the trail gems from there, the rings.
+  const last = horse.checkpoints.length - 1;
+  const ahead = {};
+  for (const g of forest) if (g.s >= horse.checkpoints[last].s) ahead[g.color] = (ahead[g.color] ?? 0) + 1;
+  const retry = Object.fromEntries(Object.keys(per).map((c) => [c, G.respawnMinGems + (ahead[c] ?? 0) + arena]));
+  console.log(`     (after a respawn at the last checkpoint: at least ${JSON.stringify(retry)} for the fight — Flash ${Math.floor(retry.pink / 5)}x, Smoke ${Math.floor(retry.blue / 5)}x, Batarang ${Math.floor(retry.yellow / 5)}x)`);
+  check(Math.floor(retry.pink / 5) >= 2 && Math.floor(retry.blue / 5) >= 3, 'even after a respawn at the last checkpoint: at least 2 Flash and 3 Smoke');
+  boss.events.onHpMark = undefined;
+  boss.reset();
 }
 
 // 9) Defeat: stumbles, falls, fades; "Victory!"; the girl appears; the quest moves on.

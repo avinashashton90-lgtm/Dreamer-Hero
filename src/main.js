@@ -65,6 +65,9 @@ async function boot() {
       cam.shake(e.shake, CONFIG.combat.shake.time);
       hitStop = Math.max(hitStop, e.hitStop);
     },
+    onDefeat: (t) => {
+      if (t.minion) gems.drop(t.position); // a defeated minion drops one gem of a random colour
+    },
   });
   await combat.init();
   const abilities = new Abilities(hero, world.scene, world, combat);
@@ -86,6 +89,10 @@ async function boot() {
     onHitHero: (hearts, x, z, opts) => damageHero(hearts, x, z, opts),
     onSlam: () => cam.shake(CONFIG.boss.slam.shake, CONFIG.combat.shake.time * 1.6),
     onDefeat: () => ui.banner(DIALOGUE.victory),
+    onHpMark: (i) => {
+      gems.revealRing(i); // below 75 / 50 / 25%: a ring of gems at the arena's edge
+      ui.toast(DIALOGUE.arenaGems);
+    },
   }, {
     monster: { onProgress: (f) => ui.setLoading(SH.hero + SH.horse + f * SH.boss) },
     girl: { onProgress: (f) => ui.setLoading(SH.hero + SH.horse + SH.boss + f * SH.girl) },
@@ -143,8 +150,14 @@ async function boot() {
   let deathDelay = -1; // seconds of the death fall left before the fade
   let deathFade = null;
   const lifeEvents = {
-    // Dying at the boss: it resets to full health (CONFIG.lives.bossResetsOnRespawn).
-    onRespawn: () => boss.onHeroRespawn(),
+    // Dying at the boss: it resets to full health (CONFIG.lives.bossResetsOnRespawn); the trail
+    // gems from the checkpoint to the cave come back and the stock is topped up; the arena rings
+    // go with the boss reset.
+    onRespawn: () => {
+      boss.onHeroRespawn();
+      if (!boss.defeated) gems.resetArena();
+      gems.restock(horse.checkpoints[horse.lastCheckpoint].s);
+    },
   };
   /** The hero takes `n` hearts of damage from (fromX, fromZ); opts.knockback false for e.g. fire. */
   damageHero = (n, fromX, fromZ, opts = {}) => {
@@ -188,13 +201,15 @@ async function boot() {
       story.resetAll();
       ui.setGems(gems.counts);
     } else if (prev === STATES.GAMEOVER) {
-      // Retry: full hearts and respawns, back on the horse at the start of the ride.
-      // Gems, unlocks and quest progress are kept.
+      // Retry: full hearts and respawns, back on the horse at the start of the ride, with the
+      // gems afresh (0 of each, every trail gem back, unlocks cleared). Quest progress is kept.
       lives.reset();
-      abilities.clear();
+      abilities.reset();
       combat.reset();
       horse.restartRide(hero);
-      lifeEvents.onRespawn?.();
+      boss.onHeroRespawn();
+      gems.reset();
+      ui.setGems(gems.counts);
       ui.fadeIn(CONFIG.lives.deathFadeMs);
     }
     ui.showHud(true);

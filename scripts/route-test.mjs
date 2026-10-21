@@ -251,7 +251,7 @@ function cameraCheck(cam) {
   }
   const perColor = JSON.stringify(forestPerColor);
   console.log(`track: length ${track.length.toFixed(0)}, obstacles ${obs.length} [${obsInfo.join(' ')}], gems ${forestGems.length} ${perColor}, outside trail ${gemsOut}, inside a wall ${gemsInWall}, on the safe line through the gaps ${forestGems.filter((g) => g.kind === 'gap').length}, air gems reachable without jump ${airLow}, checkpoints at ${horse.checkpoints.map((c) => (c.s / track.length * 100).toFixed(0) + '%').join(' ')}`);
-  if (!layoutOk || gemsOut || gemsInWall || airLow || Object.values(forestPerColor).some((n) => n < 15 || n > 20)) failed = true;
+  if (!layoutOk || gemsOut || gemsInWall || airLow || Object.values(forestPerColor).some((n) => n < 28 || n > 32)) failed = true;
 
   // Autopilot jump: take off so the apex lands over the obstacle.
   const shouldJump = () => {

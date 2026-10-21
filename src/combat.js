@@ -38,7 +38,8 @@ export async function loadDizzyModel() {
  *
  * Targets (the boss…) implement: position, radius, height, hp, maxHp, alive,
  * takeHit({ amount, dirX, dirZ, knockback, heavy, flash, source }) → damage dealt.
- * Feedback goes out through `events.onHit({ target, amount, position, heavy, flash, shake, hitStop })`.
+ * Feedback goes out through `events.onHit({ target, amount, position, heavy, flash, shake, hitStop })`;
+ * `events.onDefeat(target)` when a hit finishes one off (minions — `target.minion` — drop a gem).
  */
 export class Combat {
   /**
@@ -156,6 +157,7 @@ export class Combat {
     if (!target.alive) return 0;
     const dealt = target.takeHit({ amount, dirX, dirZ, knockback, heavy, flash, source });
     if (!dealt) return 0;
+    if (!target.alive) this.events.onDefeat?.(target); // (minions drop a gem)
     this.hits++;
     const shake = flash ? CB.shake.flash : heavy ? CB.shake.heavy : CB.shake.light;
     const hitStop = flash ? CB.flashHitStop : heavy ? CB.hitStop : 0;

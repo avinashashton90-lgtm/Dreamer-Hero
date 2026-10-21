@@ -470,8 +470,10 @@ export class Story {
 
   /** Summary numbers for the ending screen. */
   stats() {
-    const collected = this.gems.gems.filter((g) => g.collected).length; // (counts drop as gems are spent)
-    return { gems: collected, gemsTotal: this.gems.gems.length, time: this.time, deaths: this.lives.deaths };
+    // Gems picked up on the trails and in the arena (counts drop as gems are spent; minion drops
+    // and restocked trail gems collected twice aren't counted twice).
+    const pool = this.gems.gems.filter((g) => g.zone !== 'drop');
+    return { gems: pool.filter((g) => g.collected).length, gemsTotal: pool.length, time: this.time, deaths: this.lives.deaths };
   }
 
   // --- Play Again: everything back to a new game -----------------------------
