@@ -363,13 +363,15 @@ export class Hero {
     return !!this.model.userData.cup?.visible;
   }
 
-  /** World position of the right hand (where thrown items leave and are caught). */
-  handPosition(out = new THREE.Vector3()) {
+  /** World position of the right hand (where thrown items leave and are caught), or the left. */
+  handPosition(out = new THREE.Vector3(), left = false) {
     const u = this.model.userData;
-    const handBone = u.bones?.rightHand ?? u.arms?.[1].elbow;
+    const handBone = left ? u.bones?.leftHand ?? u.arms?.[0].elbow : u.bones?.rightHand ?? u.arms?.[1].elbow;
     if (!handBone) return out.set(this.position.x, this.position.y + 1.2, this.position.z);
     this.model.updateMatrixWorld(true);
-    out.copy(u.handLocal).applyMatrix4(handBone.matrixWorld);
+    const local = left && u.kind !== 'placeholder' ? null : u.handLocal; // (the placeholder's arms end at the elbow)
+    if (local) out.copy(local).applyMatrix4(handBone.matrixWorld);
+    else out.setFromMatrixPosition(handBone.matrixWorld);
     // If the model lags the physics position this frame, carry the hand along with the body.
     out.x += this.position.x - this.model.position.x;
     out.y += this.position.y - this.model.position.y;

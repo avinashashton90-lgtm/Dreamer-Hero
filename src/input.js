@@ -248,6 +248,10 @@ export class Input {
       const b = button('ability-btn locked', DIALOGUE.abilityShort[name]);
       b.title = DIALOGUE.abilityNames[name];
       b.insertAdjacentHTML('beforeend', '<i class="cooldown"></i>' + (name === 'flashMode' ? '<span class="energy"><i></i></span>' : ''));
+      // Gem cost badge, in the colour it spends.
+      const color = Object.keys(CONFIG.gems.abilities).find((c) => CONFIG.gems.abilities[c] === name);
+      b.insertAdjacentHTML('beforeend', `<b class="cost">${CONFIG.abilities[name].gemCost}</b>`);
+      b.style.setProperty('--gem', `#${CONFIG.gems.colors[color].toString(16).padStart(6, '0')}`);
       const ang = (A.angles[i] * Math.PI) / 180;
       place(b, { size: A.size, right: I.attackButton.right + Math.cos(ang) * A.radius, bottom: I.attackButton.bottom + Math.sin(ang) * A.radius });
       this.abilityBtns[name] = b;
@@ -395,22 +399,31 @@ export class Input {
       const cd = ab.cooldownFraction(name);
       b.style.setProperty('--cd', cd.toFixed(3));
       b.classList.toggle('cooling', cd > 0);
+      b.classList.toggle('blocked', !ab.canAfford(name)); // greyed: can't pay (gems, or Flash's hearts)
       if (name === 'flashMode') {
         b.querySelector('.energy i').style.transform = `scaleX(${ab.energy.toFixed(3)})`;
         const why = ab.flashBlockReason();
         b.classList.toggle('ready', !why);
-        b.classList.toggle('blocked', why === 'health' || why === 'gems'); // greyed: can't pay
         b.classList.toggle('reloading', why === 'reload');
-        b.classList.toggle('active', ab.charging > 0 || ab.armed);
+        b.classList.toggle('active', ab.charging > 0 || !!ab.strike);
       }
     }
+  }
+
+  /** Shakes an ability button (tapped but can't be used). */
+  shakeAbility(name) {
+    const b = this.abilityBtns[name];
+    if (!b) return;
+    b.classList.remove('shake', 'pulse');
+    void b.offsetWidth;
+    b.classList.add('shake');
   }
 
   /** Brief pulse on an ability button (on unlock). */
   pulseAbility(name) {
     const b = this.abilityBtns[name];
     if (!b) return;
-    b.classList.remove('pulse');
+    b.classList.remove('pulse', 'shake');
     void b.offsetWidth;
     b.classList.add('pulse');
   }

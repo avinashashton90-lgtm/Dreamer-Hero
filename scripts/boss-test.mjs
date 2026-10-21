@@ -293,18 +293,16 @@ const runUntil = (pred, maxS, opts) => { let t = 0; while (t < maxS) { step(1, {
   check(tEnd > 0 && Math.abs(4 + tEnd - CONFIG.abilities.smokeBomb.paralyze) < 0.2 && boss.state === S.RECOVER, `paralysis wore off after ~${(4 + tEnd).toFixed(1)}s → ${boss.state}`);
 }
 
-// 7) Flash Mode removes 50% of its max HP; Batarang hits it too.
+// 7) Flash Mode's bolt removes damageFraction of its max HP; Batarang hits it too.
 {
   lives.reset();
   placeHero(cx - 3.2, cz, Math.PI / 2);
   freshBoss(cx, cz, -Math.PI / 2, S.RECOVER);
   abilities.clear(); abilities.energy = 1;
-  check(abilities.use('flashMode'), 'flash activated');
-  step(secs(CONFIG.abilities.flashMode.chargeTime) + 2, {}, { each: () => { boss.state = S.RECOVER; boss.stateTime = 0; } });
   const hp = boss.hp;
-  step(1, { attackPressed: true }, { each: () => { if (boss.state !== S.DYING) { boss.state = S.RECOVER; boss.stateTime = 0; } } });
-  step(secs(0.4), {}, { each: () => { if (boss.state !== S.DYING) { boss.state = S.RECOVER; boss.stateTime = 0; } } });
-  check(hp - boss.hp === boss.maxHp * CONFIG.abilities.flashMode.damageFraction, `flash punch took ${hp - boss.hp} (50% of ${boss.maxHp})`);
+  check(abilities.use('flashMode'), 'flash activated');
+  step(secs(CONFIG.abilities.flashMode.chargeTime) + 2, {}, { each: () => { if (boss.state !== S.DYING) { boss.state = S.RECOVER; boss.stateTime = 0; } } });
+  check(hp - boss.hp === boss.maxHp * CONFIG.abilities.flashMode.damageFraction && abilities.stats.flashStrikes === 1, `flash bolt took ${hp - boss.hp} (${CONFIG.abilities.flashMode.damageFraction * 100}% of ${boss.maxHp})`);
   const hb = boss.hp;
   abilities.cooldowns.batarang = 0;
   placeHero(cx - 9, cz, Math.PI / 2);

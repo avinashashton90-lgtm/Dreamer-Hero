@@ -50,7 +50,7 @@ export async function loadMixamoHero(opts = {}) {
   };
   const bones = {
     hips: bone('Hips'), spine: bone('Spine1'), chest: bone('Spine2'), neck: bone('Neck'), head: bone('Head'),
-    rightHand: bone('RightHand'), leftUpLeg: bone('LeftUpLeg'), rightUpLeg: bone('RightUpLeg'),
+    rightHand: bone('RightHand'), leftHand: bone('LeftHand'), leftUpLeg: bone('LeftUpLeg'), rightUpLeg: bone('RightUpLeg'),
     leftLeg: bone('LeftLeg'), rightLeg: bone('RightLeg'),
   };
   if (Object.values(bones).some((b) => !b)) throw new Error('hero.fbx: missing Mixamo bones');

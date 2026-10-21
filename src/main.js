@@ -70,8 +70,14 @@ async function boot() {
   const abilities = new Abilities(hero, world.scene, world, combat);
   await abilities.init();
   combat.abilities = abilities;
-  abilities.onEvent = (name, why) => {
-    if (name === 'flashBlocked') ui.toast(why === 'health' ? DIALOGUE.notEnoughHealth : why === 'gems' ? DIALOGUE.notEnoughGems : DIALOGUE.flashReloading);
+  abilities.onEvent = (name, e) => {
+    if (name === 'abilityBlocked') {
+      // Can't use it: the button shakes and a small corner toast says why (nothing mid-screen).
+      input.shakeAbility(e.name);
+      const text = { gems: DIALOGUE.needGems(e.n, DIALOGUE.gemNames[e.color].toLowerCase()), health: DIALOGUE.notEnoughHealth, reload: DIALOGUE.flashReloading, target: DIALOGUE.noTarget }[e.why];
+      if (text) ui.toast(text);
+    }
+    if (name === 'flashStrike') ui.screenFlash();
     if (name === 'paralyzed') sound.play('paralyze');
   };
   let damageHero = () => false; // defined below (needs the state machine)
@@ -90,11 +96,11 @@ async function boot() {
   const girl = new Girl(world.scene, boss.girl);
   await girl.init();
   const lives = new Lives({ onChange: (l) => ui.setLives(l.hearts, l.maxHearts, l.respawns, CONFIG.lives.respawns) });
-  abilities.lives = lives; // ...and 30% of the hearts
+  abilities.lives = lives; // Flash also costs 30% of the hearts
 
   const gems = new Gems(world.scene, world, {
-    onCollect: () => ui.setGems(gems.counts, CONFIG.gems.needed),
-    onSpend: () => ui.setGems(gems.counts, CONFIG.gems.needed),
+    onCollect: () => ui.setGems(gems.counts),
+    onSpend: () => ui.setGems(gems.counts),
     onUnlock: (color, ability) => {
       abilities.unlock(ability);
       ui.pulseGem(color);
@@ -103,8 +109,8 @@ async function boot() {
     },
   });
   await gems.init();
-  ui.setGems(gems.counts, CONFIG.gems.needed);
-  abilities.gems = gems; // Flash Mode costs 5 pink gems...
+  ui.setGems(gems.counts);
+  abilities.gems = gems; // every use spends gems (5 of its colour)
   const guide = new JumpGuide(world.scene, world);
   await guide.init();
 
@@ -179,7 +185,7 @@ async function boot() {
     if (prev === STATES.INTRO) {
       // New game: everything back to the start.
       story.resetAll();
-      ui.setGems(gems.counts, CONFIG.gems.needed);
+      ui.setGems(gems.counts);
     } else if (prev === STATES.GAMEOVER) {
       // Retry: full hearts and respawns, back on the horse at the start of the ride.
       // Gems, unlocks and quest progress are kept.
@@ -217,7 +223,7 @@ async function boot() {
     quests.setVisible(false);
     ui.showEnding(true, story.stats(), () => {
       story.resetAll();
-      ui.setGems(gems.counts, CONFIG.gems.needed);
+      ui.setGems(gems.counts);
       state.set(STATES.INTRO);
     });
   });

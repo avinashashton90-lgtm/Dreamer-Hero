@@ -470,7 +470,7 @@ export class Story {
 
   /** Summary numbers for the ending screen. */
   stats() {
-    const collected = Object.values(this.gems.counts).reduce((a, b) => a + b, 0);
+    const collected = this.gems.gems.filter((g) => g.collected).length; // (counts drop as gems are spent)
     return { gems: collected, gemsTotal: this.gems.gems.length, time: this.time, deaths: this.lives.deaths };
   }
 

@@ -2,7 +2,6 @@ import * as THREE from 'three';
 import { CONFIG } from './config.js';
 
 const CB = CONFIG.combat;
-const FM = CONFIG.abilities.flashMode;
 
 /** Placeholder lock-on marker: a flat gold ring laid on the ground under the target. */
 export async function loadLockRingModel() {
@@ -34,8 +33,8 @@ export async function loadDizzyModel() {
  * CONFIG.combat.comboWindow after a hit continues the combo (a tap during a hit is buffered).
  * Hits land only on targets in reach and roughly in front; the kick knocks back and briefly
  * freezes the action. A soft lock-on picks the nearest target in front and turns the hero
- * toward it when attacking. Flash Mode (abilities.js) turns the next landed punch into a
- * 50%-of-max-HP blow.
+ * toward it when attacking. Flash Mode's lightning bolt (abilities.js) lands through
+ * `hitTarget(…, { flash: true })` for the big shake and hit-stop.
  *
  * Targets (the boss…) implement: position, radius, height, hp, maxHp, alive,
  * takeHit({ amount, dirX, dirZ, knockback, heavy, flash, source }) → damage dealt.
@@ -52,7 +51,7 @@ export class Combat {
     this.hero = hero;
     this.events = events;
     this.targets = [];
-    this.abilities = null; // set by main (Flash Mode)
+    this.abilities = null; // set by main
     this.lockTarget = null;
     this.reset();
   }
@@ -201,15 +200,12 @@ export class Combat {
       const dot = d > 1e-3 ? (dx * fx + dz * fz) / d : 1;
       if (dot < CB.frontDot && d > t.radius + 0.3) continue; // not in front
       if (Math.abs(t.position.y - hero.position.y) > t.height + 0.5) continue;
-      const flash = !!this.abilities?.consumeFlash();
-      const amount = flash ? t.maxHp * FM.damageFraction : S.damage;
       this.hitTarget(t, {
-        amount,
+        amount: S.damage,
         dirX: d > 1e-3 ? dx / d : fx,
         dirZ: d > 1e-3 ? dz / d : fz,
-        knockback: flash ? FM.knockback : S.knockback,
-        heavy: !!S.heavy || flash,
-        flash,
+        knockback: S.knockback,
+        heavy: !!S.heavy,
       });
     }
   }

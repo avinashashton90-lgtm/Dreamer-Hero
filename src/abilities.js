@@ -7,6 +7,8 @@ const BT = AB.batarang;
 const SB = AB.smokeBomb;
 const FM = AB.flashMode;
 const TH = AB.throw;
+// The gem colour each ability spends (the colour that unlocks it).
+const COST_COLOR = Object.fromEntries(Object.entries(CONFIG.gems.abilities).map(([color, name]) => [name, color]));
 
 // ---------------------------------------------------------------------------
 // Swappable placeholder models
@@ -87,6 +89,60 @@ function makeSmokeRing() {
   return m;
 }
 
+/**
+ * Placeholder Flash lightning (all additive, no lights): crackling sparks (blue-white diamonds)
+ * and energy motes (gold) for the charge-up, two glowing orbs for the hands, the bolt as
+ * instanced segments (white core + blue glow), the impact flash and the ground shockwave ring.
+ */
+export async function loadLightningModels() {
+  const group = new THREE.Group();
+  const pool = (geo, max, color) => {
+    addFadeAttribute(geo, max);
+    const mesh = new THREE.InstancedMesh(
+      geo,
+      makeFadeMaterial({ color, emissive: color, emissiveIntensity: 0.9, depthWrite: false, blending: THREE.AdditiveBlending, flatShading: true }),
+      max,
+    );
+    mesh.frustumCulled = false;
+    mesh.renderOrder = 9;
+    mesh.count = 0;
+    return mesh;
+  };
+  const diamond = () => new THREE.OctahedronGeometry(1, 0).scale(0.55, 1, 0.55);
+  const sparks = pool(diamond(), FM.maxParticles, FM.feetSparks.color);
+  const motes = pool(diamond(), FM.maxParticles, FM.channel.color);
+  const additive = (color, opacity = 1) =>
+    new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthWrite: false, blending: THREE.AdditiveBlending, fog: false, side: THREE.DoubleSide });
+  const orbs = [0, 1].map(() => {
+    const m = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 8), additive(FM.channel.orbColor, 0));
+    m.visible = false;
+    m.renderOrder = 9;
+    return m;
+  });
+  // Bolt segments: a unit cylinder along +Z (placed / stretched per segment).
+  const segGeo = new THREE.CylinderGeometry(0.5, 0.5, 1, 5, 1, true).rotateX(Math.PI / 2).translate(0, 0, 0.5);
+  const maxSeg = FM.bolt.segments + FM.bolt.armSegments * 2 + 16;
+  const seg = (color, opacity) => {
+    const m = new THREE.InstancedMesh(segGeo, additive(color, opacity), maxSeg);
+    m.frustumCulled = false;
+    m.renderOrder = 10;
+    m.count = 0;
+    return m;
+  };
+  const core = seg(FM.bolt.color, 1);
+  const glow = seg(FM.bolt.glowColor, FM.bolt.glowOpacity);
+  const impact = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 10), additive(FM.impact.color, 0));
+  impact.visible = false;
+  impact.renderOrder = 10;
+  const W = FM.shockwave;
+  const shock = new THREE.Mesh(new THREE.RingGeometry(1 - W.width / W.radius, 1, 56, 1).rotateX(-Math.PI / 2), additive(W.color, 0));
+  shock.visible = false;
+  shock.renderOrder = 8;
+  group.add(sparks, motes, ...orbs, core, glow, impact, shock);
+  group.userData = { sparks, motes, orbs, core, glow, impact, shock };
+  return group;
+}
+
 // ---------------------------------------------------------------------------
 // Abilities
 // ---------------------------------------------------------------------------
@@ -130,8 +186,10 @@ export class Abilities {
     this.sparkList = []; // twinkling sparks + paralysis bursts
     this.streamList = []; // powder inhaled toward a beast's mouth
     this.charging = 0; // seconds left of the Flash charge-up
-    this.armed = false; // next landed punch is a Flash punch
-    this.stats = { batarangThrows: 0, batarangCatches: 0, batarangHits: 0, flashPunches: 0 };
+    this.flashTarget = null; // what the charging bolt will strike
+    this.strike = null; // the bolt in progress { t, target, at: Vector3, seed }
+    this.boltParticles = []; // feet sparks + energy into the hands
+    this.stats = { batarangThrows: 0, batarangCatches: 0, batarangHits: 0, flashStrikes: 0 };
     this.onEvent = null; // (name, detail) for sounds / UI
   }
 
@@ -146,6 +204,8 @@ export class Abilities {
     this.sparkMesh = sparks;
     this.streamMesh = stream;
     this.scene.add(this.batModel, this.bombModel, this.puffs, this.sparkMesh, this.streamMesh);
+    this.lightning = await loadLightningModels();
+    this.scene.add(this.lightning);
   }
 
   unlock(name) {
@@ -171,7 +231,9 @@ export class Abilities {
     this.clouds = [];
     this.cooldowns.batarang = this.cooldowns.smokeBomb = 0;
     this.charging = 0;
-    this.armed = false;
+    this.flashTarget = null;
+    this.strike = null;
+    this.boltParticles = [];
     this.energy = 1;
     this.hero.glow = 0;
     this.sparkList = [];
@@ -188,14 +250,42 @@ export class Abilities {
     return (this.lives?.maxHearts ?? CONFIG.lives.hearts) * FM.flashHeartCostPct;
   }
 
-  /** Why Flash can't be used right now: 'locked' | 'busy' | 'reload' | 'health' | 'gems' | null. */
-  flashBlockReason() {
-    if (!this.has('flashMode')) return 'locked';
-    if (this.charging > 0 || this.armed || this.hero.riding) return 'busy';
-    if (this.energy < 1) return 'reload';
-    if (this.lives && !(this.lives.hearts > this.flashHeartCost)) return 'health';
-    if (this.gems && (this.gems.counts.pink ?? 0) < FM.gemCost) return 'gems';
+  /** Gems one use of an ability costs: { color, n }. */
+  gemCost(name) {
+    return { color: COST_COLOR[name], n: AB[name].gemCost };
+  }
+
+  /** Enough gems (and, for Flash, hearts) to pay for one use? (No gem store attached = free.) */
+  canAfford(name) {
+    if (name === 'flashMode' && this.lives && !(this.lives.hearts > this.flashHeartCost)) return false;
+    const { color, n } = this.gemCost(name);
+    return !this.gems || (this.gems.counts[color] ?? 0) >= n;
+  }
+
+  /**
+   * Why an ability can't be used right now, or null:
+   * 'locked' | 'busy' (mid-throw, Batarang out, charging, wrong for riding) | 'health' (Flash)
+   * | 'gems' | 'cooldown' | 'reload' (Flash bar) | 'target' (Flash: nothing in range).
+   */
+  blockReason(name) {
+    if (!this.has(name)) return 'locked';
+    const hero = this.hero;
+    if (name === 'flashMode') {
+      if (this.charging > 0 || this.strike || hero.riding) return 'busy';
+      if (this.lives && !(this.lives.hearts > this.flashHeartCost)) return 'health';
+      if (!this.canAfford(name)) return 'gems';
+      if (this.energy < 1) return 'reload';
+      if (this.combat && !this.#flashTarget()) return 'target';
+      return null;
+    }
+    if (this.pending || (name === 'batarang' && this.batarang) || (name === 'smokeBomb' && hero.riding)) return 'busy';
+    if (!this.canAfford(name)) return 'gems';
+    if (this.cooldowns[name] > 0) return 'cooldown';
     return null;
+  }
+
+  flashBlockReason() {
+    return this.blockReason('flashMode');
   }
 
   get flashReady() {
@@ -209,12 +299,7 @@ export class Abilities {
 
   /** Can this ability be used right now? */
   ready(name) {
-    if (!this.has(name)) return false;
-    if ((name === 'batarang' || name === 'smokeBomb') && this.pending) return false; // mid-throw
-    if (name === 'batarang') return !this.batarang && this.cooldowns.batarang <= 0;
-    if (name === 'smokeBomb') return this.cooldowns.smokeBomb <= 0 && !this.hero.riding;
-    if (name === 'flashMode') return this.flashReady;
-    return false;
+    return this.blockReason(name) === null;
   }
 
   /** Cooldown fraction left (0 = ready) for the button overlay. */
@@ -224,15 +309,18 @@ export class Abilities {
     return 0;
   }
 
-  /** Use an ability (button / key). Returns true if it fired. */
+  /**
+   * Use an ability (button / key). Returns true if it fired. Each use spends its gems; a
+   * blocked use reports why through onEvent('abilityBlocked', { name, why, color, n }).
+   */
   use(name) {
-    if (!this.ready(name)) {
-      if (name === 'flashMode') {
-        const why = this.flashBlockReason();
-        if (why === 'health' || why === 'gems' || why === 'reload') this.onEvent?.('flashBlocked', why);
-      }
+    const why = this.blockReason(name);
+    if (why) {
+      if (why !== 'locked' && why !== 'busy' && why !== 'cooldown') this.onEvent?.('abilityBlocked', { name, why, ...this.gemCost(name) });
       return false;
     }
+    const { color, n } = this.gemCost(name);
+    this.gems?.spend(color, n);
     if (name === 'batarang' || name === 'smokeBomb') {
       // Throw pose first; the item leaves the hand at the release point (see update).
       this.pending = { name, t: 0 };
@@ -240,23 +328,27 @@ export class Abilities {
       this.cooldowns[name] = name === 'batarang' ? BT.cooldown : SB.cooldown;
       this.#faceTarget();
     } else if (name === 'flashMode') {
-      // Pay: 5 pink gems and 30% of the hearts (he flickers red, the hearts drop); the bar empties.
+      // Pay 30% of the hearts too (he flickers red, the hearts drop); the bar empties; charge up.
       this.lives?.spend(this.flashHeartCost);
-      this.gems?.spend('pink', FM.gemCost);
       this.hero.redFlicker = FM.hurtFlicker;
       this.energy = 0;
       this.charging = FM.chargeTime;
+      this.flashTarget = this.#flashTarget();
+      this.#faceTarget(this.flashTarget);
     }
     this.onEvent?.(name);
     return true;
   }
 
-  /** Called by Combat when a melee hit lands: true if this hit is the Flash punch. */
-  consumeFlash() {
-    if (!this.armed) return false;
-    this.armed = false;
-    this.stats.flashPunches++;
-    return true;
+  /** The Flash bolt's target: the lock-on target if it's in range, else the nearest one in range. */
+  #flashTarget() {
+    const hero = this.hero;
+    const dist = (t) => Math.hypot(t.position.x - hero.position.x, t.position.z - hero.position.z) - t.radius;
+    const lock = this.combat?.lockTarget;
+    if (lock?.alive && dist(lock) <= FM.range) return lock;
+    let best = null;
+    for (const t of this.combat?.targets ?? []) if (t.alive && dist(t) <= FM.range && (!best || dist(t) < dist(best))) best = t;
+    return best;
   }
 
   update(dt) {
@@ -264,11 +356,18 @@ export class Abilities {
     this.cooldowns.smokeBomb = Math.max(0, this.cooldowns.smokeBomb - dt);
     // The Flash bar reloads smoothly after use.
     if (this.energy < 1) this.energy = Math.min(1, this.energy + dt / FM.flashReloadSeconds);
+    // Flash: charge up (sparks from the feet, energy into the hands, gold glow), then the bolt.
     if (this.charging > 0) {
       this.charging = Math.max(0, this.charging - dt);
-      if (this.charging === 0) this.armed = true;
+      this.#chargeParticles(dt);
+      if (this.charging === 0) this.#strikeBolt();
     }
-    this.hero.glow = this.charging > 0 ? 1 - this.charging / FM.chargeTime : this.armed ? 0.75 + 0.25 * Math.sin(performance.now() * 0.012) : 0;
+    if (this.strike) {
+      this.strike.t += dt;
+      if (this.strike.t >= Math.max(FM.bolt.time, FM.shockwave.time)) this.strike = null;
+    }
+    this.hero.glow = this.charging > 0 ? 1 - this.charging / FM.chargeTime : this.strike ? Math.max(0, 1 - this.strike.t / FM.bolt.time) : 0;
+    this.#drawLightning(dt);
     // Throw / catch poses.
     const anim = this.hero.throwAnim;
     if (anim) {
@@ -289,9 +388,9 @@ export class Abilities {
     this.#updateSmoke(dt);
   }
 
-  /** On foot, turn to the lock-on target before throwing. */
-  #faceTarget() {
-    const t = this.combat?.lockTarget;
+  /** On foot, turn to the lock-on target (or the given one) before throwing / blasting. */
+  #faceTarget(target = null) {
+    const t = target ?? this.combat?.lockTarget;
     const hero = this.hero;
     if (!t || !t.alive || hero.riding) return;
     hero.facing = Math.atan2(t.position.x - hero.position.x, t.position.z - hero.position.z);
@@ -632,5 +731,204 @@ export class Abilities {
     mesh.count = n;
     mesh.instanceMatrix.needsUpdate = true;
     fade.needsUpdate = true;
+  }
+
+  // --- Flash: lightning blast ---
+
+  /** Charge-up: sparks crackle up round his feet, energy streams into both hands. */
+  #chargeParticles(dt) {
+    const hero = this.hero;
+    const S = FM.feetSparks;
+    const C = FM.channel;
+    this.sparkDebt = (this.sparkDebt ?? 0) + S.rate * dt;
+    this.moteDebt = (this.moteDebt ?? 0) + C.rate * dt;
+    const free = (kind) => {
+      let p = this.boltParticles.find((q) => q.age >= q.life);
+      if (!p && this.boltParticles.length < FM.maxParticles * 2) {
+        p = { pos: new THREE.Vector3(), vel: new THREE.Vector3(), from: new THREE.Vector3(), age: 0, life: 1, hand: 0, kind };
+        this.boltParticles.push(p);
+      }
+      if (p) (p.kind = kind), (p.age = 0);
+      return p;
+    };
+    for (; this.sparkDebt >= 1; this.sparkDebt--) {
+      const p = free('spark');
+      if (!p) break;
+      const a = Math.random() * Math.PI * 2;
+      const r = S.radius * (0.4 + Math.random() * 0.6);
+      p.pos.set(hero.position.x + Math.cos(a) * r, hero.position.y + 0.05, hero.position.z + Math.sin(a) * r);
+      p.vel.set(0, S.rise * (0.6 + Math.random() * 0.6), 0);
+      p.life = S.life * (0.6 + Math.random() * 0.8);
+    }
+    for (; this.moteDebt >= 1; this.moteDebt--) {
+      const p = free('mote');
+      if (!p) break;
+      const a = Math.random() * Math.PI * 2;
+      const up = Math.random() * 2 - 0.6;
+      p.from.set(hero.position.x + Math.cos(a) * C.radius, hero.position.y + 1.1 + up, hero.position.z + Math.sin(a) * C.radius);
+      p.pos.copy(p.from);
+      p.hand = Math.random() < 0.5 ? 0 : 1;
+      p.life = C.life * (0.7 + Math.random() * 0.6);
+    }
+  }
+
+  /** End of the charge: the bolt strikes the target (half its max HP, flash, shockwave, shake). */
+  #strikeBolt() {
+    const hero = this.hero;
+    let t = this.flashTarget;
+    if (!t?.alive) t = this.#flashTarget();
+    this.flashTarget = null;
+    let at;
+    let ground;
+    if (t) {
+      at = new THREE.Vector3(t.position.x, t.position.y + t.height * 0.6, t.position.z);
+      ground = t.position.y;
+      const dx = t.position.x - hero.position.x;
+      const dz = t.position.z - hero.position.z;
+      const d = Math.hypot(dx, dz) || 1;
+      this.combat?.hitTarget(t, { amount: t.maxHp * FM.damageFraction, dirX: dx / d, dirZ: dz / d, knockback: FM.knockback, heavy: true, flash: true, source: 'flash' });
+    } else {
+      at = hero.forward(FM.range * 0.5); // (the target died during the charge: it hits the ground)
+      ground = this.world?.heightAt?.(at.x, at.z) ?? hero.position.y;
+      at.y = ground;
+    }
+    this.strike = { t: 0, target: t, at, ground, flicker: 0, bolts: null };
+    this.stats.flashStrikes++;
+    this.onEvent?.('flashStrike', { position: at.clone(), target: t });
+  }
+
+  /** Jagged points from a to b (sideways jitter, largest mid-way). */
+  #jagged(a, b, n, jitter) {
+    const pts = [a.clone()];
+    for (let i = 1; i < n; i++) {
+      const k = i / n;
+      const j = jitter * Math.sin(Math.PI * k);
+      pts.push(new THREE.Vector3().lerpVectors(a, b, k).add(new THREE.Vector3((Math.random() - 0.5) * 2 * j, (Math.random() - 0.5) * j, (Math.random() - 0.5) * 2 * j)));
+    }
+    pts.push(b.clone());
+    return pts;
+  }
+
+  #newBolts(st) {
+    const B = FM.bolt;
+    const top = st.at.clone().add(new THREE.Vector3((Math.random() - 0.5) * 6, B.height, (Math.random() - 0.5) * 6));
+    const main = this.#jagged(top, st.at, B.segments, B.jitter * 2.2);
+    const lines = [{ pts: main, w: 1 }];
+    // Two short forks off the main bolt.
+    for (let f = 0; f < 2; f++) {
+      const i = 2 + Math.floor(Math.random() * (B.segments - 5));
+      const from = main[i];
+      const to = from.clone().add(new THREE.Vector3((Math.random() - 0.5) * 6, -2 - Math.random() * 3, (Math.random() - 0.5) * 6));
+      lines.push({ pts: this.#jagged(from, to, 4, B.jitter), w: 0.5 });
+    }
+    // The arc from his hands to the target.
+    const hand = this.hero.handPosition(new THREE.Vector3()).lerp(this.hero.handPosition(new THREE.Vector3(), true), 0.5);
+    lines.push({ pts: this.#jagged(hand, st.at, B.armSegments, B.armJitter * Math.max(1, hand.distanceTo(st.at) * 0.25)), w: B.armScale });
+    st.bolts = lines;
+  }
+
+  #drawLightning(dt) {
+    const L = this.lightning?.userData;
+    const hero = this.hero;
+    const active = this.charging > 0 || !!this.strike || this.boltParticles.some((p) => p.age < p.life);
+    if (!active) {
+      if (L && this.lightning.visible) {
+        this.lightning.visible = false;
+        for (const p of this.boltParticles) p.age = p.life;
+      }
+      return;
+    }
+    if (L) this.lightning.visible = true;
+    const m = new THREE.Matrix4();
+    const q = new THREE.Quaternion();
+    const sc = new THREE.Vector3();
+    const hands = [hero.handPosition(new THREE.Vector3()), hero.handPosition(new THREE.Vector3(), true)];
+    // Charge particles.
+    let ns = 0;
+    let nm = 0;
+    for (const p of this.boltParticles) {
+      if (p.age >= p.life) continue;
+      p.age += dt;
+      const k = Math.min(1, p.age / p.life);
+      if (p.kind === 'spark') {
+        // Crackling: the sideways drift jumps about (a jagged climb).
+        if (Math.random() < FM.feetSparks.jitter * dt * 4) {
+          const a = Math.random() * Math.PI * 2;
+          p.vel.x = Math.cos(a) * 1.6;
+          p.vel.z = Math.sin(a) * 1.6;
+        }
+        p.pos.addScaledVector(p.vel, dt);
+      } else {
+        p.pos.lerpVectors(p.from, hands[p.hand], k * k); // pulled in faster and faster
+      }
+      if (!L) continue;
+      const spark = p.kind === 'spark';
+      const size = spark ? FM.feetSparks.size * (0.6 + Math.random() * 0.8) : FM.channel.size * (1 - k * 0.6);
+      q.setFromAxisAngle(THREE.Object3D.DEFAULT_UP, p.age * 9);
+      m.compose(p.pos, q, sc.set(size, size * (spark ? 2.6 : 1.4), size));
+      const mesh = spark ? L.sparks : L.motes;
+      const n = spark ? ns++ : nm++;
+      mesh.setMatrixAt(n, m);
+      mesh.geometry.attributes.instanceFade.array[n] = spark ? (1 - k) * (0.4 + 0.6 * Math.random()) : Math.min(1, k * 3);
+    }
+    if (!L) return;
+    for (const [mesh, n] of [[L.sparks, ns], [L.motes, nm]]) {
+      mesh.count = n;
+      mesh.instanceMatrix.needsUpdate = true;
+      mesh.geometry.attributes.instanceFade.needsUpdate = true;
+    }
+    // Glowing hands: brighter through the charge, a last flare as the bolt leaves.
+    const charge = this.charging > 0 ? 1 - this.charging / FM.chargeTime : this.strike ? Math.max(0, 1 - this.strike.t / FM.bolt.time) : 0;
+    L.orbs.forEach((o, i) => {
+      o.visible = charge > 0.01;
+      if (!o.visible) return;
+      o.position.copy(hands[i]);
+      o.scale.setScalar(FM.channel.orb * (0.4 + 0.8 * charge) * (0.85 + 0.3 * Math.random()));
+      o.material.opacity = 0.35 + 0.55 * charge;
+    });
+    // The bolt (flickering: re-drawn FM.bolt.flicker times a second), impact flash, shockwave.
+    const st = this.strike;
+    let nseg = 0;
+    if (st && st.t < FM.bolt.time) {
+      st.flicker -= dt;
+      if (!st.bolts || st.flicker <= 0) {
+        this.#newBolts(st);
+        st.flicker = 1 / FM.bolt.flicker;
+      }
+      const dir = new THREE.Vector3();
+      for (const line of st.bolts) {
+        for (let i = 0; i < line.pts.length - 1 && nseg < L.core.instanceMatrix.count; i++) {
+          const a = line.pts[i];
+          dir.subVectors(line.pts[i + 1], a);
+          const len = dir.length();
+          q.setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir.divideScalar(len || 1));
+          L.core.setMatrixAt(nseg, m.compose(a, q, sc.set(FM.bolt.core * line.w, FM.bolt.core * line.w, len)));
+          L.glow.setMatrixAt(nseg, m.compose(a, q, sc.set(FM.bolt.glow * line.w, FM.bolt.glow * line.w, len)));
+          nseg++;
+        }
+      }
+      const k = st.t / FM.bolt.time;
+      const flick = 0.55 + 0.45 * Math.random();
+      L.core.material.opacity = Math.sqrt(1 - k) * flick;
+      L.glow.material.opacity = FM.bolt.glowOpacity * Math.sqrt(1 - k) * flick;
+    }
+    for (const mesh of [L.core, L.glow]) {
+      mesh.count = nseg;
+      mesh.instanceMatrix.needsUpdate = true;
+    }
+    const ik = st ? st.t / FM.impact.time : 1;
+    L.impact.visible = ik < 1;
+    if (L.impact.visible) {
+      L.impact.position.copy(st.at);
+      L.impact.scale.setScalar(FM.impact.size * (0.35 + 0.65 * Math.sqrt(ik)));
+      L.impact.material.opacity = FM.impact.opacity * (1 - ik);
+    }
+    const wk = st ? st.t / FM.shockwave.time : 1;
+    L.shock.visible = wk < 1;
+    if (L.shock.visible) {
+      L.shock.position.set(st.at.x, st.ground + 0.08, st.at.z);
+      L.shock.scale.setScalar(FM.shockwave.radius * (1 - (1 - wk) * (1 - wk)) + 0.3);
+      L.shock.material.opacity = FM.shockwave.opacity * (1 - wk);
+    }
   }
 }

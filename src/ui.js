@@ -40,6 +40,7 @@ export class UI {
     this.vignette = this.#el('div', 'vignette');
     this.exhaustion = 0;
 
+    this.screenFlashEl = this.#el('div', 'screen-flash');
     this.fade = this.#el('div', 'fade');
 
     this.rotate = this.#el('div', 'overlay rotate');
@@ -140,14 +141,24 @@ export class UI {
   }
 
   /** Gem counters, e.g. "Yellow 3/5" (✓ once that colour's ability is unlocked). */
-  setGems(counts, needed) {
+  /** Gem counters: the current count of each colour (spent on abilities), e.g. "Yellow 12". */
+  setGems(counts) {
     for (const [color, pill] of Object.entries(this.gemPills)) {
-      const n = counts[color] ?? 0;
-      const text = `${DIALOGUE.gemNames[color]} ${Math.min(n, needed)}/${needed}${n >= needed ? ' ✓' : ''}`;
+      const text = `${DIALOGUE.gemNames[color]} ${counts[color] ?? 0}`;
       const span = pill.lastElementChild;
       if (span.textContent !== text) span.textContent = text;
-      pill.classList.toggle('done', n >= needed);
     }
+  }
+
+  /** A quick white flash over the whole screen (the Flash lightning strike). */
+  screenFlash() {
+    const F = CONFIG.abilities.flashMode.screenFlash;
+    const el = this.screenFlashEl;
+    el.style.transition = 'none';
+    el.style.opacity = String(F.opacity);
+    void el.offsetWidth;
+    el.style.transition = `opacity ${F.ms}ms ease-out`;
+    el.style.opacity = '0';
   }
 
   showGems(on) {

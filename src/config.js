@@ -283,11 +283,13 @@ export const CONFIG = {
       radius: 0.5, catchRadius: 1.2, maxTime: 3, cooldown: 1.5, chaseFactor: 2, // returns faster than the hero (even galloping)
       size: 0.35, spin: 22, height: 1.2,
       color: 0xffd23f,
+      gemCost: 5,            // yellow gems spent per throw
     },
     // Smoke Bomb: a green powder cloud with twinkling crystal sparks (additive particles, no lights).
     smokeBomb: {
       throwRange: 8, flightTime: 0.6, arcHeight: 2.5, radius: 4, duration: 6,
       exposure: 1, paralyze: 10, cooldown: 15,
+      gemCost: 5,            // blue gems spent per bomb
       puffs: 16,             // powder puffs per layer...
       layers: [              // ...soft layered powder: [radius scale, puff size, opacity, colour]
         [0.55, 1.5, 0.13, 0x2c9a46],
@@ -308,18 +310,36 @@ export const CONFIG = {
       ring: { radius: 1.25, width: 0.14, color: 0x6dff8a, opacity: 0.8 }, // timer ring under it
       heave: 0.07,           // chest heave while inhaling
     },
-    // Flash Mode costs 5 pink gems and 30% of the hero's hearts (never lethal) and needs a
-    // full bar, which then reloads over flashReloadSeconds.
+    // Flash Mode: a lightning blast. Costs 5 pink gems and 30% of the hero's hearts (never
+    // lethal), needs a full bar (it reloads over flashReloadSeconds) and a target in range.
+    // Charge-up: sparks crackle up from his feet and energy streams into his hands; then a
+    // bolt strikes the target (flash, shockwave, screen shake).
     flashMode: {
       gemCost: 5,            // pink gems spent per use
       flashHeartCostPct: 0.3, // of max hearts (1.5 of 5); usable only with more hearts than this
       flashReloadSeconds: 45, // the bar refills over this long after use
       hurtFlicker: 0.45,     // red flicker on the hero when he pays the cost
       hurtColor: 0xff2a2a,
-      chargeTime: 1,         // gold glow charge-up before the punch is armed
+      chargeTime: 1,         // charge-up (gold glow, sparks, energy into the hands) before the bolt
+      range: 12,             // a living target must be this close (the lock-on range)
       damageFraction: 0.5,   // of the target's max HP
       knockback: 12,
       glowColor: 0xffc400,
+      // Charge-up: electric sparks crackling up round his feet...
+      feetSparks: { rate: 80, life: 0.5, rise: 3.4, radius: 0.6, jitter: 5, size: 0.075, color: 0xc8ecff },
+      // ...and energy streaming in from round him into both hands, which glow brighter and brighter.
+      channel: { rate: 55, life: 0.4, radius: 1.5, size: 0.06, color: 0xfff0a0, orb: 0.17, orbColor: 0xd8eeff },
+      maxParticles: 160,
+      // The bolt: a jagged line from the sky onto the target (white core + blue glow, flickering)
+      // and a thinner arc from his hands to it.
+      bolt: {
+        time: 0.4, height: 24, segments: 16, jitter: 1.1, core: 0.09, glow: 0.5,
+        color: 0xffffff, glowColor: 0x86c4ff, glowOpacity: 0.4, flicker: 28,
+        armSegments: 9, armJitter: 0.35, armScale: 0.55, // the arc from his hands
+      },
+      impact: { time: 0.3, size: 2.6, color: 0xbfe0ff, opacity: 0.55 },   // white flash at the target
+      shockwave: { time: 0.65, radius: 7.5, width: 0.6, color: 0x9fd4ff, opacity: 0.85 },
+      screenFlash: { ms: 220, opacity: 0.75 },
     },
   },
 
@@ -934,7 +954,8 @@ export const DIALOGUE = {
   abilityNames: { batarang: 'Batarang', smokeBomb: 'Smoke Bomb', flashMode: 'Flash Mode' },
   unlocked: (ability) => `${ability} Unlocked!`,
   notEnoughHealth: 'Not enough health',
-  notEnoughGems: 'Need 5 pink gems',
+  needGems: (n, color) => `Need ${n} ${color} gems`,
+  noTarget: 'No target in range',
   flashReloading: 'Flash is recharging',
   gallop: 'Gallop',
   objectiveComplete: 'Objective complete!',

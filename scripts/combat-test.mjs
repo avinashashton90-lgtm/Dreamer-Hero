@@ -1,9 +1,10 @@
-// Headless combat test: combo timing, Batarang return, smoke paralysis expiry, Flash damage,
+// Headless combat test: combo timing, Batarang return, smoke paralysis expiry, Flash lightning,
+// the gem economy (every use spends 5 gems),
 // dodge invincibility, and the death → respawn → Game Over flow.
 // Usage: npm run test:combat   (exits non-zero on failure)
 import { heroAssets } from './node-assets.mjs'; // the real Mixamo hero, read from public/
 import * as THREE from 'three';
-import { CONFIG } from '../src/config.js';
+import { CONFIG, DIALOGUE } from '../src/config.js';
 import { World } from '../src/world.js';
 import { Hero } from '../src/hero.js';
 import { Horse } from '../src/horse.js';
@@ -213,45 +214,74 @@ const faceDummy = (d = 1.5, angle = 0) => {
 
 // 5) Flash Mode: the bar starts full and costs 5 pink gems + 30% of the hearts (never lethal);
 // using it empties the bar, which reloads over flashReloadSeconds; full again on respawn.
-// A 1 s charge-up, then the next punch takes 50% of the target's max HP.
+// A 1 s charge-up (sparks from the feet, energy into the hands), then a lightning bolt strikes
+// the target for damageFraction of its max HP with a flash, shockwave and screen shake.
 {
   const FM = AB.flashMode;
   const lives = new Lives();
   const gems = new Gems(scene, world); gems.reset();
   abilities.lives = lives; abilities.gems = gems;
-  faceDummy(1.5);
+  faceDummy(4);
   abilities.clear();
   const blocked = [];
-  abilities.onEvent = (name, why) => { if (name === 'flashBlocked') blocked.push(why); };
+  const events = [];
+  abilities.onEvent = (name, e) => { events.push(name); if (name === 'abilityBlocked') blocked.push(e.why); };
   check(abilities.energy === 1, 'Flash bar starts full');
   // Not enough pink gems.
   gems.counts.pink = FM.gemCost - 1;
-  check(!abilities.use('flashMode') && blocked.at(-1) === 'gems', 'blocked without 5 pink gems');
+  check(!abilities.use('flashMode') && blocked.at(-1) === 'gems' && !abilities.canAfford('flashMode'), 'blocked without 5 pink gems');
   gems.counts.pink = FM.gemCost + 2;
   // Low hearts: never lethal — needs more hearts than the cost (1.5 of 5).
   const cost = lives.maxHearts * FM.flashHeartCostPct;
   for (const h of [1, 1.5]) {
     lives.setHearts(h);
-    check(!abilities.use('flashMode') && blocked.at(-1) === 'health' && lives.hearts === h && abilities.flashBlockReason() === 'health', `blocked at ${h} hearts (cost ${cost}): "Not enough health", hearts unchanged`);
+    check(!abilities.use('flashMode') && blocked.at(-1) === 'health' && lives.hearts === h && abilities.flashBlockReason() === 'health' && !abilities.canAfford('flashMode'), `blocked at ${h} hearts (cost ${cost}): "Not enough health", hearts unchanged`);
   }
-  // Enough: pay 1.5 hearts and 5 pink gems; red flicker; bar empties.
   lives.setHearts(5);
+  // No target in range: blocked (nothing spent).
+  combat.removeTarget(dummy);
+  check(!abilities.use('flashMode') && blocked.at(-1) === 'target' && gems.counts.pink === FM.gemCost + 2, 'blocked with no target in range (nothing spent)');
+  combat.addTarget(dummy);
+  // Enough: pay 1.5 hearts and 5 pink gems; red flicker; bar empties.
   dummy.reset();
   const pink0 = gems.counts.pink;
   check(abilities.use('flashMode'), 'flash activated with 5 hearts and 7 pink gems');
   check(lives.hearts === 5 - cost && gems.counts.pink === pink0 - FM.gemCost && hero.redFlicker > 0 && abilities.energy === 0,
     `cost paid: hearts 5 → ${lives.hearts}, pink gems ${pink0} → ${gems.counts.pink}, red flicker, bar emptied`);
   check(!abilities.use('flashMode'), 'flash cannot be used twice');
+  // Charge-up: sparks crackle up from his feet, energy streams into his hands, they glow.
+  hits.length = 0;
+  const live = (kind) => abilities.boltParticles.filter((p) => p.kind === kind && p.age < p.life);
   step(secs(FM.chargeTime * 0.5));
   const midGlow = hero.glow;
-  step(secs(FM.chargeTime * 0.5) + 2);
-  check(abilities.armed && midGlow > 0.3, `charged after ${FM.chargeTime}s (glow ${midGlow.toFixed(2)} mid-charge)`);
-  hits.length = 0;
-  step(1, { attackPressed: true }); step(secs(0.4));
+  const sparks = live('spark');
+  const motes = live('mote');
+  const feetY = hero.position.y;
+  const near = (p, r) => Math.hypot(p.pos.x - hero.position.x, p.pos.z - hero.position.z) < r;
+  const sparksRise = sparks.length > 10 && sparks.every((p) => near(p, FM.feetSparks.radius + 1.5) && p.pos.y >= feetY && p.vel.y > 0);
+  const hands = [hero.handPosition(), hero.handPosition(new THREE.Vector3(), true)];
+  const closing = motes.filter((p) => p.age / p.life > 0.6);
+  const motesIn = motes.length > 10 && closing.length > 0 && closing.every((p) => Math.min(p.pos.distanceTo(hands[0]), p.pos.distanceTo(hands[1])) < p.from.distanceTo(hands[p.hand]) * 0.7);
+  const orbs = abilities.lightning.userData.orbs;
+  check(sparksRise, `charge: ${sparks.length} sparks crackling up round his feet`);
+  check(motesIn && orbs.every((o) => o.visible), `charge: energy streaming into his hands (${motes.length} motes), both hands glowing`);
+  check(midGlow > 0.3 && hits.length === 0, `charging (glow ${midGlow.toFixed(2)}), nothing struck yet`);
+  // The bolt.
+  step(secs(FM.chargeTime * 0.5) + 1);
+  const L = abilities.lightning.userData;
   const dmg = hits[0]?.amount;
-  check(dmg === TARGET_HP * FM.damageFraction && hits[0].flash && hits[0].hitStop === CB.flashHitStop && !abilities.armed,
-    `flash punch dealt ${dmg} (50% of ${TARGET_HP}) with hit-stop ${hits[0]?.hitStop}`);
+  check(dmg === TARGET_HP * FM.damageFraction && hits[0].flash && hits[0].hitStop === CB.flashHitStop && hits[0].shake === CB.shake.flash,
+    `lightning bolt dealt ${dmg} (${FM.damageFraction * 100}% of ${TARGET_HP}) with hit-stop ${hits[0]?.hitStop} and screen shake ${hits[0]?.shake}`);
+  const top = Math.max(...L.core.count ? Array.from({ length: L.core.count }, (_, i) => { const m = new THREE.Matrix4(); L.core.getMatrixAt(i, m); return new THREE.Vector3().setFromMatrixPosition(m).y; }) : [0]);
+  check(L.core.count > FM.bolt.segments && top > dummy.position.y + FM.bolt.height * 0.8, `bolt drawn (${L.core.count} segments, from ${top.toFixed(1)} high down onto the target)`);
+  check(L.impact.visible && L.shock.visible && events.includes('flashStrike'), 'impact flash, shockwave ring and screen flash');
+  const r0 = L.shock.scale.x;
+  step(secs(0.2));
+  check(L.shock.scale.x > r0 && L.shock.material.opacity < FM.shockwave.opacity, `shockwave spreads (${r0.toFixed(1)} → ${L.shock.scale.x.toFixed(1)}) and fades`);
+  step(secs(FM.shockwave.time));
+  check(!abilities.strike && !abilities.lightning.visible, 'lightning gone afterwards');
   // Landing hits and pink gems no longer fill the bar; it reloads only with time.
+  { const e = abilities.energy; faceDummy(1.5); abilities.energy = e; } // (step in close; the bar keeps reloading)
   const e0 = abilities.energy;
   for (let i = 0; i < 6; i++) { dummy.reset(); step(1, { attackPressed: true }); step(secs(0.35)); }
   const perSec = 1 / FM.flashReloadSeconds;
@@ -272,6 +302,49 @@ const faceDummy = (d = 1.5, angle = 0) => {
   check(mid < 0.1 && abilities.energy === 1, `bar full again on respawn (${mid.toFixed(2)} → ${abilities.energy})`);
   abilities.lives = abilities.gems = null;
   abilities.onEvent = null;
+}
+
+// 5b) Gem economy: 5 of a colour unlocks the ability for good, but every use spends 5 gems of
+// that colour; without them it's blocked ("Need 5 yellow gems") until more are collected.
+{
+  const gems = new Gems(scene, world, { onUnlock: (c, a) => abilities.unlock(a) }); gems.reset();
+  abilities.gems = gems;
+  abilities.clear();
+  faceDummy(6);
+  const blocked = [];
+  abilities.onEvent = (name, e) => { if (name === 'abilityBlocked') blocked.push(e); };
+  const costs = ['batarang', 'smokeBomb', 'flashMode'].map((n) => `${n} ${abilities.gemCost(n).n} ${abilities.gemCost(n).color}`).join(', ');
+  check(['batarang', 'smokeBomb', 'flashMode'].every((n) => abilities.gemCost(n).n === AB[n].gemCost && AB[n].gemCost === 5), `costs: ${costs}`);
+  // Yellow: 12 gems → two throws (12 → 7 → 2), then blocked.
+  gems.counts.yellow = 12;
+  const counts = [gems.counts.yellow];
+  for (let i = 0; i < 3; i++) {
+    abilities.cooldowns.batarang = 0;
+    const ok = abilities.use('batarang');
+    counts.push(ok ? gems.counts.yellow : 'blocked');
+    let t = 0; while (abilities.batarangOut && t < AB.batarang.maxTime + 1) { step(1); t += dt; }
+  }
+  const last = blocked.at(-1);
+  check(counts.join(' → ') === '12 → 7 → 2 → blocked' && last?.why === 'gems' && last.name === 'batarang' && last.color === 'yellow' && last.n === 5 && !abilities.canAfford('batarang'),
+    `batarang spends 5 yellow per throw: ${counts.join(' → ')} ("${DIALOGUE.needGems(last?.n, DIALOGUE.gemNames[last?.color ?? 'yellow'].toLowerCase())}")`);
+  check(abilities.has('batarang'), 'still unlocked with fewer than 5 (just not affordable)');
+  gems.counts.yellow += 5;
+  abilities.cooldowns.batarang = 0;
+  check(abilities.canAfford('batarang') && abilities.use('batarang') && gems.counts.yellow === 2, 'collect 5 more → usable again');
+  let t = 0; while (abilities.batarangOut && t < AB.batarang.maxTime + 1) { step(1); t += dt; }
+  // Blue: one bomb costs 5.
+  gems.counts.blue = 6;
+  abilities.cooldowns.smokeBomb = 0;
+  check(abilities.use('smokeBomb') && gems.counts.blue === 1, 'smoke bomb spends 5 blue (6 → 1)');
+  step(secs(AB.throw.duration) + 1);
+  abilities.cooldowns.smokeBomb = 0;
+  check(!abilities.use('smokeBomb') && blocked.at(-1).why === 'gems' && blocked.at(-1).color === 'blue', 'smoke bomb blocked with 1 blue ("Need 5 blue gems")');
+  // On cooldown but affordable: no toast (just the cooldown sweep).
+  gems.counts.yellow = 10; abilities.cooldowns.batarang = 1;
+  const nb = blocked.length;
+  check(!abilities.use('batarang') && blocked.length === nb, 'on cooldown: blocked quietly (no gem toast)');
+  abilities.gems = null; abilities.onEvent = null;
+  for (let i = 0; i < 40; i++) step(1);
 }
 
 // 6) Lives: 5 hearts, 3 respawns. Zero hearts → respawn on the horse at the last checkpoint with
