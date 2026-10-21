@@ -152,7 +152,7 @@ function cameraCheck(cam) {
     inside += chk.inside;
     blockedFor = chk.blocked ? blockedFor + dt : 0; worstBlock = Math.max(worstBlock, blockedFor);
   }
-  console.log(`camera in trees: ${frames} frames, distance ${minDist.toFixed(1)}–${maxDist.toFixed(1)} (base ${CONFIG.camera.distance}), inside-solid frames ${inside}, longest leaf block ${worstBlock.toFixed(2)}s`);
+  console.log(`camera in trees: ${frames} frames, distance ${minDist.toFixed(1)}–${maxDist.toFixed(1)} (base ${CONFIG.camera.camOnFootDistance}), inside-solid frames ${inside}, longest leaf block ${worstBlock.toFixed(2)}s`);
   if (inside > 0 || worstBlock > 0.3) failed = true;
 }
 
@@ -351,13 +351,13 @@ function cameraCheck(cam) {
   const nCp = CONFIG.checkpoints.fractions.length - 1;
   console.log(`ride (normal): ${r.t.toFixed(1)}s, top speed ${r.topSpeed.toFixed(1)}, gems ${forestGems.length - forestLeft()}/${forestGems.length} (${forestGems.filter((g) => !g.collected).map((g) => g.kind + '@' + g.s.toFixed(0)).join(' ') || 'all'}), counts ${JSON.stringify(gems.counts)}, unlocks [${[...abilities.unlocked]}], checkpoints ${r.checkpoints}/${nCp}, falls ${r.falls}, stumbles ${r.stumbles}, jumps cleared ${r.cleared}/${obs.length}, high-wall gaps ${r.gaps}/${gapWalls.length}, max off-centre ${r.maxLat.toFixed(1)}, stuck ${r.stuck}${r.stuck ? ' at ' + r.stuckAt : ''}, reached cave ${r.atCave}`);
   console.log(`ford: ${r.waterTime.toFixed(1)}s in water, max speed there ${r.waterMaxSpeed.toFixed(1)} (cap ${(HC.maxSpeed * HC.waterSpeed).toFixed(1)}), rider seat ≥ ${r.minSeat.toFixed(2)} above water, sounds ${JSON.stringify(sound.counts)}`);
-  console.log(`camera riding: median distance ${r.medianDist.toFixed(2)} (target ${CONFIG.camera.rideDistance}); checked frames ${r.frames}, inside-solid ${r.inside}, longest leaf block ${r.worstBlock.toFixed(2)}s`);
+  console.log(`camera riding: median distance ${r.medianDist.toFixed(2)} (target ${CONFIG.camera.camRideDistance}); checked frames ${r.frames}, inside-solid ${r.inside}, longest leaf block ${r.worstBlock.toFixed(2)}s`);
   if (r.stuck || r.falls || forestLeft() || abilities.unlocked.size !== 3 || !r.atCave || r.checkpoints !== nCp) failed = true;
   if (r.stumbles || r.cleared < obs.length || r.gaps < gapWalls.length || r.maxLat > TRK.halfWidth) failed = true;
   if (r.t < 75 || r.t > 105) { console.log('normal ride time out of the ~90 s target'); failed = true; }
   if (!(r.waterTime > 0.3) || r.waterMaxSpeed > HC.maxSpeed * HC.waterSpeed + 0.5 || r.minSeat < 0.5) failed = true;
   if (!sound.counts.splashEnter || !sound.counts.splashExit || !sound.counts.splashStep) failed = true;
-  if (!(r.medianDist < CONFIG.camera.rideDistance * 1.25)) failed = true;
+  if (!(r.medianDist < CONFIG.camera.camRideDistance * 1.25)) failed = true;
   if (r.inside > 0 || r.worstBlock > 0.3) failed = true;
 
   // b) Holding Gallop the whole way (stamina permitting), easing off before tight corners.

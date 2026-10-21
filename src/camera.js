@@ -18,7 +18,7 @@ export class FollowCamera {
     this.yaw = C.startYaw;
     this.pitch = C.startPitch;
     this.focus = new THREE.Vector3();
-    this.distance = C.distance; // current (collision-smoothed) distance
+    this.distance = C.camOnFootDistance; // current (collision-smoothed) distance
     this.ride = 0; // 0 on foot … 1 mounted (smoothed)
     this.speed = 0; // 0 … 1 fraction of the horse's top speed (smoothed)
     this.gallop = 0; // 0 … 1 while galloping (smoothed)
@@ -45,7 +45,7 @@ export class FollowCamera {
 
   snapTo(target) {
     this.focus.copy(target);
-    this.focus.y += lerp(C.height, C.rideHeight, this.ride);
+    this.focus.y += lerp(C.camOnFootHeight, C.camRideHeight, this.ride);
     this.#place(0);
   }
 
@@ -67,14 +67,14 @@ export class FollowCamera {
     this.ride += ((ride.mounted ? 1 : 0) - this.ride) * rk;
     this.speed += ((ride.mounted ? Math.min(1, ride.speed ?? 0) : 0) - this.speed) * rk;
     this.gallop += ((ride.mounted && ride.gallop ? 1 : 0) - this.gallop) * rk;
-    const fov = CONFIG.render.fov + C.speedFov * this.speed + C.gallopFov * this.gallop;
+    const fov = lerp(CONFIG.render.fov, C.camRideFov, this.ride) + C.speedFov * this.speed + C.gallopFov * this.gallop;
     if (Math.abs(this.camera.fov - fov) > 0.01) {
       this.camera.fov = fov;
       this.camera.updateProjectionMatrix();
     }
     const k = 1 - Math.exp(-C.followLerp * dt);
     this.focus.x += (target.x - this.focus.x) * k;
-    this.focus.y += (target.y + lerp(C.height, C.rideHeight, this.ride) - this.focus.y) * k;
+    this.focus.y += (target.y + lerp(C.camOnFootHeight, C.camRideHeight, this.ride) - this.focus.y) * k;
     this.focus.z += (target.z - this.focus.z) * k;
     this.#place(dt);
     if (this.shakeT > 0) {
@@ -112,8 +112,8 @@ export class FollowCamera {
     const zone = this.treeZoneFactor(this.focus.x);
     const pitch = this.pitch + zone * C.treeZonePitchBoost + this.ride * C.ridePitchOffset;
     // On foot: normal (or tree-zone) distance. Riding: close over-the-shoulder view.
-    const footDist = C.distance * (1 + zone * (C.treeZoneDistanceScale - 1));
-    const maxDist = lerp(footDist, C.rideDistance, this.ride) * (1 + this.speed * C.speedDistanceScale);
+    const footDist = C.camOnFootDistance * (1 + zone * (C.treeZoneDistanceScale - 1));
+    const maxDist = lerp(footDist, C.camRideDistance, this.ride) * (1 + this.speed * C.speedDistanceScale);
     const cp = Math.cos(pitch);
     const dir = this.#dir.set(Math.sin(this.yaw) * cp, Math.sin(pitch), Math.cos(this.yaw) * cp);
     // Shift the look-at point to the right so the camera sits over the rider's shoulder.

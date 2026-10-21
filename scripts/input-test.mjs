@@ -1,7 +1,7 @@
 // Headless touch-routing test (TouchRouter): joystick + camera drag + buttons at the same
 // time, each touch tracked by its identifier; lost/cancelled touches; enlarged hit areas.
 // Usage: npm run test:input   (exits non-zero on failure)
-import { TouchRouter } from '../src/input.js';
+import { TouchRouter, buttonLayout } from '../src/input.js';
 import { CONFIG } from '../src/config.js';
 
 const W = 900;
@@ -68,6 +68,33 @@ check(R.joy.id === null && R.joy.x === 0 && R.joy.y === 0 && R.look.id === null,
 check(R.start(71, 150, 280) === 'joy', 'joystick free again for a new finger');
 R.endAll();
 check(R.owners.size === 0 && R.held.size === 0, 'endAll clears everything');
+
+// Corner layout (two thumbs) on 20:9, 18:9 and 16:9 landscape phones, with and without
+// notch / navigation-bar insets: every button ≥ minButton, no overlaps, all on screen in the
+// bottom-right (right half, nothing in the middle), and a tap on each goes to that button.
+{
+  const LY = CONFIG.input.layout;
+  for (const mode of ['foot', 'ride']) {
+    for (const [w, h] of CONFIG.input.checkSizes) {
+      for (const safe of [{ right: 0, bottom: 0 }, { right: 44, bottom: 21 }]) {
+        const circles = buttonLayout(mode, w, h, safe);
+        const small = circles.filter((c) => c.r * 2 < LY.minButton).map((c) => c.name);
+        const overlaps = [];
+        for (let i = 0; i < circles.length; i++) for (let j = i + 1; j < circles.length; j++) {
+          const a = circles[i], b = circles[j];
+          if (Math.hypot(a.x - b.x, a.y - b.y) < a.r + b.r) overlaps.push(`${a.name}/${b.name}`);
+        }
+        const off = circles.filter((c) => c.x - c.r < w / 2 || c.x + c.r > w - safe.right || c.y - c.r < h * 0.15 || c.y + c.r > h - safe.bottom).map((c) => c.name);
+        const R2 = new TouchRouter(() => circles.map((c) => ({ ...c })), () => w);
+        const routed = circles.filter((c, i) => R2.start(100 + i, c.x, c.y) === `button:${c.name}`).length;
+        const corner = circles.find((c) => c.name === (mode === 'foot' ? 'attack' : 'gallop'));
+        const nearest = Math.max(...circles.map((c) => c.x + c.y)) === corner.x + corner.y;
+        check(!small.length && !overlaps.length && !off.length && routed === circles.length && nearest,
+          `${mode} ${w}x${h}${safe.right ? ' (insets)' : ''}: ${circles.length} buttons ≥ ${LY.minButton}px${small.length ? ' SMALL ' + small : ''}, overlaps ${overlaps.join(' ') || 'none'}, off-corner ${off.join(' ') || 'none'}, taps routed ${routed}/${circles.length}, ${corner.name} in the corner`);
+      }
+    }
+  }
+}
 
 console.log(failed ? 'INPUT TEST FAILED' : 'input test passed');
 process.exit(failed ? 1 : 0);

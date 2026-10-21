@@ -379,8 +379,8 @@ export const CONFIG = {
     ridge: { from: 140, top: 152, to: 176 }, // the ridge between the forest/cliffs and the desert
     terrainStep: 4.5,        // grid spacing of the desert terrain
     colors: { sand: 0xeec27c, dune: 0xd9a35e, shade: 0xc98d4f, trail: 0xc89b62, rim: 0xb7864f },
-    cacti: { step: 7, band: [2, 46], scale: [0.8, 1.7], color: 0x4f8a3b },
-    rocks: { step: 9, band: [1, 55], scale: [0.6, 2.4], color: 0xb98a5a },
+    cacti: { step: 7, band: [2, 46], scale: [0.65, 1.3], color: 0x4f8a3b }, // (smaller than they were: they dwarfed the riders)
+    rocks: { step: 9, band: [1, 55], scale: [0.5, 1.9], color: 0xb98a5a },
     edge: { step: 3.2, scale: [0.35, 0.7], tuftShare: 0.45, tuftColor: 0x9c9550, rockColor: 0xc49a68 },
     prints: { max: 180, life: 7, size: 0.22, color: 0x7a5a36, opacity: 0.45, minSpeed: 2 },
     gems: { groups: 3, startS: 120, endMargin: 140 },
@@ -648,11 +648,13 @@ export const CONFIG = {
   },
 
   camera: {
-    distance: 7,
-    height: 1.6,           // look-at offset above hero feet
+    // On foot: close enough that AJ fills ~35–40% of the screen height (35% closer than the
+    // old 7), the look-at point at his chest and a slightly lower angle.
+    camOnFootDistance: 4.55,
+    camOnFootHeight: 1.45,   // look-at offset above hero feet
     minPitch: -0.2,
     maxPitch: 1.2,
-    startPitch: 0.35,
+    startPitch: 0.27,
     startYaw: -Math.PI / 2, // behind the hero, looking along the route (+X)
     followLerp: 10,        // higher = snappier follow
     dragSensitivity: 0.006, // radians per pixel (touch)
@@ -660,7 +662,7 @@ export const CONFIG = {
     groundClearance: 0.5,
     // Tree-leaping zone: pull back a little and look down more so branches read clearly.
     // Blended in/out smoothly around the zone's edges.
-    treeZoneDistanceScale: 1.2,
+    treeZoneDistanceScale: 1.45, // (6.6: the branches ahead still read clearly)
     treeZonePitchBoost: 0.14,   // radians added to the pitch (looks further down)
     treeZoneBlend: 6,           // units over which the zone settings fade in/out
     // Collision: the camera is pulled in front of trunks and pushed out of leaf clusters.
@@ -669,14 +671,16 @@ export const CONFIG = {
     leafMinDistance: 1.8,       // leaf clusters closer than this to the hero fade instead of blocking
     releaseLerp: 3,
     wallStep: 0.5,              // ray march step against the invisible trail walls
-    // Riding: close over-the-shoulder view behind and slightly above the rider.
-    rideDistance: 4.2,        // from the look-at point
-    rideHeight: 1.25,         // look-at point above the rider's seat
+    // Riding: close over-the-shoulder view behind and slightly above the rider (~57% of the
+    // old 4.2), so the horse and both riders fill the lower middle of the screen.
+    camRideDistance: 2.5,     // from the look-at point (60% of the old 4.2)
+    camRideHeight: 1.35,      // look-at point above the rider's seat
+    camRideFov: 60,           // base field of view while riding (widens subtly with speed / gallop)
     rideShoulder: 0.6,        // look-at point shifted right of the rider
-    ridePitchOffset: -0.06,   // a touch flatter than on foot
+    ridePitchOffset: 0.12,    // a little higher than on foot: looks down onto the horse and both riders
     speedDistanceScale: 0.08, // subtle extra distance at full speed
-    speedFov: 4,              // subtle extra FOV at full speed...
-    gallopFov: 3,             // ...and a bit more while galloping
+    speedFov: 3,              // subtle extra FOV at full speed...
+    gallopFov: 2,             // ...and a bit more while galloping
     rideBlend: 3,             // how quickly ride/speed effects follow
     rideFollow: 2.2,          // riding: camera swings back behind the horse (1/s)...
     rideFollowDelay: 1.2,     // ...this long after the player last dragged to look
@@ -686,15 +690,32 @@ export const CONFIG = {
     joystickRadius: 60,    // px, max knob travel
     joystickDeadZone: 0.12,
     buttonHitScale: 1.3,   // touch hit circles are this much larger than the drawn buttons
-    // Right-hand buttons (px from the bottom-right corner, button centres).
-    attackButton: { size: 104, right: 76, bottom: 76 },
-    jumpButton: { size: 76, right: 196, bottom: 54 },
-    dodgeButton: { size: 64, right: 52, bottom: 196 },
-    gallopButton: { size: 76, right: 290, bottom: 60 },
-    mountButtonBottom: 284, // the Mount / Dismount pill sits above Dodge...
-    mountButtonBottomRiding: 176, // ...and lower while riding (Dodge is hidden then)
-    // Ability buttons in an arc around Attack: angle 0 = left, 90 = up (degrees).
-    abilityArc: { radius: 166, angles: [22, 48, 74], size: 52 },
+    // Two-thumb layout: every action button in the bottom-right corner, nothing mid-screen.
+    // [right, bottom, size] in px: button centre from the bottom-right corner (inside the safe
+    // area plus `edgePad`), and diameter (≥ minButton). The most-used button sits in the corner
+    // (Attack on foot, Gallop riding); the rest arc above and to the left of it within reach of
+    // the right thumb. Buttons missing from a layout are hidden in that mode.
+    layout: {
+      edgePad: 14,
+      minButton: 56,
+      foot: {
+        attack: [66, 66, 80],
+        jump: [166, 60, 62],
+        dodge: [142, 140, 62],
+        mount: [66, 166, 62],      // (only shown near the horse)
+        batarang: [230, 104, 58],
+        smokeBomb: [204, 190, 58],
+        flashMode: [128, 224, 58],
+      },
+      ride: {
+        gallop: [66, 66, 80],
+        jump: [166, 60, 62],
+        mount: [118, 152, 62],     // Dismount, above Gallop and Jump
+        batarang: [118, 230, 58],
+      },
+    },
+    // Landscape phone viewports (CSS px) the layout is checked on: 20:9, 18:9, 16:9.
+    checkSizes: [[915, 412], [760, 360], [640, 360]],
     debugKeys: { grantGems: 'KeyG', damageHero: 'KeyH', teleportArena: 'KeyT', killBoss: 'KeyB', cutscene: 'KeyP', desert: 'KeyO', ending: 'KeyU', pit: 'KeyL' },
   },
 

@@ -10,6 +10,20 @@ const I = CONFIG.input;
  * and buttons never steal each other's touches. Every tap on a button is a new press (there
  * is no "held" flag that can get stuck); `sync(activeIds)` drops touches whose end event was lost.
  */
+/**
+ * The corner layout as screen circles for a `w`×`h` viewport (safe-area insets `safe`):
+ * [{ name, x, y, r }] — used to check sizes, overlaps and bounds (tests).
+ */
+export function buttonLayout(mode, w, h, safe = { right: 0, bottom: 0 }) {
+  const L = CONFIG.input.layout;
+  return Object.entries(L[mode]).map(([name, [right, bottom, size]]) => ({
+    name,
+    x: w - safe.right - L.edgePad - right,
+    y: h - safe.bottom - L.edgePad - bottom,
+    r: size / 2,
+  }));
+}
+
 export class TouchRouter {
   /**
    * @param {() => Array<{name:string, x:number, y:number, r:number, hold?:boolean}>} getButtons
@@ -222,12 +236,7 @@ export class Input {
     this.joyKnob.className = 'joy-knob';
     this.joyBase.appendChild(this.joyKnob);
 
-    // Right side: Attack (large), Jump, Dodge, ability buttons in an arc, Gallop, Mount.
-    const place = (el, { size, right, bottom }) => {
-      el.style.width = el.style.height = `${size}px`;
-      el.style.right = `calc(env(safe-area-inset-right, 0px) + ${right - size / 2}px)`;
-      el.style.bottom = `calc(env(safe-area-inset-bottom, 0px) + ${bottom - size / 2}px)`;
-    };
+    // Right corner (two thumbs): positions come from CONFIG.input.layout (see #applyLayout).
     const button = (cls, label) => {
       const b = document.createElement('button');
       b.className = `btn ${cls}`;
@@ -235,16 +244,12 @@ export class Input {
       return b;
     };
     this.attackBtn = button('attack-btn', DIALOGUE.attack);
-    place(this.attackBtn, I.attackButton);
     this.jumpBtn = button('jump-btn', DIALOGUE.jump);
-    place(this.jumpBtn, I.jumpButton);
     this.dodgeBtn = button('dodge-btn', DIALOGUE.dodge);
-    place(this.dodgeBtn, I.dodgeButton);
 
-    // Abilities: small buttons on an arc around Attack (greyed out while locked).
+    // Abilities: small buttons in the arc (greyed out while locked).
     this.abilityBtns = {};
-    const A = I.abilityArc;
-    ['batarang', 'smokeBomb', 'flashMode'].forEach((name, i) => {
+    ['batarang', 'smokeBomb', 'flashMode'].forEach((name) => {
       const b = button('ability-btn locked', DIALOGUE.abilityShort[name]);
       b.title = DIALOGUE.abilityNames[name];
       b.insertAdjacentHTML('beforeend', '<i class="cooldown"></i>' + (name === 'flashMode' ? '<span class="energy"><i></i></span>' : ''));
@@ -252,8 +257,6 @@ export class Input {
       const color = Object.keys(CONFIG.gems.abilities).find((c) => CONFIG.gems.abilities[c] === name);
       b.insertAdjacentHTML('beforeend', `<b class="cost">${CONFIG.abilities[name].gemCost}</b>`);
       b.style.setProperty('--gem', `#${CONFIG.gems.colors[color].toString(16).padStart(6, '0')}`);
-      const ang = (A.angles[i] * Math.PI) / 180;
-      place(b, { size: A.size, right: I.attackButton.right + Math.cos(ang) * A.radius, bottom: I.attackButton.bottom + Math.sin(ang) * A.radius });
       this.abilityBtns[name] = b;
     });
 
@@ -261,17 +264,17 @@ export class Input {
     this.mountBtn = document.createElement('button');
     this.mountBtn.className = 'mount-btn';
     this.mountBtn.style.display = 'none';
-    this.mountBtn.style.bottom = `calc(env(safe-area-inset-bottom, 0px) + ${I.mountButtonBottom}px)`;
 
-    // Gallop (hold): left of Jump, only while riding, with a small stamina bar.
+    // Gallop (hold): in the corner while riding, with a small stamina bar.
     this.gallopBtn = document.createElement('button');
     this.gallopBtn.className = 'gallop-btn';
     this.gallopBtn.style.display = 'none';
-    place(this.gallopBtn, I.gallopButton);
     this.gallopBtn.innerHTML = `<span class="gallop-label"></span><span class="stamina"><i></i></span>`;
     this.staminaFill = this.gallopBtn.querySelector('.stamina i');
 
     this.controls.append(this.joyBase, this.attackBtn, this.jumpBtn, this.dodgeBtn, ...Object.values(this.abilityBtns), this.mountBtn, this.gallopBtn);
+    this.layoutMode = null;
+    this.#applyLayout('foot');
     root.appendChild(this.controls);
     this.#hideJoystick();
   }
@@ -386,13 +389,13 @@ export class Input {
       const d = on ? '' : 'none';
       if (el.style.display !== d) el.style.display = d;
     };
-    // Riding: Dismount takes Dodge's (hidden) spot, clear of the gem counters.
-    const mb = `calc(env(safe-area-inset-bottom, 0px) + ${mounted ? I.mountButtonBottomRiding : I.mountButtonBottom}px)`;
-    if (this.mountBtn.style.bottom !== mb) this.mountBtn.style.bottom = mb;
-    show(this.attackBtn, !mounted && !exhausted);
-    show(this.dodgeBtn, !mounted && !exhausted);
+    // On foot / riding: each its own corner layout (buttons not in it are hidden).
+    this.#applyLayout(mounted ? 'ride' : 'foot');
+    const L = I.layout[this.layoutMode];
+    show(this.attackBtn, !!L.attack && !exhausted);
+    show(this.dodgeBtn, !!L.dodge && !exhausted);
     for (const [name, b] of Object.entries(this.abilityBtns)) {
-      show(b, (!mounted || name === 'batarang') && !exhausted);
+      show(b, !!L[name] && !exhausted);
       const unlocked = ab.has(name);
       b.classList.toggle('locked', !unlocked);
       if (!unlocked) continue;
@@ -407,6 +410,22 @@ export class Input {
         b.classList.toggle('reloading', why === 'reload');
         b.classList.toggle('active', ab.charging > 0 || !!ab.strike);
       }
+    }
+  }
+
+  /** Places every button for `mode` ('foot' | 'ride') from CONFIG.input.layout (once per change). */
+  #applyLayout(mode) {
+    if (this.layoutMode === mode) return;
+    this.layoutMode = mode;
+    const L = I.layout;
+    const els = { attack: this.attackBtn, jump: this.jumpBtn, dodge: this.dodgeBtn, mount: this.mountBtn, gallop: this.gallopBtn, ...this.abilityBtns };
+    for (const [name, el] of Object.entries(els)) {
+      const spot = L[mode][name];
+      if (!spot) continue; // (hidden in this mode by setCombatButtons / setGallopButton)
+      const [right, bottom, size] = spot;
+      el.style.width = el.style.height = `${size}px`;
+      el.style.right = `calc(env(safe-area-inset-right, 0px) + ${L.edgePad + right - size / 2}px)`;
+      el.style.bottom = `calc(env(safe-area-inset-bottom, 0px) + ${L.edgePad + bottom - size / 2}px)`;
     }
   }
 
