@@ -194,9 +194,9 @@ const faceDummy = (d = 1.5, angle = 0) => {
     step(secs(2));
     check(fx.ring.visible && f0 > 0.99 && Math.abs(fx.ringFrac - (1 - 2 / AB.smokeBomb.paralyze)) < 0.02 && fx.glow.visible, `green timer ring under it counts down (${f0.toFixed(2)} → ${fx.ringFrac.toFixed(2)} after 2 s)`);
   }
-  const expect = AB.throw.release + AB.smokeBomb.flightTime + AB.smokeBomb.exposure;
+  const expect = AB.throw.release + AB.smokeBomb.flightTime + AB.smokeBomb.smokeExposureSeconds;
   check(abilities.lastSpawn?.name === 'smokeBomb' && abilities.lastSpawn.position.distanceTo(abilities.lastSpawn.hand) < 0.01, 'smoke bomb thrown from the hand at release');
-  check(parAt > 0 && Math.abs(parAt - expect) < 0.1, `paralyzed after ${parAt.toFixed(2)}s (release ${AB.throw.release} + flight ${AB.smokeBomb.flightTime} + exposure ${AB.smokeBomb.exposure})`);
+  check(parAt > 0 && Math.abs(parAt - expect) < 0.1, `paralyzed after ${parAt.toFixed(2)}s (release ${AB.throw.release} + flight ${AB.smokeBomb.flightTime} + exposure ${AB.smokeBomb.smokeExposureSeconds})`);
   const p0 = AB.smokeBomb.paralyze; // (2 s of it already watched above)
   step(secs(AB.smokeBomb.paralyze - 2 - 0.5));
   const still = dummy.paralyzed > 0;

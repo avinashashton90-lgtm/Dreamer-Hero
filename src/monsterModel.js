@@ -214,6 +214,16 @@ export class MonsterAnimator {
         clip = 'hit';
         this.#scrub(clip, M.paralyzedAt);
         break;
+      case S.STAGGERED:
+        clip = 'hit';
+        this.#scrub(clip, mapTime(t / B.flashStagger, M.stunned.xs, M.stunned.ts));
+        break;
+      case S.SMOKED:
+        // Coughing: flinches into the hit pose, the head bobbing, the jaw working.
+        clip = 'hit';
+        this.#scrub(clip, Math.min(M.smokedAt, t * 2) + Math.sin(t * 18) * B.smoke.coughBob);
+        jaw = Math.max(jaw, M.jawOpen.inhale * (0.6 + 0.4 * Math.sin(t * 18)));
+        break;
       case S.DYING:
       case S.DEAD: {
         const D = B.dying;

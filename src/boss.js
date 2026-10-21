@@ -260,6 +260,8 @@ export const BOSS_STATES = Object.freeze({
   STUNNED: 'stunned', // hit a boulder while charging
   RECOVER: 'recover', // short pause after every attack
   PARALYZED: 'paralyzed', // Smoke Bomb
+  SMOKED: 'smoked', // touched a Smoke Bomb cloud: coughing, held in it until paralysis
+  STAGGERED: 'staggered', // hit by the Flash bolt
   DYING: 'dying', // stumbles, falls, fades
   DEAD: 'dead',
 });
@@ -296,6 +298,8 @@ export class Boss {
     this.radius = B.radius;
     this.height = B.height;
     this.maxHp = B.hp;
+    this.isBoss = true; // (Flash auto-locks onto it)
+    this.smokeCloud = null; // { x, z, r } of the cloud holding it (SMOKED)
     this.center = new THREE.Vector3(CV.center[0], 0, CV.center[1]);
     this.slamAt = new THREE.Vector3();
     this.chargeDir = new THREE.Vector2();
@@ -401,7 +405,7 @@ export class Boss {
     // the Flash bolt exactly 40%; other hits do bonus damage while it's helpless.
     const pct = B.hitPct[flash ? 'flash' : source];
     let dmg = pct != null ? this.maxHp * pct : amount;
-    if (!flash && this.state === S.PARALYZED) dmg *= B.paralysis.bonus;
+    if (!flash && (this.state === S.PARALYZED || this.state === S.SMOKED)) dmg *= B.paralysis.bonus;
     else if (!flash && this.state === S.STUNNED) dmg *= B.stunnedBonus;
     dmg = Math.min(this.hp, Math.round(dmg * 100) / 100);
     this.hp -= dmg;
@@ -415,6 +419,10 @@ export class Boss {
     if (this.hp <= 0) {
       this.warning.visible = false;
       this.#set(S.DYING);
+    } else if (flash && this.state !== S.PARALYZED) {
+      // The Flash bolt staggers it (whatever it was doing).
+      if (this.warning) this.warning.visible = false;
+      this.#set(S.STAGGERED);
     }
     return dmg;
   }
@@ -427,6 +435,24 @@ export class Boss {
     if (this.warning) this.warning.visible = false;
     this.#set(S.PARALYZED);
     return true;
+  }
+
+  /** Mid slam landing or charge rush the Smoke Bomb can't take hold yet (the frame after, it does). */
+  smokeImmune() {
+    return this.state === S.SLAM || this.state === S.CHARGE;
+  }
+
+  /**
+   * Its body touched a Smoke Bomb cloud: interrupted at once (chase, recovery or any wind-up
+   * cancelled), it coughs and staggers, and can't leave the cloud until paralysis.
+   */
+  smokeTouch(cloud, radius) {
+    if (!this.alive || this.state === S.PARALYZED || this.state === S.SMOKED) return;
+    this.smokeCloud = { x: cloud.x, z: cloud.z, r: radius };
+    if (this.warning) this.warning.visible = false;
+    this.#set(S.SMOKED);
+    this.stats.smoked = (this.stats.smoked ?? 0) + 1;
+    this.events.onCough?.();
   }
 
   /** For a while after a paralysis wears off it shrugs off the Smoke Bomb. */
@@ -615,6 +641,31 @@ export class Boss {
       case S.STUNNED:
         if (this.stateTime >= B.charge.stun) this.#set(S.RECOVER);
         break;
+      case S.STAGGERED:
+        if (this.stateTime >= B.flashStagger) this.#set(S.RECOVER);
+        break;
+      case S.SMOKED: {
+        // Coughing in the cloud: creeps toward the hero at a fraction of its pace but can't
+        // leave the cloud (Abilities paralyzes it after smokeExposureSeconds).
+        const v = B.walkSpeed * (1 - B.smoke.slow);
+        if (onFoot && dist > this.radius + CONFIG.hero.radius + 0.2) {
+          this.#turnTo(dx, dz, dt);
+          this.#move(Math.sin(this.facing) * v * dt, Math.cos(this.facing) * v * dt);
+        }
+        const c = this.smokeCloud;
+        if (c) {
+          const ox = this.position.x - c.x;
+          const oz = this.position.z - c.z;
+          const d = Math.hypot(ox, oz);
+          const max = c.r + this.radius * 0.5; // (its body stays in the powder)
+          if (d > max) {
+            this.position.x = c.x + (ox / d) * max;
+            this.position.z = c.z + (oz / d) * max;
+          }
+        }
+        if (this.stateTime >= CONFIG.abilities.smokeBomb.smokeExposureSeconds * 4) this.#set(S.RECOVER); // (safety: the cloud went)
+        break;
+      }
       case S.RECOVER:
         if (this.stateTime >= this.recoverFor) this.#set(S.CHASE);
         break;
@@ -641,6 +692,7 @@ export class Boss {
     }
     if (this.state !== S.PARALYZED) this.paralyzed = 0;
     if (this.state !== S.PARALYZED) this.paralysisResist = Math.max(0, this.paralysisResist - dt);
+    if (this.state !== S.SMOKED) this.smokeCloud = null;
     this.fireCooldown = Math.max(0, this.fireCooldown - dt);
     this.#updateCracks(dt);
     this.position.y = this.world.heightAt(this.position.x, this.position.z);
@@ -1001,9 +1053,14 @@ export class Boss {
         head.rotation.x = 0.5;
         break;
       case S.STUNNED:
+      case S.STAGGERED:
         body.rotation.z = Math.sin(t * 6) * 0.12;
         body.rotation.x = -0.1;
         jaw.rotation.x = 0.3;
+        break;
+      case S.SMOKED:
+        body.rotation.x = 0.25 + Math.sin(t * 18) * 0.08; // coughing, doubled over
+        jaw.rotation.x = 0.35 + Math.sin(t * 18) * 0.15;
         break;
       case S.PARALYZED:
         body.rotation.z = Math.sin(this.paralyzed * 3) * 0.04;

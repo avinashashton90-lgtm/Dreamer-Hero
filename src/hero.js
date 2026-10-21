@@ -239,7 +239,7 @@ export class Hero {
 
   /** Invincible: mid-dodge or just hurt. */
   get invincible() {
-    return this.iframes > 0;
+    return this.iframes > 0 || !!this.superArmor; // (dodge / after a hit, or Flash's super-armor)
   }
 
   async init() {

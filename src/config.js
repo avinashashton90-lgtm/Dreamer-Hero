@@ -290,8 +290,9 @@ export const CONFIG = {
     },
     // Smoke Bomb: a green powder cloud with twinkling crystal sparks (additive particles, no lights).
     smokeBomb: {
-      throwRange: 8, flightTime: 0.6, arcHeight: 2.5, radius: 4, duration: 6,
-      exposure: 1, paralyze: 10, cooldown: 15,
+      // Lands on the lock-on target when it's within throwRange (else this far ahead).
+      throwRange: 12, flightTime: 0.6, arcHeight: 2.5, radius: 6, duration: 8,
+      smokeExposureSeconds: 0.5, paralyze: 10, cooldown: 15, // in the cloud this long → paralyzed
       gemCost: 5,            // blue gems spent per bomb
       puffs: 16,             // powder puffs per layer...
       layers: [              // ...soft layered powder: [radius scale, puff size, opacity, colour]
@@ -323,8 +324,12 @@ export const CONFIG = {
       flashReloadSeconds: 45, // the bar refills over this long after use
       hurtFlicker: 0.45,     // red flicker on the hero when he pays the cost
       hurtColor: 0xff2a2a,
-      chargeTime: 1,         // charge-up (gold glow, sparks, energy into the hands) before the bolt
-      range: 12,             // a living target must be this close (the lock-on range)
+      chargeTime: 0.6,       // charge-up (gold glow, sparks, energy into the hands) before the bolt
+      range: 15,             // a living target must be this close (from its edge); the boss is picked first
+      // Super-armor through the charge and the strike: no damage, no knockback, no interruption,
+      // shown as a gold-white lightning shield round him (additive shell + crackling arcs).
+      shield: { radius: 1.25, height: 1.05, color: 0xfff2c0, opacity: 0.22, arcColor: 0xfffbe8, arcs: 5, arcSegments: 5, arcWidth: 0.05, flicker: 22 },
+      minionPush: 7,         // the strike's shockwave pushes minions within shockwave.radius this far out
       damageFraction: 0.4,   // of the target's max HP
       knockback: 12,
       glowColor: 0xffc400,
@@ -500,6 +505,12 @@ export const CONFIG = {
     // Smoke Bomb on the boss: paralyzed only 4 s (other monsters: smokeBomb.paralyze), taking
     // +20% damage meanwhile, then it resists paralysis for 20 s.
     paralysis: { duration: 4, bonus: 1.2, resist: 20 },
+    // The moment its body touches a Smoke Bomb cloud it is interrupted (chase, recovery, any
+    // wind-up cancelled) and coughs, staggering; inside it moves at 15% and can't leave the cloud
+    // until smokeExposureSeconds have passed, then paralysis. Never during a slam landing or a
+    // charge rush: the frame after those end. (Not while it resists paralysis.)
+    smoke: { slow: 0.85, coughBob: 0.06 },
+    flashStagger: 1.5,       // the Flash bolt staggers it this long (not while dying / paralyzed)
     stunnedBonus: 1.5,       // damage multiplier while stunned (charged into a boulder)
     dying: { stumble: 0.7, fall: 0.9, fade: 1.2 },
     dismountRange: 30,       // riding this close to the arena: the horse slows and the hero gets off
@@ -529,6 +540,7 @@ export const CONFIG = {
       chargeWindup: [0.6, 1.9],     // roar: rears back, then head down ready to rush
       stunned: { xs: [0, 0.2, 0.75, 1], ts: [0, 0.55, 0.6, 1.33] }, // hit: doubles over, holds, recovers
       paralyzedAt: 0.55,            // hit, frozen doubled over (Smoke Bomb)
+      smokedAt: 0.35,               // hit, flinching while it coughs in the smoke
       dying: [0, 3.1],              // death: staggers, falls on its back (over stumble + fall)
       dizzyAbove: 1.0,              // dizzy stars this far above the head bone
     },

@@ -138,8 +138,17 @@ export async function loadLightningModels() {
   const shock = new THREE.Mesh(new THREE.RingGeometry(1 - W.width / W.radius, 1, 56, 1).rotateX(-Math.PI / 2), additive(W.color, 0));
   shock.visible = false;
   shock.renderOrder = 8;
-  group.add(sparks, motes, ...orbs, core, glow, impact, shock);
-  group.userData = { sparks, motes, orbs, core, glow, impact, shock };
+  // The super-armor shield: a gold-white shell round him with little crackling arcs on it.
+  const SH = FM.shield;
+  const shell = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 2), additive(SH.color, 0));
+  shell.renderOrder = 9;
+  shell.visible = false;
+  const shieldArcs = new THREE.InstancedMesh(segGeo, additive(SH.arcColor, 0.9), SH.arcs * SH.arcSegments);
+  shieldArcs.frustumCulled = false;
+  shieldArcs.renderOrder = 10;
+  shieldArcs.count = 0;
+  group.add(sparks, motes, ...orbs, core, glow, impact, shock, shell, shieldArcs);
+  group.userData = { sparks, motes, orbs, core, glow, impact, shock, shell, shieldArcs };
   return group;
 }
 
@@ -153,8 +162,9 @@ export async function loadLightningModels() {
  *
  * - Batarang: thrown at the lock-on target (or forward), flies out on a curved path, hits the
  *   first enemy or solid object for small damage, then always comes back and is caught.
- * - Smoke Bomb: lobbed in an arc; bursts into a cloud. An enemy inside for `exposure` seconds
- *   is paralyzed for `paralyze` seconds.
+ * - Smoke Bomb: lobbed in an arc onto the lock-on target; bursts into a cloud. An enemy whose
+ *   body touches it is interrupted and, after `smokeExposureSeconds`, paralyzed for `paralyze`
+ *   seconds (the boss caps it).
  * - Flash Mode: a lightning blast. The bar starts full; using Flash costs 5 pink gems and 30%
  *   of the hero's hearts (only if he has more than that — never lethal) and needs a target in
  *   range; it empties the bar (it reloads over flashReloadSeconds), charges up for a second
@@ -234,6 +244,7 @@ export class Abilities {
     this.charging = 0;
     this.flashTarget = null;
     this.strike = null;
+    this.hero.superArmor = false;
     this.boltParticles = [];
     this.energy = 1;
     this.hero.glow = 0;
@@ -341,10 +352,12 @@ export class Abilities {
     return true;
   }
 
-  /** The Flash bolt's target: the lock-on target if it's in range, else the nearest one in range. */
+  /** The Flash bolt's target: the boss if it's in range (auto-lock), else the lock-on target, else the nearest. */
   #flashTarget() {
     const hero = this.hero;
     const dist = (t) => Math.hypot(t.position.x - hero.position.x, t.position.z - hero.position.z) - t.radius;
+    const boss = this.combat?.targets.find((t) => t.isBoss && t.alive && dist(t) <= FM.range);
+    if (boss) return boss;
     const lock = this.combat?.lockTarget;
     if (lock?.alive && dist(lock) <= FM.range) return lock;
     let best = null;
@@ -368,6 +381,8 @@ export class Abilities {
       if (this.strike.t >= Math.max(FM.bolt.time, FM.shockwave.time)) this.strike = null;
     }
     this.hero.glow = this.charging > 0 ? 1 - this.charging / FM.chargeTime : this.strike ? Math.max(0, 1 - this.strike.t / FM.bolt.time) : 0;
+    // Super-armor through the charge and the strike: no damage, no knockback, no interruption.
+    this.hero.superArmor = this.charging > 0 || (!!this.strike && this.strike.t < FM.bolt.time);
     this.#drawLightning(dt);
     // Throw / catch poses.
     const anim = this.hero.throwAnim;
@@ -530,22 +545,27 @@ export class Abilities {
     for (const c of this.clouds) c.age += dt;
     this.clouds = this.clouds.filter((c) => c.age < SB.duration);
 
-    // Paralysis: an enemy that stays inside a cloud for `exposure` seconds. While it breathes
+    // Paralysis: an enemy whose body touches a cloud is interrupted (`smokeTouch`: the boss
+    // coughs and can't leave) and is paralyzed after `smokeExposureSeconds` in it — never while
+    // `smokeImmune()` (the boss mid slam landing or charge rush; it applies the frame after). While it breathes
     // the powder in: a stream into its mouth, its chest heaves, a green glow builds; at the
     // moment of paralysis a burst of crystal sparks; then a green tint, dizzy stars, swaying and
     // a timer ring under it; at the end the glow fades softly.
     for (const t of this.combat?.targets ?? []) {
       const fx = this.#fxFor(t);
-      const inside = t.alive && this.clouds.some((c) => Math.hypot(t.position.x - c.x, t.position.z - c.z) < SB.radius + t.radius * 0.5);
+      const cloud = t.alive ? this.clouds.find((c) => Math.hypot(t.position.x - c.x, t.position.z - c.z) < SB.radius + t.radius) : null;
+      const inside = !!cloud; // (its body touches the cloud)
       const paralyzed = t.paralyzed > 0;
       // Some beasts shrug the powder off for a while after a paralysis (the boss: 20 s).
       const resists = !!t.resistsParalysis?.();
       if (inside && resists && !paralyzed && !t.smokeResistShown) this.onEvent?.('smokeResisted', t);
       t.smokeResistShown = inside && resists;
-      if (t.alive && inside && !paralyzed && !resists) {
+      const immune = !!t.smokeImmune?.();
+      if (t.alive && inside && !paralyzed && !resists && !immune) {
+        if (!(t.smokeExposure > 0)) t.smokeTouch?.(cloud, SB.radius); // interrupted: coughs, held in the cloud
         t.smokeExposure = (t.smokeExposure ?? 0) + dt;
         this.#inhale(t, dt);
-        if (t.smokeExposure >= SB.exposure) {
+        if (t.smokeExposure >= SB.smokeExposureSeconds) {
           t.paralyze(SB.paralyze); // (the target may cap it: the boss is paralyzed for less)
           t.smokeExposure = 0;
           this.#burst(t);
@@ -554,7 +574,7 @@ export class Abilities {
       } else if (!inside || !t.alive || resists) t.smokeExposure = 0;
       if (!fx) continue;
       const nowParalyzed = t.paralyzed > 0;
-      const target = nowParalyzed ? 1 : t.smokeExposure > 0 ? t.smokeExposure / SB.exposure : 0;
+      const target = nowParalyzed ? 1 : t.smokeExposure > 0 ? t.smokeExposure / SB.smokeExposureSeconds : 0;
       if (target >= fx.level) fx.level = target;
       else fx.level = Math.max(target, fx.level - dt / SB.glow.fade); // soft fade
       fx.wasParalyzed = nowParalyzed;
@@ -614,7 +634,7 @@ export class Abilities {
     const S = SB.stream;
     t.inhaleDebt = (t.inhaleDebt ?? 0) + S.rate * dt;
     const mouth = this.#headOf(t);
-    const cloud = this.clouds.find((c) => Math.hypot(t.position.x - c.x, t.position.z - c.z) < SB.radius + t.radius * 0.5);
+    const cloud = this.clouds.find((c) => Math.hypot(t.position.x - c.x, t.position.z - c.z) < SB.radius + t.radius);
     while (t.inhaleDebt >= 1 && cloud) {
       t.inhaleDebt -= 1;
       let p = this.streamList.find((q) => q.age >= q.life);
@@ -797,6 +817,19 @@ export class Abilities {
       ground = this.world?.heightAt?.(at.x, at.z) ?? hero.position.y;
       at.y = ground;
     }
+    // The shockwave pushes minions back from the impact.
+    for (const m of this.combat?.targets ?? []) {
+      if (!m.minion || !m.alive) continue;
+      const mx = m.position.x - at.x;
+      const mz = m.position.z - at.z;
+      const d = Math.hypot(mx, mz);
+      if (d > FM.shockwave.radius) continue;
+      const push = FM.minionPush * (1 - d / FM.shockwave.radius);
+      const ux = d > 1e-3 ? mx / d : 1;
+      const uz = d > 1e-3 ? mz / d : 0;
+      if (m.knockback) m.knockback(ux, uz, push);
+      else m.position.set(m.position.x + ux * push, m.position.y, m.position.z + uz * push);
+    }
     this.strike = { t: 0, target: t, at, ground, flicker: 0, bolts: null };
     this.stats.flashStrikes++;
     this.onEvent?.('flashStrike', { position: at.clone(), target: t });
@@ -891,6 +924,48 @@ export class Abilities {
       o.scale.setScalar(FM.channel.orb * (0.4 + 0.8 * charge) * (0.85 + 0.3 * Math.random()));
       o.material.opacity = 0.35 + 0.55 * charge;
     });
+    // The super-armor shield (charge + strike): a flickering shell and arcs crawling over it.
+    const SH = FM.shield;
+    const armored = !!hero.superArmor;
+    L.shell.visible = armored;
+    let na = 0;
+    if (armored) {
+      const c = new THREE.Vector3(hero.position.x, hero.position.y + SH.height, hero.position.z);
+      L.shell.position.copy(c);
+      L.shell.scale.set(SH.radius, SH.radius * 1.35, SH.radius);
+      L.shell.material.opacity = SH.opacity * (0.75 + 0.25 * Math.sin(performance.now() * 0.001 * SH.flicker));
+      this.shieldFlicker = (this.shieldFlicker ?? 0) - dt;
+      if (!this.shieldPts || this.shieldFlicker <= 0) {
+        this.shieldFlicker = 1 / SH.flicker;
+        // Arcs: short jagged walks over the shell (local, round the centre).
+        this.shieldPts = [];
+        for (let a = 0; a < SH.arcs; a++) {
+          let th = Math.random() * Math.PI * 2;
+          let ph = 0.3 + Math.random() * 2.5;
+          const pts = [];
+          for (let k = 0; k <= SH.arcSegments; k++) {
+            pts.push(new THREE.Vector3(Math.sin(ph) * Math.cos(th) * SH.radius, Math.cos(ph) * SH.radius * 1.35, Math.sin(ph) * Math.sin(th) * SH.radius));
+            th += (Math.random() - 0.5) * 0.7;
+            ph += (Math.random() - 0.5) * 0.5;
+          }
+          this.shieldPts.push(pts);
+        }
+      }
+      const dir = new THREE.Vector3();
+      const a = new THREE.Vector3();
+      for (const pts of this.shieldPts) {
+        for (let k = 0; k < pts.length - 1; k++) {
+          a.copy(pts[k]).add(c);
+          dir.subVectors(pts[k + 1], pts[k]);
+          const len = dir.length();
+          q.setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir.divideScalar(len || 1));
+          L.shieldArcs.setMatrixAt(na++, m.compose(a, q, sc.set(SH.arcWidth, SH.arcWidth, len)));
+        }
+      }
+    }
+    L.shieldArcs.count = na;
+    L.shieldArcs.instanceMatrix.needsUpdate = true;
+
     // The bolt (flickering: re-drawn FM.bolt.flicker times a second), impact flash, shockwave.
     const st = this.strike;
     let nseg = 0;

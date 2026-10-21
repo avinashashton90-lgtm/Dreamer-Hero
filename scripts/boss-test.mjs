@@ -323,16 +323,118 @@ const runUntil = (pred, maxS, opts) => { let t = 0; while (t < maxS) { step(1, {
   abilities.clear();
 }
 
+// 6b) Smoke on the boss: it lands on the lock-on target; the moment its body touches the cloud
+// it's interrupted (any wind-up cancelled) and coughs; inside it moves at 15% and can't walk out
+// before the 0.5 s exposure completes, then paralysis. Never mid slam landing or charge rush —
+// the frame after those end, it applies.
+{
+  const SBc = CONFIG.abilities.smokeBomb;
+  lives.reset(); abilities.clear();
+  freshBoss(cx, cz, -Math.PI / 2, S.RECOVER);
+  placeHero(cx - 9, cz, Math.PI / 2);
+  step(2, {}, { each: () => { boss.state = S.RECOVER; boss.stateTime = 0; } });
+  combat.lockTarget = boss;
+  abilities.cooldowns.smokeBomb = 0;
+  check(abilities.use('smokeBomb'), 'smoke bomb thrown at the boss');
+  // Just before it lands the boss starts winding up a charge.
+  runUntil(() => abilities.bombs.length && abilities.bombs[0].t > 0.9, 2, { each: () => { boss.state = S.RECOVER; boss.stateTime = 0; } });
+  const landAt = abilities.bombs[0].end.clone();
+  boss.state = S.CHARGE_WINDUP; boss.stateTime = 0;
+  const tTouch = runUntil(() => boss.state === S.SMOKED, 1);
+  check(Math.hypot(landAt.x - cx, landAt.z - cz) < 1 && SBc.radius === 6 && SBc.duration === 8, `lands on the boss (${Math.hypot(landAt.x - cx, landAt.z - cz).toFixed(2)} from it), cloud radius ${SBc.radius}, ${SBc.duration} s`);
+  check(tTouch >= 0 && tTouch < 0.15, `the moment the cloud touches it the charge wind-up is cancelled: coughing (${boss.state}) after ${tTouch.toFixed(2)} s`);
+  // The hero runs off: it can't follow out of the cloud before paralysis.
+  const cloud = abilities.clouds[0];
+  placeHero(cx - 16, cz, -Math.PI / 2);
+  const p0 = boss.position.clone();
+  let maxOut = 0, moved = 0, t = 0;
+  while (boss.state === S.SMOKED && t < 2) {
+    const before = boss.position.clone();
+    step(1);
+    t += dt;
+    moved = Math.max(moved, before.distanceTo(boss.position) / dt);
+    maxOut = Math.max(maxOut, Math.hypot(boss.position.x - cloud.x, boss.position.z - cloud.z));
+  }
+  const total = tTouch + t;
+  check(boss.state === S.PARALYZED && Math.abs(total - SBc.smokeExposureSeconds) < 0.1, `paralyzed ${total.toFixed(2)} s after first touching the cloud (smokeExposureSeconds ${SBc.smokeExposureSeconds})`);
+  check(moved <= BC.walkSpeed * (1 - BC.smoke.slow) + 0.05 && maxOut <= SBc.radius + boss.radius * 0.5 + 1e-6, `inside it creeps at ≤ ${moved.toFixed(2)}/s (walk ${BC.walkSpeed}, −${BC.smoke.slow * 100}%) and never leaves the cloud (≤ ${maxOut.toFixed(2)} from its centre)`);
+  check(Math.abs(boss.paralyzed - BC.paralysis.duration) < 0.05 + dt, `then paralysis for the full ${BC.paralysis.duration} s`);
+  runUntil(() => boss.state !== S.PARALYZED, 6);
+  // Immune mid slam landing and mid charge rush: the frame after, it takes hold.
+  for (const st of [S.SLAM, S.CHARGE]) {
+    abilities.clear(); boss.paralysisResist = 0;
+    freshBoss(cx, cz, -Math.PI / 2, st);
+    if (st === S.SLAM) boss.slamAt.set(cx - 2, world.heightAt(cx - 2, cz), cz);
+    else boss.chargeDir.set(0, 0); // (rushing on the spot: stays in the cloud)
+    abilities.clouds.push({ x: cx, y: world.heightAt(cx, cz), z: cz, age: 0, seed: 0 });
+    placeHero(cx - 14, cz, Math.PI / 2);
+    let during = false, frames = 0, wasState = true;
+    while (boss.state === st && frames < 200) { step(1); frames++; if (boss.state === S.SMOKED) during = true; }
+    const ended = boss.state;
+    step(1);
+    check(!during && ended !== S.SMOKED && boss.state === S.SMOKED, `in the cloud during a ${st === S.SLAM ? 'slam landing' : 'charge rush'}: no effect until it ends (→ ${ended}), the next frame it coughs (${boss.state})`);
+  }
+  abilities.clear(); boss.paralysisResist = 0;
+}
+
+// 6c) Flash against the boss: auto-locks onto it up to 15 away; the hero has super-armor
+// through the 0.6 s charge and the strike (no damage, no knockback, no interruption, a lightning
+// shield shows it); the bolt staggers the boss 1.5 s and its shockwave pushes minions back.
+{
+  const FMc = CONFIG.abilities.flashMode;
+  lives.reset(); abilities.clear(); combat.reset();
+  freshBoss(cx, cz, -Math.PI / 2, S.RECOVER);
+  // 14.5 from its edge, facing away (no lock-on): it still locks onto the boss.
+  placeHero(cx - boss.radius - 14.5, cz, -Math.PI / 2);
+  step(1, {}, { each: () => { boss.state = S.RECOVER; boss.stateTime = 0; } });
+  const far = abilities.use('flashMode');
+  check(far && abilities.flashTarget === boss && combat.lockTarget !== boss, `Flash from ${(14.5).toFixed(1)} off the boss's edge, facing away: auto-locked onto it`);
+  abilities.clear(); lives.reset();
+  // Up close while it attacks: a swipe lands mid-charge, fire burns, a slam — none of it counts.
+  freshBoss(cx, cz, -Math.PI / 2, S.RECOVER);
+  placeHero(cx - boss.radius - 1, cz, Math.PI / 2);
+  step(1, {}, { each: () => { boss.state = S.RECOVER; boss.stateTime = 0; } });
+  const minion = { minion: true, position: new THREE.Vector3(cx + 2, world.heightAt(cx + 2, cz + 3), cz + 3), radius: 0.5, height: 1.5, hp: 50, maxHp: 50, alive: true, takeHit: () => 0 };
+  combat.addTarget(minion);
+  const hits0 = heroHits, hp0 = boss.hp;
+  boss.meleeKind = 'swipe'; boss.facing = Math.atan2(hero.position.x - cx, hero.position.z - cz);
+  check(abilities.use('flashMode'), 'Flash used up close');
+  const hearts = lives.hearts; // (after its own 30% cost)
+  const pos0 = hero.position.clone();
+  boss.state = S.MELEE_WINDUP; boss.stateTime = BC.melee.windup - 0.05; // the swipe lands in 0.05 s
+  let shield = false, armorAll = true, slamDone = false, burnt = false;
+  let tt = 0;
+  const minionD0 = minion.position.distanceTo(boss.position);
+  while (tt < FMc.chargeTime + FMc.bolt.time - dt) {
+    step(1, {}, { each: () => {
+      if (boss.state === S.RECOVER && !slamDone) { slamDone = true; boss.state = S.SLAM_WINDUP; boss.stateTime = BC.slam.windup - dt; boss.slamAt.copy(hero.position); }
+    } });
+    tt += dt;
+    if (abilities.lightning.userData.shell.visible) shield = true;
+    if (!hero.superArmor) armorAll = false;
+  }
+  // and a fire tick right inside the cone while armoured
+  check(heroHits === hits0 && lives.hearts === hearts && hero.position.distanceTo(pos0) < 0.05 && hero.hurtT === 0, `super-armor: the swipe and the slam during the charge did nothing (hits ${heroHits - hits0}, hearts ${hearts} → ${lives.hearts}, knocked back ${hero.position.distanceTo(pos0).toFixed(2)})`);
+  check(armorAll && shield && abilities.stats.flashStrikes >= 1 && FMc.chargeTime === 0.6, `armour held through the ${FMc.chargeTime} s charge and the strike (not interrupted), gold-white lightning shield shown`);
+  check(Math.abs(hp0 - boss.hp - boss.maxHp * BC.hitPct.flash) < 1e-6 && boss.state === S.STAGGERED, `the bolt took ${hp0 - boss.hp} and staggered it (${boss.state})`);
+  check(minion.position.distanceTo(boss.position) > minionD0 + 1, `the shockwave pushed the minion back (${minionD0.toFixed(1)} → ${minion.position.distanceTo(boss.position).toFixed(1)} from the impact)`);
+  combat.removeTarget(minion);
+  const tSt = runUntil(() => boss.state !== S.STAGGERED, 3) + (tt - FMc.chargeTime); // (+ the strike time already run)
+  check(Math.abs(tSt - BC.flashStagger) < 0.15 && boss.state === S.RECOVER, `staggered ~${tSt.toFixed(2)} s (flashStagger ${BC.flashStagger}) → ${boss.state}`);
+  check(!hero.superArmor && !hero.invincible, 'super-armor ends with the strike');
+  abilities.clear(); lives.reset();
+}
+
 // 7) Flash Mode's bolt removes damageFraction of its max HP; Batarang hits it too.
 {
   lives.reset();
   placeHero(cx - 3.2, cz, Math.PI / 2);
   freshBoss(cx, cz, -Math.PI / 2, S.RECOVER);
   abilities.clear(); abilities.energy = 1;
-  const hp = boss.hp;
+  const hp = boss.hp, strikes0 = abilities.stats.flashStrikes;
   check(abilities.use('flashMode'), 'flash activated');
   step(secs(CONFIG.abilities.flashMode.chargeTime) + 2, {}, { each: () => { if (boss.state !== S.DYING) { boss.state = S.RECOVER; boss.stateTime = 0; } } });
-  check(hp - boss.hp === boss.maxHp * CONFIG.abilities.flashMode.damageFraction && abilities.stats.flashStrikes === 1, `flash bolt took ${hp - boss.hp} (${CONFIG.abilities.flashMode.damageFraction * 100}% of ${boss.maxHp})`);
+  check(hp - boss.hp === boss.maxHp * CONFIG.abilities.flashMode.damageFraction && abilities.stats.flashStrikes === strikes0 + 1, `flash bolt took ${hp - boss.hp} (${CONFIG.abilities.flashMode.damageFraction * 100}% of ${boss.maxHp})`);
   const hb = boss.hp;
   abilities.cooldowns.batarang = 0;
   placeHero(cx - 9, cz, Math.PI / 2);
