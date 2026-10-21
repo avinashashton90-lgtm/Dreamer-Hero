@@ -115,7 +115,8 @@ function makeMouthGlow(warrok, jaw) {
 
 /**
  * Plays Warrok's clips from the Boss state (one primary clip, crossfaded over M.crossfade):
- * guard / recover → idle; chase → walk (speed-matched); slam wind-up + slam → jumpattack,
+ * guard / recover → idle; chase → walk (speed-matched); melee wind-up + blow → swipe or
+ * punch (scrubbed so the blow lands at the hit); slam wind-up + slam → jumpattack,
  * scrubbed so the fists land at the start of the slam (the damage frame); fire wind-up →
  * roar rearing back, fire → roar thrusting forward; charge wind-up → roar, charge → run;
  * stunned → hit (doubles over, holds, recovers); paralyzed → hit frozen; dying → death.
@@ -178,6 +179,14 @@ export class MonsterAnimator {
       case S.SLAM:
         clip = 'jumpattack';
         this.#scrub(clip, mapTime(t / B.slam.impact, [0, 1], M.slamImpact));
+        break;
+      case S.MELEE_WINDUP:
+        clip = boss.meleeKind;
+        this.#scrub(clip, mapTime(t / B.melee.windup, [0, 1], M[clip].windup));
+        break;
+      case S.MELEE:
+        clip = boss.meleeKind;
+        this.#scrub(clip, mapTime(t / B.melee.strike, [0, 1], M[clip].strike));
         break;
       case S.FIRE_WINDUP:
         clip = 'roar';

@@ -451,10 +451,14 @@ export const CONFIG = {
     fire: {
       minRange: 4.6, maxRange: 10, chaseBefore: 0.8, cooldown: 6,
       windup: 1, duration: 2, range: 11, halfAngle: 0.42, trackRate: 0.9,
-      tick: 0.5, damage: 1, firstTick: 0.2,
+      tick: 0.8, flameDamageHearts: 0.5, firstTick: 0.2, // half a heart every 0.8 s while the hero stands in the cone
       particles: 160, rate: 95, speed: 11, life: 0.85, size: [0.35, 1.1],
       colors: [0xffe14d, 0xff8a1c, 0xff3a14], coneColor: 0xff2020, mouthColor: 0xff7b1c,
     },
+    // Close-range melee: within `range` it swipes or punches (at random) instead of slamming —
+    // a 0.6 s wind-up you can see (and dodge-roll out of), one heart if it lands in front of it,
+    // then a 2 s recovery. The jump-attack slam is for mid range only (range … slam.range).
+    melee: { range: 4, reach: 4.6, frontDot: 0.3, windup: 0.6, strike: 0.4, damage: 1, recover: 2, kinds: ['swipe', 'punch'] },
     charge: { minRange: 7, chaseBefore: 1.6, windup: 1, speed: 17, maxTime: 1.8, damage: 1, hitPad: 0.5, stun: 2, knockback: 9 },
     recover: 1.3,            // pause after every attack (the hero's chance to hit back)
     enrageAt: 0.4,           // below this fraction of HP...
@@ -485,6 +489,8 @@ export const CONFIG = {
       slamImpact: [1.68, 2.3],      // landed, fists on the ground (damage at 1.68 = SLAM start)
       fireWindup: [0.3, 1.3],       // roar: rears up, head thrown back
       fire: [1.75, 3.3],            // roar: head thrust forward and low, roaring (fire from the mouth)
+      swipe: { windup: [0.3, 1.25], strike: [1.25, 1.75] },  // arm drawn back … the claw sweep (peaks ~1.3)
+      punch: { windup: [0, 0.22], strike: [0.22, 0.6] },     // fist drawn back … the punch (peaks ~0.3)
       chargeWindup: [0.6, 1.9],     // roar: rears back, then head down ready to rush
       stunned: { xs: [0, 0.2, 0.75, 1], ts: [0, 0.55, 0.6, 1.33] }, // hit: doubles over, holds, recovers
       paralyzedAt: 0.55,            // hit, frozen doubled over (Smoke Bomb)

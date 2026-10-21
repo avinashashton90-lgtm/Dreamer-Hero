@@ -25,7 +25,7 @@ combat.abilities = abilities;
 const lives = new Lives();
 let heroHits = 0, defeated = 0, slams = 0;
 const boss = new Boss(scene, world, {
-  onHitHero: (n, x, z, opts = {}) => { if (hero.invincible) return; heroHits++; hero.hurt(x, z, opts.knockback !== false); lives.damage(n); },
+  onHitHero: (n, x, z, opts = {}) => { if (hero.invincible) return; heroHits++; hero.hurt(x, z, opts.knockback !== false, opts.source !== 'fire'); lives.damage(n); },
   onSlam: () => slams++,
   onDefeat: () => defeated++,
 }, heroAssets);
@@ -33,6 +33,7 @@ await boss.init();
 combat.addTarget(boss);
 const BC = CONFIG.boss, CV = CONFIG.cave, dt = 1 / 60;
 const [cx, cz] = CV.center;
+const MID = (BC.melee.range + BC.slam.range) / 2; // mid range: the jump-attack slam (closer: melee)
 let failed = false;
 const check = (ok, msg) => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${msg}`); if (!ok) failed = true; };
 const none = { moveX: 0, moveY: 0, jumpPressed: false };
@@ -109,7 +110,7 @@ const runUntil = (pred, maxS, opts) => { let t = 0; while (t < maxS) { step(1, {
 // 3) Slam: 0.8 s wind-up with the red circle, damage inside it, then Recover → Chase.
 {
   placeHero(cx, cz, Math.PI / 2);
-  freshBoss(cx + 3.5, cz, -Math.PI / 2, S.CHASE);
+  freshBoss(cx + MID, cz, -Math.PI / 2, S.CHASE);
   const hearts = lives.hearts;
   const tWind = runUntil(() => boss.state === S.SLAM_WINDUP, 2);
   const warn = boss.warning.visible;
@@ -122,7 +123,7 @@ const runUntil = (pred, maxS, opts) => { let t = 0; while (t < maxS) { step(1, {
   check(Math.abs(tChase - BC.recover) < 0.05, `recover ${tChase.toFixed(2)}s, then chase again`);
   // Out of the circle when it lands: no damage.
   placeHero(cx, cz, Math.PI / 2);
-  freshBoss(cx + 3.5, cz, -Math.PI / 2, S.CHASE);
+  freshBoss(cx + MID, cz, -Math.PI / 2, S.CHASE);
   runUntil(() => boss.state === S.SLAM_WINDUP, 2);
   const h2 = lives.hearts;
   hero.position.x -= BC.slam.radius + 3; // dodged away
@@ -133,7 +134,7 @@ const runUntil = (pred, maxS, opts) => { let t = 0; while (t < maxS) { step(1, {
 // 3b) A proper slam: both fists come down onto the warning circle (no jump, no push).
 {
   placeHero(cx, cz, Math.PI / 2);
-  freshBoss(cx + 3.5, cz, -Math.PI / 2, S.CHASE);
+  freshBoss(cx + MID, cz, -Math.PI / 2, S.CHASE);
   runUntil(() => boss.state === S.SLAM_WINDUP, 2);
   // Highest both fists get during the wind-up (raised overhead / the leap of the jump attack).
   let raised = -Infinity;
@@ -149,6 +150,46 @@ const runUntil = (pred, maxS, opts) => { let t = 0; while (t < maxS) { step(1, {
   const u = boss.model.userData;
   check(u.head && u.jaw && u.arms.length === 2 && u.arms.every((a) => a.shoulder && a.elbow) && u.legs.length === 2 && u.legs.every((l) => l.hip && l.knee), 'monster model has a head, a hinged jaw, two jointed arms and two jointed legs');
   runUntil(() => boss.state === S.CHASE, 3);
+}
+
+// 3d) Close-range melee: within melee.range it swipes or punches (random) after a visible
+// 0.6 s wind-up instead of slamming; one heart; 2 s recovery; a dodge roll avoids it.
+{
+  const kinds = new Set();
+  for (const roll of [0.1, 0.9]) {
+    lives.reset();
+    placeHero(cx, cz, Math.PI / 2);
+    freshBoss(cx + 3, cz, -Math.PI / 2, S.CHASE);
+    boss.random = () => roll;
+    const h0 = lives.hearts, m0 = boss.stats.meleeHits;
+    const tWind = runUntil(() => boss.state === S.MELEE_WINDUP, 1);
+    const anim = boss.model.userData.animator;
+    step(secs(0.3));
+    const clipMid = anim ? anim.clip : boss.meleeKind;
+    const tBlow = runUntil(() => boss.state === S.MELEE, 2) + 0.3;
+    const tRec = runUntil(() => boss.state === S.RECOVER, 2);
+    const tChase = runUntil(() => boss.state === S.CHASE, 4);
+    kinds.add(boss.meleeKind);
+    check(tWind >= 0 && Math.abs(tBlow - BC.melee.windup) < 0.05 && clipMid === boss.meleeKind && boss.stats.meleeHits === m0 + 1 && lives.hearts === h0 - BC.melee.damage,
+      `melee (${boss.meleeKind}): no slam up close, wind-up ${tBlow.toFixed(2)}s, hit for ${h0 - lives.hearts} heart`);
+    check(Math.abs(tChase - BC.melee.recover) < 0.05, `melee: ${tChase.toFixed(2)}s recovery before it moves again`);
+  }
+  check(kinds.has('swipe') && kinds.has('punch'), `melee picks swipe or punch at random (${[...kinds].join(', ')})`);
+  // A dodge roll during the wind-up avoids the blow.
+  lives.reset();
+  placeHero(cx, cz, Math.PI / 2);
+  freshBoss(cx + 3, cz, -Math.PI / 2, S.CHASE);
+  boss.random = Math.random;
+  runUntil(() => boss.state === S.MELEE_WINDUP, 1);
+  step(secs(0.35));
+  hero.dodge(0, 1); // roll aside
+  runUntil(() => boss.state === S.RECOVER, 2);
+  check(lives.hearts === CONFIG.lives.hearts, `dodging during the melee wind-up avoids it (hearts ${lives.hearts})`);
+  // Mid range is still the slam.
+  placeHero(cx, cz, Math.PI / 2);
+  freshBoss(cx + MID, cz, -Math.PI / 2, S.CHASE);
+  runUntil(() => boss.state !== S.CHASE, 1);
+  check(boss.state === S.SLAM_WINDUP, `at ${MID.toFixed(1)} (mid range) it still uses the jump-attack slam`);
 }
 
 // 3c) Fire Breath: 1 s warning (head back, glowing mouth, red cone), then 2 s of fire;
@@ -170,7 +211,9 @@ const runUntil = (pred, maxS, opts) => { let t = 0; while (t < maxS) { step(1, {
   const flames = boss.fireMesh.count;
   check(warn && Math.abs(tFire - BC.fire.windup) < 0.06, `fire wind-up ${tFire.toFixed(2)}s: head back, mouth glowing, jaw open, red cone on the ground`);
   check(Math.abs(tEnd - BC.fire.duration) < 0.06 && boss.state === S.RECOVER, `fire lasts ${tEnd.toFixed(2)}s, then recover`);
-  check(boss.stats.fireHits - hits0 >= 2 && lives.hearts <= h0 - 2, `standing in the fire: ${boss.stats.fireHits - hits0} burns, hearts ${h0} → ${lives.hearts}`);
+  const burns = boss.stats.fireHits - hits0;
+  check(burns === Math.floor((BC.fire.duration - BC.fire.firstTick) / BC.fire.tick) + 1 && lives.hearts === h0 - burns * BC.fire.flameDamageHearts,
+    `standing in the fire: ${burns} burns (one every ${BC.fire.tick}s), ${BC.fire.flameDamageHearts} heart each: hearts ${h0} → ${lives.hearts}`);
   check(flames > 20 || boss.flames.length > 20, `fire particles (${boss.flames.length} spawned)`);
   // Dodge sideways out of the cone as the fire starts: no damage.
   lives.reset();
@@ -220,7 +263,7 @@ const runUntil = (pred, maxS, opts) => { let t = 0; while (t < maxS) { step(1, {
 {
   lives.reset();
   placeHero(cx, cz, Math.PI / 2);
-  freshBoss(cx + 3.5, cz, -Math.PI / 2, S.CHASE);
+  freshBoss(cx + MID, cz, -Math.PI / 2, S.CHASE);
   boss.hp = Math.floor(boss.maxHp * BC.enrageAt) - 1;
   runUntil(() => boss.state === S.SLAM_WINDUP, 2);
   const tSlam = runUntil(() => boss.state === S.SLAM, 2);
@@ -277,7 +320,7 @@ const runUntil = (pred, maxS, opts) => { let t = 0; while (t < maxS) { step(1, {
   lives.reset();
   horse.lastCheckpoint = 3; horse.checkpoints.forEach((c, i) => (c.reached = i <= 3));
   placeHero(cx, cz, Math.PI / 2);
-  freshBoss(cx + 3.5, cz, -Math.PI / 2, S.CHASE);
+  freshBoss(cx + MID, cz, -Math.PI / 2, S.CHASE);
   boss.hp = 30;
   let t = 0;
   while (!lives.dead && t < 60) { step(1); t += dt; }
@@ -314,8 +357,8 @@ const runUntil = (pred, maxS, opts) => { let t = 0; while (t < maxS) { step(1, {
 
 // Warrok: each state plays its clip.
 if (boss.model.userData.animator) {
-  const want = { chase: 'walk', recover: 'idle', slamWindup: 'jumpattack', slam: 'jumpattack', fireWindup: 'roar', fire: 'roar', chargeWindup: 'roar', charge: 'run', stunned: 'hit', paralyzed: 'hit', dying: 'death' };
-  const wrong = Object.entries(want).filter(([st, c]) => !(clipsByState[st]?.size === 1 && clipsByState[st].has(c)));
+  const want = { meleeWindup: 'swipe/punch', melee: 'swipe/punch', chase: 'walk', recover: 'idle', slamWindup: 'jumpattack', slam: 'jumpattack', fireWindup: 'roar', fire: 'roar', chargeWindup: 'roar', charge: 'run', stunned: 'hit', paralyzed: 'hit', dying: 'death' };
+  const wrong = Object.entries(want).filter(([st, c]) => { const ok = c.split('/'); const seen = [...(clipsByState[st] ?? [])]; return !seen.length || seen.some((x) => !ok.includes(x)); });
   check(wrong.length === 0, `Warrok's clips by state: ${Object.entries(want).map(([st]) => `${st}=${[...(clipsByState[st] ?? [])].join('/')}`).join(', ')}${wrong.length ? ' — WRONG: ' + wrong.map(([st]) => st).join(', ') : ''}`);
 }
 

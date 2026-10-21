@@ -316,9 +316,12 @@ export class Hero {
     return true;
   }
 
-  /** Knocked back after taking damage (Lives decides the hearts). No knockback for e.g. fire. */
-  hurt(fromX, fromZ, knockback = true) {
-    this.iframes = Math.max(this.iframes, CB.hurtInvincible);
+  /**
+   * Knocked back after taking damage (Lives decides the hearts). No knockback for e.g. fire;
+   * `invincible` false (fire ticks): no post-hit invincibility.
+   */
+  hurt(fromX, fromZ, knockback = true, invincible = true) {
+    if (invincible) this.iframes = Math.max(this.iframes, CB.hurtInvincible);
     this.hurtT = CB.hurtInvincible;
     this.hitT = CONFIG.heroModel.clips.hit.time; // hit reaction (Mixamo model)
     if (this.riding || !knockback) return;

@@ -142,7 +142,8 @@ async function boot() {
   /** The hero takes `n` hearts of damage from (fromX, fromZ); opts.knockback false for e.g. fire. */
   damageHero = (n, fromX, fromZ, opts = {}) => {
     if (dying || hero.invincible || !state.is(STATES.PLAY)) return false;
-    hero.hurt(fromX, fromZ, opts.knockback !== false);
+    // (fire ticks every 0.8 s: no post-hit invincibility from a burn, so every tick counts)
+    hero.hurt(fromX, fromZ, opts.knockback !== false, opts.source !== 'fire');
     cam.shake(CONFIG.combat.shake.heavy, CONFIG.combat.shake.time);
     if (lives.damage(n)) {
       // Out of hearts: fade out, then use a respawn (on the horse at the last checkpoint) or Game Over.

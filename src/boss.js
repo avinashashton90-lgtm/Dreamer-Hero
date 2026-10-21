@@ -198,6 +198,8 @@ export const BOSS_STATES = Object.freeze({
   CHASE: 'chase', // walks toward the hero
   SLAM_WINDUP: 'slamWindup', // arms up, red circle on the ground
   SLAM: 'slam', // fists down: damage inside the circle
+  MELEE_WINDUP: 'meleeWindup', // close range: arm drawn back for a swipe or a punch (0.6 s)
+  MELEE: 'melee', // the swipe / punch lands: damage in front
   FIRE_WINDUP: 'fireWindup', // head back, glowing mouth, red cone on the ground
   FIRE: 'fire', // 2 s cone of fire, damage over time inside it
   CHARGE_WINDUP: 'chargeWindup', // head down, 1 s pause
@@ -212,7 +214,8 @@ const S = BOSS_STATES;
 
 /**
  * The cave monster: 100 HP, guards the cave until the hero steps into the arena, then
- * Chase → Slam (rears up 0.8 s over a red warning circle, then smashes both fists into the
+ * Chase → Melee up close (a swipe or a punch after a 0.6 s wind-up; 2 s recovery after it), Slam
+ * at mid range (rears up 0.8 s over a red warning circle, then smashes both fists into the
  * ground), Fire Breath (head back with a glowing mouth over a red cone, then 2 s of fire with
  * damage over time) or Charge (head down, 1 s pause, straight rush; a boulder stuns it for
  * 2 s) → Recover. Below 40% HP it attacks faster.
@@ -246,7 +249,9 @@ export class Boss {
     this.fireDir = new THREE.Vector2(0, 1);
     this.fireOrigin = new THREE.Vector3();
     this.flames = []; // fire particles
-    this.stats = { slams: 0, slamHits: 0, charges: 0, chargeHits: 0, stuns: 0, fires: 0, fireHits: 0 };
+    this.stats = { slams: 0, slamHits: 0, melees: 0, meleeHits: 0, swipes: 0, punches: 0, charges: 0, chargeHits: 0, stuns: 0, fires: 0, fireHits: 0 };
+    this.meleeKind = 'swipe';
+    this.random = Math.random; // (tests may replace it)
     this.visited = new Set(); // states entered (tests)
     this.reset();
   }
@@ -279,6 +284,7 @@ export class Boss {
     this.smokeExposure = 0;
     this.flash = 0;
     this.chargeHit = false;
+    this.recoverFor = B.recover;
     this.fireCooldown = 0;
     this.fireAcc = 0;
     this.fireSpawn = 0;
@@ -420,8 +426,13 @@ export class Boss {
       case S.CHASE: {
         if (!onFoot) break; // hero left on the horse: wait
         this.#turnTo(dx, dz, dt);
-        if (dist <= B.slam.range) {
-          this.#startSlam();
+        if (dist <= B.melee.range) {
+          // Up close: a swipe or a punch (at random), aimed where the hero is now.
+          this.meleeKind = B.melee.kinds[Math.floor(this.random() * B.melee.kinds.length) % B.melee.kinds.length];
+          this.facing = Math.atan2(dx, dz);
+          this.#set(S.MELEE_WINDUP);
+        } else if (dist <= B.slam.range) {
+          this.#startSlam(); // mid range: the jump attack that cracks the ground
         } else if (this.fireCooldown <= 0 && dist >= F.minRange && dist <= F.maxRange && this.stateTime >= F.chaseBefore * P && this.#facingWithin(dx, dz, 0.5)) {
           this.#set(S.FIRE_WINDUP);
           this.#aimFire(dx, dz);
@@ -447,6 +458,23 @@ export class Boss {
       case S.SLAM:
         if (this.stateTime >= B.slam.impact) this.#set(S.RECOVER);
         break;
+      case S.MELEE_WINDUP:
+        // Facing locked: rolling aside (or away) during the wind-up avoids the blow.
+        if (this.stateTime >= B.melee.windup) {
+          this.#set(S.MELEE);
+          this.stats.melees++;
+          this.stats[this.meleeKind === 'punch' ? 'punches' : 'swipes']++;
+          const M = B.melee;
+          const front = dist > 1e-4 ? (dx * Math.sin(this.facing) + dz * Math.cos(this.facing)) / dist : 1;
+          if (onFoot && dist <= M.reach + CONFIG.hero.radius && front >= M.frontDot) {
+            this.stats.meleeHits++;
+            this.events.onHitHero?.(M.damage, this.position.x, this.position.z, { source: this.meleeKind });
+          }
+        }
+        break;
+      case S.MELEE:
+        if (this.stateTime >= B.melee.strike) this.#set(S.RECOVER, B.melee.recover);
+        break;
       case S.FIRE_WINDUP:
         // Rears its head back, mouth glowing; the cone on the ground follows the hero slowly.
         this.#turnTo(dx, dz, dt * (F.trackRate / B.turnRate));
@@ -464,7 +492,7 @@ export class Boss {
           if (this.fireAcc >= F.tick) {
             this.fireAcc -= F.tick;
             this.stats.fireHits++;
-            this.events.onHitHero?.(F.damage, this.fireOrigin.x, this.fireOrigin.z, { knockback: false, source: 'fire' });
+            this.events.onHitHero?.(F.flameDamageHearts, this.fireOrigin.x, this.fireOrigin.z, { knockback: false, source: 'fire' });
           }
         }
         if (this.stateTime >= F.duration) {
@@ -508,7 +536,7 @@ export class Boss {
         if (this.stateTime >= B.charge.stun) this.#set(S.RECOVER);
         break;
       case S.RECOVER:
-        if (this.stateTime >= B.recover * P) this.#set(S.CHASE);
+        if (this.stateTime >= this.recoverFor) this.#set(S.CHASE);
         break;
       case S.PARALYZED:
         this.paralyzed = Math.max(0, this.paralyzed - dt);
@@ -545,7 +573,9 @@ export class Boss {
     this.#pose(dt);
   }
 
-  #set(state) {
+  /** @param {number} [recoverFor]  RECOVER only: how long (default B.recover, faster enraged) */
+  #set(state, recoverFor) {
+    if (state === S.RECOVER) this.recoverFor = recoverFor ?? B.recover * this.pace;
     this.state = state;
     this.stateTime = 0;
     this.visited.add(state);
@@ -769,6 +799,36 @@ export class Boss {
           jaw.rotation.x = 0.15 + Math.sin(this.stateTime * 6) * 0.08;
         }
         break;
+      case S.MELEE_WINDUP: {
+        // One arm drawn back (punch) or raised out to the side (swipe), body twisting away.
+        const p = Math.min(1, t / B.melee.windup);
+        const a = arms[1];
+        if (this.meleeKind === 'punch') {
+          a.shoulder.rotation.set(0.9 * p, 0, -0.2 * p);
+          a.elbow.rotation.x = -1.6 * p;
+        } else {
+          a.shoulder.rotation.set(-1.2 * p, 0, -1.4 * p);
+          a.elbow.rotation.x = -0.6 * p;
+        }
+        body.rotation.y = 0.5 * p;
+        jaw.rotation.x = 0.3 * p;
+        break;
+      }
+      case S.MELEE: {
+        // The blow: a straight punch forward, or a sweep of the claw across the front.
+        const p = Math.min(1, t / (B.melee.strike * 0.4));
+        const a = arms[1];
+        if (this.meleeKind === 'punch') {
+          a.shoulder.rotation.set(lerp(0.9, -1.55, p), 0, lerp(-0.2, 0.15, p));
+          a.elbow.rotation.x = lerp(-1.6, 0, p);
+        } else {
+          a.shoulder.rotation.set(-1.3, 0, lerp(-1.4, 0.9, p));
+          a.elbow.rotation.x = -0.3;
+        }
+        body.rotation.y = lerp(0.5, -0.45, p);
+        jaw.rotation.x = 0.4;
+        break;
+      }
       case S.SLAM_WINDUP: {
         // Rears up on its legs, both fists high overhead, roaring.
         const p = Math.min(1, t / (SL.windup * P));
