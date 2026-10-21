@@ -155,10 +155,11 @@ export async function loadLightningModels() {
  *   first enemy or solid object for small damage, then always comes back and is caught.
  * - Smoke Bomb: lobbed in an arc; bursts into a cloud. An enemy inside for `exposure` seconds
  *   is paralyzed for `paralyze` seconds.
- * - Flash Mode: a one-shot charge. The bar starts full; using Flash costs 5 pink gems and 30%
- *   of the hero's hearts (only if he has more than that — never lethal), empties the bar
- *   (it reloads over flashReloadSeconds), charges a gold glow, and the next landed punch takes
- *   damageFraction (40%) of the target's max HP.
+ * - Flash Mode: a lightning blast. The bar starts full; using Flash costs 5 pink gems and 30%
+ *   of the hero's hearts (only if he has more than that — never lethal) and needs a target in
+ *   range; it empties the bar (it reloads over flashReloadSeconds), charges up for a second
+ *   (sparks from his feet, energy into his hands), then a bolt strikes the target for
+ *   damageFraction of its max HP (the boss: hitPct.flash).
  */
 export class Abilities {
   /**

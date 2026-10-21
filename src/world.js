@@ -670,7 +670,150 @@ export function placeObstacles(track, heightAt) {
     const p = track.at(best.s);
     list.push({ type, ...O.types[type], s: best.s, cx: p.x, cz: p.z, dx: p.tx, dz: p.tz, nx: -p.tz, nz: p.tx, halfLength: O.halfLength });
   });
+
+  // The forest wall sets (CONFIG.forestWalls): each on a straight with a straight, dry, clear
+  // run-up; other items keep runUp + runOut away. Low brick walls are obstacles like the logs
+  // (type 'brick'); high stone walls (type 'gapWall') get a gap and the funnel in World.
+  const FW = CONFIG.forestWalls;
+  const keep = FW.runUp + FW.runOut;
+  for (const set of FW.sets) {
+    let best = null;
+    for (let s = (set.at - FW.search) * L; s <= (set.at + FW.search) * L; s += 1) {
+      if (s - FW.runUp < 30 || s + FW.runOut > L) continue;
+      const at = track.at(s);
+      if (Math.hypot(at.x - CV.archPosition[0], at.z - CV.archPosition[1]) < O.caveClear) continue;
+      if (list.some((o) => Math.abs(s - o.s) < keep)) continue;
+      if (track.maxCurvature(s - FW.runUp, s + FW.straightAfter) > O.maxCurvature || wet(s - FW.runUp, s + FW.runOut)) continue;
+      const pa = track.at(s - O.slopeSpan);
+      const pb = track.at(s + O.slopeSpan);
+      const steep = Math.abs(heightAt(pb.x, pb.z) - heightAt(pa.x, pa.z)) / (2 * O.slopeSpan) > O.maxSlope;
+      if (steep && set.kind === 'low') continue; // jumps only on level ground (a high wall is steered through)
+      const score = Math.abs(s - set.at * L);
+      if (!best || score < best.score) best = { s, score };
+    }
+    if (!best) continue; // no fair spot near this fraction: skip it
+    const p = track.at(best.s);
+    const frame = { s: best.s, cx: p.x, cz: p.z, dx: p.tx, dz: p.tz, nx: -p.tz, nz: p.tx };
+    if (set.kind === 'low') {
+      list.push({ type: 'brick', ...frame, height: FW.low.height, depth: FW.low.depth, color: FW.low.color, halfLength: FW.low.halfLength });
+    } else {
+      const c = FW.gapOffsets[set.gap];
+      list.push({ type: 'gapWall', ...frame, gap: set.gap, height: FW.high.height, depth: FW.high.depth, gapCenter: c, gapLo: c - FW.gapWidth / 2, gapHi: c + FW.gapWidth / 2 });
+    }
+  }
   return list.sort((a, b) => a.s - b.s);
+}
+
+/**
+ * Placeholder forest walls (instanced): low walls of light bricks in courses with mortar
+ * lines, high walls of big dark stone blocks out to the corridor edges with a gap (stone
+ * pillars either side of it, a lantern on each), and a short row of warning lanterns along
+ * both trail edges before every set. `low` / `high` are the placed items; `heightAt` for bases.
+ */
+export async function loadForestWallModels(low, high, heightAt) {
+  const FW = CONFIG.forestWalls;
+  const group = new THREE.Group();
+  const m = new THREE.Matrix4();
+  const q = new THREE.Quaternion();
+  const sc = new THREE.Vector3();
+  const pos = new THREE.Vector3();
+  const col = new THREE.Color();
+  const X = new THREE.Vector3(1, 0, 0);
+  const box = new THREE.BoxGeometry(1, 1, 1);
+  const place = (o, lateral, along = 0) => ({ x: o.cx + o.nx * lateral + o.dx * along, z: o.cz + o.nz * lateral + o.dz * along });
+  const items = [];
+  // Low brick walls: running-bond courses.
+  const LB = FW.low;
+  for (const o of low) {
+    const courses = Math.round(LB.height / LB.brick[1]);
+    const n = Math.ceil((LB.halfLength * 2) / LB.brick[0]);
+    for (let r = 0; r < courses; r++) {
+      for (let j = 0; j < n + (r % 2); j++) {
+        const t0 = -LB.halfLength + (j - (r % 2) * 0.5) * LB.brick[0];
+        const a = Math.max(-LB.halfLength, t0);
+        const b = Math.min(LB.halfLength, t0 + LB.brick[0]);
+        if (b - a < 0.05) continue;
+        items.push({ kind: 'brick', o, lat: (a + b) / 2, w: b - a - LB.mortar, y: o.base + r * LB.brick[1] + LB.brick[1] / 2, h: LB.brick[1] - LB.mortar, d: o.depth, tint: ((j * 7 + r * 13) % 9) * 0.018 - 0.07 });
+      }
+    }
+  }
+  // High stone walls: blocks from the corridor edge to the gap, both sides; pillars at the gap.
+  const HB = FW.high;
+  for (const o of high) {
+    const rows = Math.round(o.height / HB.block[1]);
+    for (const [from, to] of [[-HB.span, o.gapLo], [o.gapHi, HB.span]]) {
+      if (to - from < 0.2) continue;
+      const n = Math.max(1, Math.round((to - from) / HB.block[0]));
+      const bw = (to - from) / n;
+      for (let r = 0; r < rows; r++) {
+        for (let j = 0; j < n + (r % 2); j++) {
+          const a = Math.max(from, from + (j - (r % 2) * 0.5) * bw);
+          const b = Math.min(to, from + (j + 1 - (r % 2) * 0.5) * bw);
+          if (b - a < 0.08) continue;
+          const lat = (a + b) / 2;
+          const p = place(o, lat);
+          // Courses level from the wall's base; the bottom course reaches down to the ground.
+          const bottom = r === 0 ? Math.min(heightAt(p.x, p.z), o.base) - 0.3 : o.base + r * HB.block[1];
+          const top = o.base + (r + 1) * HB.block[1] - 0.05;
+          items.push({ kind: 'stone', o, lat, w: b - a - 0.06, y: (bottom + top) / 2, h: top - bottom, d: o.depth * (0.92 + ((j + r) % 3) * 0.04), tint: ((j * 11 + r * 5) % 7) * 0.012 - 0.036 });
+        }
+      }
+      // A cap course, slightly proud.
+      const lat = (from + to) / 2;
+      items.push({ kind: 'stone', o, lat, w: to - from + 0.1, y: o.base + rows * HB.block[1] + 0.12, h: 0.24, d: o.depth + 0.25, tint: 0.03 });
+    }
+    for (const edge of [o.gapLo, o.gapHi]) {
+      const side = edge === o.gapLo ? -1 : 1;
+      items.push({ kind: 'stone', o, lat: edge + side * 0.35, w: 0.75, y: o.base + (o.height + 0.5) / 2 - 0.1, h: o.height + 0.5, d: o.depth + 0.4, tint: 0.05 });
+    }
+  }
+  const stoneMat = new THREE.MeshLambertMaterial({ color: 0xffffff, flatShading: true });
+  const mesh = new THREE.InstancedMesh(box, stoneMat, Math.max(1, items.length));
+  items.forEach((it, i) => {
+    const p = place(it.o, it.lat);
+    q.setFromUnitVectors(X, new THREE.Vector3(it.o.nx, 0, it.o.nz));
+    mesh.setMatrixAt(i, m.compose(pos.set(p.x, it.y, p.z), q, sc.set(it.w, it.h, it.d)));
+    mesh.setColorAt(i, col.set(it.kind === 'brick' ? LB.color : HB.color).offsetHSL(0, 0, it.tint));
+  });
+  mesh.count = items.length;
+  group.add(mesh);
+
+  // Lanterns: a row along both trail edges before every set, and one on each gap pillar.
+  const LN = FW.lanterns;
+  const lamps = [];
+  for (const o of [...low, ...high]) {
+    for (const side of [-1, 1]) {
+      for (let k = 0; k < LN.perSide; k++) {
+        const along = -LN.from + (k * (LN.from - LN.to)) / Math.max(1, LN.perSide - 1);
+        const p = place(o, side * LN.lateral, along);
+        lamps.push({ x: p.x, z: p.z, y: heightAt(p.x, p.z), post: LN.post });
+      }
+    }
+  }
+  for (const o of high) {
+    for (const edge of [o.gapLo - 0.35, o.gapHi + 0.35]) {
+      const p = place(o, edge);
+      lamps.push({ x: p.x, z: p.z, y: o.base + o.height + 0.4, post: 0.25 });
+    }
+  }
+  const posts = new THREE.InstancedMesh(box, new THREE.MeshLambertMaterial({ color: LN.postColor, flatShading: true }), Math.max(1, lamps.length));
+  const heads = new THREE.InstancedMesh(new THREE.OctahedronGeometry(0.17, 0), new THREE.MeshBasicMaterial({ color: LN.color }), Math.max(1, lamps.length));
+  const glows = new THREE.InstancedMesh(
+    new THREE.SphereGeometry(1, 10, 8),
+    new THREE.MeshBasicMaterial({ color: LN.glow, transparent: true, opacity: 0.28, depthWrite: false, blending: THREE.AdditiveBlending }),
+    Math.max(1, lamps.length),
+  );
+  glows.renderOrder = 9;
+  q.identity();
+  lamps.forEach((l, i) => {
+    posts.setMatrixAt(i, m.compose(pos.set(l.x, l.y + l.post / 2, l.z), q, sc.set(0.12, l.post, 0.12)));
+    heads.setMatrixAt(i, m.compose(pos.set(l.x, l.y + l.post + 0.15, l.z), q, sc.set(1, 1.3, 1)));
+    glows.setMatrixAt(i, m.compose(pos.set(l.x, l.y + l.post + 0.15, l.z), q, sc.setScalar(LN.glowSize)));
+  });
+  for (const im of [posts, heads, glows]) im.count = lamps.length;
+  group.add(posts, heads, glows);
+  group.userData = { stones: mesh, lamps };
+  return group;
 }
 
 /**
@@ -1177,22 +1320,26 @@ export class World {
    */
   #trailWalls(pos, vel, radius) {
     const WL = TR.wall;
-    const limit = WL.offset - radius;
     let n = null;
+    let side = 0;
+    let over = 0;
     for (const track of this.tracks) {
       const m = track.nearest(pos.x, pos.z, WL.offset + WL.band);
       if (!m || m.s < WL.startS || m.s > track.length - WL.endMargin) continue;
-      if (Math.abs(m.lateral) <= limit || Math.abs(m.lateral) > WL.offset + WL.band) continue;
+      if (Math.abs(m.lateral) > WL.offset + WL.band) continue;
+      // (narrowed into the gap before a high wall)
+      const lane = this.laneAt(track, m.s);
+      if (m.lateral > lane.hi - radius) (side = 1), (over = m.lateral - (lane.hi - radius));
+      else if (m.lateral < lane.lo + radius) (side = -1), (over = lane.lo + radius - m.lateral);
+      else continue;
       n = m;
       break;
     }
     if (!n) return null;
     if (pos.y > this.heightAt(pos.x, pos.z) + WL.height) return null;
-    const side = Math.sign(n.lateral);
-    // Right of travel is (-tz, tx); inward is the opposite of the side we're on.
+    // Right of travel is (-tz, tx); inward is away from the limit that was crossed.
     const ix = n.tz * side;
     const iz = -n.tx * side;
-    const over = Math.abs(n.lateral) - limit;
     pos.x += ix * over;
     pos.z += iz * over;
     const into = vel.x * ix + vel.z * iz;
@@ -1209,7 +1356,8 @@ export class World {
     for (const track of this.tracks) {
       const n = track.nearest(x, z, WL.offset + WL.band);
       if (!n || n.s < WL.startS || n.s > track.length - WL.endMargin) continue;
-      if (Math.abs(n.lateral) <= WL.offset || Math.abs(n.lateral) > WL.offset + WL.band) continue;
+      const lane = this.laneAt(track, n.s);
+      if ((n.lateral <= lane.hi && n.lateral >= lane.lo) || Math.abs(n.lateral) > WL.offset + WL.band) continue;
       if (y <= this.heightAt(x, z) + WL.height) return false;
     }
     return true;
@@ -1528,9 +1676,15 @@ export class World {
     this.edgeItems = spots;
   }
 
-  /** Ride obstacles: solid (walkable top) for the hero on foot; the horse jumps them. */
+  /**
+   * Ride obstacles: solid (walkable top) for the hero on foot; the horse jumps them. Plus the
+   * high stone walls (`gapWalls`): their gap and funnel are trail-wall limits (`laneAt`).
+   */
   async #buildObstacles() {
-    this.obstacles = placeObstacles(this.track, this.heightAt);
+    const placed = placeObstacles(this.track, this.heightAt);
+    this.obstacles = placed.filter((o) => o.type !== 'gapWall');
+    this.gapWalls = placed.filter((o) => o.type === 'gapWall');
+    for (const w of this.gapWalls) w.base = this.heightAt(w.cx, w.cz);
     for (const o of this.obstacles) {
       o.base = Math.min(this.heightAt(o.cx - o.nx * 2, o.cz - o.nz * 2), this.heightAt(o.cx, o.cz), this.heightAt(o.cx + o.nx * 2, o.cz + o.nz * 2));
       o.top = o.base + o.height;
@@ -1538,7 +1692,57 @@ export class World {
       const beam = makeBeam(o.cx - o.nx * o.halfLength, o.cz - o.nz * o.halfLength, o.cx + o.nx * o.halfLength, o.cz + o.nz * o.halfLength, o.top, hw, hw);
       this.beams.push({ ...beam, bottom: o.base - 0.1, obstacle: o });
     }
-    this.scene.add(await loadObstacleModels(this.obstacles));
+    this.scene.add(await loadObstacleModels(this.obstacles.filter((o) => o.type !== 'brick')));
+    this.scene.add(await loadForestWallModels(this.obstacles.filter((o) => o.type === 'brick'), this.gapWalls, this.heightAt));
+  }
+
+  /** 0..1: how far the trail's side walls have closed in toward a high wall's gap at `s`. */
+  #funnel(w, s) {
+    const FW = CONFIG.forestWalls;
+    const a = w.s - FW.leadIn;
+    const b = w.s - w.depth / 2 - 0.5;
+    const c = w.s + w.depth / 2;
+    if (s <= a || s >= c + FW.leadOut) return 0;
+    if (s < b) return smoothstep(s, a, b);
+    if (s <= c) return 1;
+    return 1 - (s - c) / FW.leadOut;
+  }
+
+  /**
+   * The trail's lateral limits at `s` (signed, + = right of travel): the invisible side walls,
+   * narrowed smoothly into the gap of a high wall. { lo, hi, k (0..1 funnel), wall }.
+   */
+  laneAt(track, s) {
+    const off = TR.wall.offset;
+    if (track === this.track) {
+      for (const w of this.gapWalls ?? []) {
+        const k = this.#funnel(w, s);
+        if (k > 0) return { lo: lerp(-off, w.gapLo, k), hi: lerp(off, w.gapHi, k), k, wall: w };
+      }
+    }
+    return { lo: -off, hi: off, k: 0, wall: null };
+  }
+
+  /** The safe line's lateral offset at `s`: the centre line, moving over to each high wall's gap. */
+  safeLateral(track, s) {
+    if (track !== this.track) return 0;
+    const FW = CONFIG.forestWalls;
+    for (const w of this.gapWalls ?? []) {
+      const start = w.s - FW.leadIn - FW.safeApproach;
+      const full = w.s - FW.leadIn * 0.5;
+      const end = w.s + w.depth / 2 + 2;
+      if (s <= start || s >= end + FW.safeExit) continue;
+      const k = s < full ? smoothstep(s, start, full) : s <= end ? 1 : 1 - smoothstep(s, end, end + FW.safeExit);
+      return w.gapCenter * k;
+    }
+    return 0;
+  }
+
+  /** The high wall whose approach (safe line or funnel) `s` is in, if any. */
+  gapZone(track, s) {
+    if (track !== this.track) return null;
+    const FW = CONFIG.forestWalls;
+    return (this.gapWalls ?? []).find((w) => s > w.s - FW.leadIn - FW.safeApproach && s < w.s + w.depth / 2 + FW.leadOut + FW.safeExit) ?? null;
   }
 
   /**

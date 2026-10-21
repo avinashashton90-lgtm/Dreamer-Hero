@@ -205,7 +205,7 @@ export function layoutGroups(world) {
 
   // In the air over obstacles: an arc following the hop at full speed, a little above it.
   const H = CONFIG.horse;
-  const air = G.airGemObstacles === 'all' ? obstacles : G.airGemObstacles.map((i) => obstacles[i]).filter(Boolean);
+  const air = G.airGemObstacles === 'all' ? obstacles.filter((o) => G.airGemKinds.includes(o.type)) : G.airGemObstacles.map((i) => obstacles[i]).filter(Boolean);
   for (const o of air) {
     const spots = G.airOffsets.map((d) => {
       const t = d / H.maxSpeed; // time from the apex
@@ -216,27 +216,48 @@ export function layoutGroups(world) {
     groups.push({ kind: 'air', s: o.s, spots });
   }
 
-  // On the ground: evenly spread, nudged off any obstacle (before it, so the run-up is clear).
-  const count = G.groups - air.length;
+  // On the safe line (world.safeLateral): through the gap of each high wall, a row.
+  const safe = (s) => world.safeLateral?.(track, s) ?? 0;
+  const gapWalls = world.gapWalls ?? [];
+  let count = G.groups - air.length;
+  for (const w of gapWalls.slice(0, count)) {
+    const spots = [];
+    for (let k = 0; k < G.groupSize; k++) {
+      const s = w.s - span / 2 + k * G.spacing;
+      const lateral = clamp(safe(s), -G.laneMax, G.laneMax);
+      const { x, z } = at(s, lateral);
+      spots.push({ s, lateral, position: new THREE.Vector3(x, groundY(x, z) + G.height, z) });
+    }
+    groups.push({ kind: 'gap', s: w.s, spots });
+  }
+  count -= Math.min(count, gapWalls.length);
+
+  // The rest on the ground: evenly spread, nudged off any obstacle or wall (before it, so the
+  // run-up is clear), following the safe line.
   const s0 = G.startS;
   const s1 = track.length - G.endMargin - span;
   const clear = G.obstacleClear + span / 2;
+  const items = [...obstacles, ...gapWalls];
+  const wallClear = CONFIG.forestWalls.leadIn + CONFIG.forestWalls.safeApproach + span / 2;
   for (let i = 0; i < count; i++) {
     let mid = s0 + span / 2 + ((i + 0.5) / count) * (s1 - s0);
-    // Somewhere fairly straight (so a gallop can follow the line) and clear of obstacles.
-    const bad = (m) => track.maxCurvature(m - span / 2 - G.leadIn, m + span / 2) > G.maxCurvature || obstacles.some((o) => Math.abs(m - o.s) < clear);
+    // Somewhere fairly straight (so a gallop can follow the line) and clear of obstacles / walls.
+    const bad = (m) =>
+      track.maxCurvature(m - span / 2 - G.leadIn, m + span / 2) > G.maxCurvature ||
+      obstacles.some((o) => Math.abs(m - o.s) < clear || (m > o.s && m - o.s < clear + G.landingClear)) ||
+      gapWalls.some((w) => m > w.s - wallClear && m < w.s + clear + CONFIG.forestWalls.safeExit); // (and the way back to the centre)
     const base = mid;
     for (let d = 0; d < (s1 - s0) / count / 2 && bad(mid); d += G.searchStep) {
       if (!bad(base + d)) mid = base + d;
       else if (!bad(base - d)) mid = base - d;
     }
-    for (const o of obstacles) if (Math.abs(mid - o.s) < clear) mid = o.s - clear;
+    for (const o of items) if (Math.abs(mid - o.s) < clear) mid = o.s - clear;
     const arc = i % 2 === 1;
     const side = i % 4 === 1 ? 1 : -1;
     const spots = [];
     for (let k = 0; k < G.groupSize; k++) {
       const s = mid - span / 2 + k * G.spacing;
-      const lateral = clamp(arc ? side * G.arcLateral[k] : 0, -G.laneMax, G.laneMax);
+      const lateral = clamp(safe(s) + (arc ? side * G.arcLateral[k] : 0), -G.laneMax, G.laneMax);
       const { x, z } = at(s, lateral);
       spots.push({ s, lateral, position: new THREE.Vector3(x, groundY(x, z) + G.height, z) });
     }

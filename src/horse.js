@@ -270,7 +270,8 @@ export class Horse {
       // Not in the river, and never just before an obstacle (always a full run-up).
       const blocked = (s) =>
         world.surfaceAt(track.at(s).x, track.at(s).z) === 'water' ||
-        (track === world.track && world.obstacles.some((o) => s > o.s - OBS.runUp && s < o.s + OBS.runOut));
+        (track === world.track && world.obstacles.some((o) => s > o.s - OBS.runUp && s < o.s + OBS.runOut)) ||
+        (track === world.track && (world.gapWalls ?? []).some((w) => s > w.s - CONFIG.forestWalls.runUp && s < w.s + CONFIG.forestWalls.runOut));
       while (blocked(s) && s < track.length) s += CP.dryStep;
       const p = track.at(s);
       return { s, position: new THREE.Vector3(p.x, world.heightAt(p.x, p.z), p.z), heading: track.headingAt(s), reached: false };
@@ -514,9 +515,19 @@ export class Horse {
       this.trackS = near.s;
       let along = Math.atan2(near.tx, near.tz);
       let diff = wrap(along - this.heading);
-      if (Math.abs(diff) > Math.PI / 2) {
+      const backwards = Math.abs(diff) > Math.PI / 2;
+      if (backwards) {
         // Riding the trail backwards: guide along it the other way.
         along += Math.PI;
+        diff = wrap(along - this.heading);
+      }
+      // Approaching a high wall: guide along the safe line into its gap instead.
+      const zone = this.world.gapZone?.(this.route, near.s);
+      if (zone && !backwards) {
+        const look = CONFIG.forestWalls.assistLook;
+        const lat = this.world.safeLateral(this.route, near.s + look);
+        const p = this.route.at(near.s + look);
+        along = Math.atan2(p.x - p.tz * lat - this.position.x, p.z + p.tx * lat - this.position.z);
         diff = wrap(along - this.heading);
       }
       // Path assist: with the stick (nearly) centred, ease the heading along the trail.
@@ -527,7 +538,7 @@ export class Horse {
       const E = TR.softEdge;
       const out = Math.abs(near.lateral) - E.start;
       const away = Math.sign(near.lateral) * Math.sign(this.#lateralVelocity(near)) > 0;
-      if (out > 0 && away) {
+      if (out > 0 && away && !zone) { // (in a high wall's funnel its own limits take over)
         const push = Math.min(1, out / (E.band - E.start));
         // Turn so the outward drift shrinks (works riding either way along the trail).
         const dLat = Math.cos(this.heading) * -near.tz - Math.sin(this.heading) * near.tx;

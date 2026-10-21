@@ -860,6 +860,40 @@ export const CONFIG = {
     contactReach: 0.35,      // judged when the horse is this close to being over the obstacle
   },
 
+  // Walls on the forest ride (world.js placeObstacles / loadForestWallModels): ~8 sets, each on
+  // a straight with at least `runUp` of straight, clear trail before it, none on a curve, none
+  // within obstacles.caveClear of the cave. Low brick walls (knee high, light) are jumped like
+  // the logs (a stumble without a jump), so like them only on level ground. High stone walls (dark, taller than horse and riders)
+  // can't be jumped: they span the corridor except a `gapWidth` gap left / centre / right; the
+  // trail's invisible side walls narrow smoothly into the gap over `leadIn` (a funnel the horse
+  // rails along — never caught) and the path assist / safe line lead into it.
+  forestWalls: {
+    sets: [
+      { at: 0.052, kind: 'high', gap: 'centre' },
+      { at: 0.146, kind: 'low' },
+      { at: 0.326, kind: 'low' },
+      { at: 0.36, kind: 'high', gap: 'left' },   // (on the hill climb: high walls needn't be level)
+      { at: 0.479, kind: 'high', gap: 'right' },
+      { at: 0.635, kind: 'high', gap: 'left' },  // (on the descent)
+      { at: 0.709, kind: 'low' },
+      { at: 0.842, kind: 'low' },
+    ],
+    search: 0.04,            // look this far (fraction of the trail) either side for a fair spot
+    runUp: 40,               // straight, clear trail before each set...
+    runOut: 10,              // ...and clear after it (other items keep runUp + runOut away)
+    straightAfter: 10,
+    gapWidth: 6,             // the gap through a high wall (horse + both riders fit easily)
+    gapOffsets: { left: -3.8, centre: 0, right: 3.8 }, // gap centre off the centre line (+ = right of travel; gems on it stay in the lane)
+    leadIn: 30,              // the side walls narrow into the gap over this distance before it...
+    leadOut: 5,              // ...and open out again over this much after it
+    safeApproach: 22,        // the safe line (path assist, gems) moves over to the gap this far before the funnel
+    safeExit: 15,            // ...and back to the centre over this much after the wall
+    assistLook: 12,          // the path assist aims this far ahead on the safe line
+    low: { height: 0.55, depth: 0.45, halfLength: 6.9, color: 0xe9c6a0, brick: [0.5, 0.18], mortar: 0.03 },
+    high: { height: 3.6, depth: 1.1, span: 11, color: 0x5a544d, block: [1.1, 0.6] }, // span: out to the corridor edge
+    lanterns: { perSide: 4, from: 30, to: 12, lateral: 7.9, post: 1.3, color: 0xffc04d, glow: 0xffa020, glowSize: 0.55, postColor: 0x2b2420 },
+  },
+
   // Ride checkpoints every 25% of the track (the first is the horse). Falls/deaths after the
   // first mount respawn the hero on the horse at the last checkpoint reached.
   checkpoints: {
@@ -886,10 +920,13 @@ export const CONFIG = {
     endMargin: 40,           // ... last group ends this far before the arena
     arcLateral: [0, 1.0, 1.5, 1.0, 0], // arc groups bow this far off the centre line
     obstacleClear: 16,       // ground groups keep this far (along the trail) from obstacles
+    landingClear: 20,        // ...and this much further after one (the hop's landing)
     maxCurvature: 0.01,      // ground groups sit where the trail is fairly straight (rad/unit)
     leadIn: 15,              // ...with this much straight trail before the group
     searchStep: 4,           // ...searching this far at a time for such a spot
-    airGemObstacles: 'all',  // a gem arc above every obstacle (or a list of indices)
+    airGemObstacles: 'all',  // a gem arc above every obstacle of these kinds (or a list of indices)...
+    airGemKinds: ['log', 'wall'], // ...(the low brick walls carry none)
+    // Ground groups: one row on the safe line through each high wall's gap, the rest spread out.
     airOffsets: [-3.5, -1.75, 0, 1.75, 3.5], // along the trail, around the obstacle
     airLift: 0.6,            // above the hop's own arc, so only a jump reaches them
     riderReach: 1.4,         // collect point above the horse's hooves (body centre)

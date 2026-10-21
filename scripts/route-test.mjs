@@ -185,18 +185,43 @@ function cameraCheck(cam) {
   const arch = world.caveArch;
 
   // Layout checks: obstacle count/spacing/straightness, the arena clear, gems inside the trail.
-  const obs = world.obstacles;
-  let layoutOk = obs.length >= 5 && obs.length <= 7;
-  const obsInfo = obs.map((o, i) => {
-    const gapBefore = i ? o.s - obs[i - 1].s : o.s;
-    const k = track.maxCurvature(o.s - OB.straightBefore, o.s + OB.straightAfter);
+  const obs = world.obstacles; // logs, the low rock wall and the low brick walls (all jumped)
+  const FW = CONFIG.forestWalls;
+  const gapWalls = world.gapWalls;
+  const allItems = [...obs, ...gapWalls].sort((a, b) => a.s - b.s);
+  const originals = obs.filter((o) => o.type === 'log' || o.type === 'wall');
+  let layoutOk = originals.length >= 5 && originals.length <= 7;
+  const obsInfo = allItems.map((o, i) => {
+    const gapBefore = i ? o.s - allItems[i - 1].s : o.s;
+    const set = o.type === 'brick' || o.type === 'gapWall';
+    const k = set ? track.maxCurvature(o.s - FW.runUp, o.s + FW.straightAfter) : track.maxCurvature(o.s - OB.straightBefore, o.s + OB.straightAfter);
     const caveD = Math.hypot(o.cx - arch.x, o.cz - arch.z);
     const n = track.nearest(o.cx, o.cz, 20);
-    const inTrail = n && Math.abs(n.lateral) < 0.5 && o.halfLength <= TRK.halfWidth;
-    if (gapBefore < OB.runUp + OB.runOut || k > OB.maxCurvature || caveD < OB.caveClear || o.height > 0.75 || !inTrail) layoutOk = false;
-    return `${o.type}@${o.s.toFixed(0)}`;
+    const inTrail = n && Math.abs(n.lateral) < 0.5 && (o.type === 'gapWall' || o.halfLength <= TRK.halfWidth);
+    if (gapBefore < FW.runUp + FW.runOut || k > OB.maxCurvature || caveD < OB.caveClear || (o.type !== 'gapWall' && o.height > 0.75) || !inTrail) layoutOk = false;
+    return `${o.type}${o.gap ? '(' + o.gap + ')' : ''}@${o.s.toFixed(0)}`;
   });
-  if (obs.filter((o) => o.type === 'wall').length !== 1 || obs.some((o) => o.type !== 'log' && o.type !== 'wall')) layoutOk = false;
+  if (originals.filter((o) => o.type === 'wall').length !== 1 || obs.some((o) => !['log', 'wall', 'brick'].includes(o.type))) layoutOk = false;
+
+  // Forest walls: ~8 sets — low brick walls (knee high, light) and high stone walls (dark,
+  // taller than horse + riders) with a 6-wide gap left / centre / right that fits the horse;
+  // on straights with a 40 run-up, none within caveClear of the cave.
+  {
+    const bricks = obs.filter((o) => o.type === 'brick');
+    const lum = (c) => new THREE.Color(c).getHSL({}).l;
+    const riderTop = CONFIG.horseModel.backHeight + CONFIG.heroModel.height * 0.6; // seated AJ's head
+    const sides = new Set(gapWalls.map((w) => w.gap));
+    const fits = gapWalls.every((w) => w.gapHi - w.gapLo >= FW.gapWidth - 1e-6 && w.gapHi - w.gapLo - 2 * HC.radius > 2.5);
+    const atWall = gapWalls.every((w) => { const l = world.laneAt(track, w.s); return Math.abs(l.lo - w.gapLo) < 1e-6 && Math.abs(l.hi - w.gapHi) < 1e-6; });
+    const funnelSmooth = gapWalls.every((w) => { let prev = world.laneAt(track, w.s - FW.leadIn - 2); for (let s = w.s - FW.leadIn; s <= w.s; s += 0.5) { const l = world.laneAt(track, s); if (Math.abs(l.lo - prev.lo) > 0.5 || Math.abs(l.hi - prev.hi) > 0.5) return false; prev = l; } return true; });
+    const straight = [...bricks, ...gapWalls].every((o) => track.maxCurvature(o.s - FW.runUp, o.s + FW.straightAfter) <= OB.maxCurvature);
+    const near = [...bricks, ...gapWalls].filter((o) => Math.hypot(o.cx - arch.x, o.cz - arch.z) < OB.caveClear).length;
+    const lowOk = bricks.every((o) => o.height >= 0.45 && o.height <= 0.65) && lum(FW.low.color) > lum(FW.high.color) + 0.2;
+    const highOk = gapWalls.every((w) => w.height > riderTop + 0.5);
+    const sets = bricks.length + gapWalls.length;
+    console.log(`forest walls: ${sets} sets — ${bricks.length} low brick (${FW.low.height} high, lightness ${lum(FW.low.color).toFixed(2)}) and ${gapWalls.length} high stone (${FW.high.height} high > horse + rider ${riderTop.toFixed(2)}, lightness ${lum(FW.high.color).toFixed(2)}), gaps ${gapWalls.map((w) => w.gap).join(' / ')} (${FW.gapWidth} wide, fits the horse ${fits}, funnel smooth ${funnelSmooth}, limits = gap at the wall ${atWall}), all on straights ${straight}, within ${OB.caveClear} of the cave ${near}`);
+    if (sets < 7 || sets > 9 || !bricks.length || gapWalls.length < 3 || sides.size < 3 || !fits || !atWall || !funnelSmooth || !straight || near || !lowOk || !highOk) layoutOk = false;
+  }
   // Nothing hurdle/barrier-like near the cave: no obstacle (or obstacle collider) within caveClear.
   const nearCave = [...obs, ...world.beams.filter((b) => b.obstacle).map((b) => ({ cx: (b.x0 + b.x1) / 2, cz: (b.z0 + b.z1) / 2 }))]
     .filter((o) => Math.hypot(o.cx - arch.x, o.cz - arch.z) < OB.caveClear).length;
@@ -212,8 +237,11 @@ function cameraCheck(cam) {
   const edgeSlots = (2 * track.length) / TRK.edge.spacing;
   console.log(`edge line: ${world.edgeItems.length}/${edgeSlots.toFixed(0)} slots filled`);
   if (treesIn || crownsIn || edgeIn || world.edgeItems.length < edgeSlots * 0.85) failed = true;
-  let gemsOut = 0, airLow = 0;
+  let gemsOut = 0, airLow = 0, gemsInWall = 0;
   for (const g of forestGems) {
+    // Never inside a wall: through a high wall only within its gap; at a low wall only above it.
+    for (const w of gapWalls) if (Math.abs(g.s - w.s) < w.depth / 2 + GC.size && (g.lateral < w.gapLo + 0.5 || g.lateral > w.gapHi - 0.5)) gemsInWall++;
+    for (const o of obs) if (Math.abs(g.s - o.s) < o.depth / 2 + GC.size && g.position.y - GC.size < o.top + 0.2) gemsInWall++;
     const n = track.nearest(g.position.x, g.position.z, 20);
     if (!n || n.dist > GC.laneMax || n.dist > TRK.halfWidth) gemsOut++;
     if (g.kind === 'air') {
@@ -222,8 +250,8 @@ function cameraCheck(cam) {
     }
   }
   const perColor = JSON.stringify(forestPerColor);
-  console.log(`track: length ${track.length.toFixed(0)}, obstacles ${obs.length} [${obsInfo.join(' ')}], gems ${forestGems.length} ${perColor}, outside trail ${gemsOut}, air gems reachable without jump ${airLow}, checkpoints at ${horse.checkpoints.map((c) => (c.s / track.length * 100).toFixed(0) + '%').join(' ')}`);
-  if (!layoutOk || gemsOut || airLow || Object.values(forestPerColor).some((n) => n < 15 || n > 20)) failed = true;
+  console.log(`track: length ${track.length.toFixed(0)}, obstacles ${obs.length} [${obsInfo.join(' ')}], gems ${forestGems.length} ${perColor}, outside trail ${gemsOut}, inside a wall ${gemsInWall}, on the safe line through the gaps ${forestGems.filter((g) => g.kind === 'gap').length}, air gems reachable without jump ${airLow}, checkpoints at ${horse.checkpoints.map((c) => (c.s / track.length * 100).toFixed(0) + '%').join(' ')}`);
+  if (!layoutOk || gemsOut || gemsInWall || airLow || Object.values(forestPerColor).some((n) => n < 15 || n > 20)) failed = true;
 
   // Autopilot jump: take off so the apex lands over the obstacle.
   const shouldJump = () => {
@@ -267,7 +295,8 @@ function cameraCheck(cam) {
     cam.reset(); cam.snapTo(hero.position);
     let t = 0, bestS = 0, since = 0, stuck = false, stuckAt = '', topSpeed = 0, maxLat = 0, wobble = 0, prevSteer = 0;
     let frames = 0, inside = 0, blockedFor = 0, worstBlock = 0, rideDists = [], waterTime = 0, waterMaxSpeed = 0, minSeat = Infinity;
-    let atCave = false, wetFor = 0;
+    let atCave = false, wetFor = 0, gapsMissed = 0;
+    const gapsPassed = new Set();
     while (t < 200) {
       const n = track.nearest(horse.position.x, horse.position.z, 30) ?? track.nearestGlobal(horse.position.x, horse.position.z);
       if (n.s > bestS + 1) { bestS = n.s; since = 0; } else if ((since += dt) > 4 && n.s < track.length - 3) { stuck = true; stuckAt = `s ${n.s.toFixed(0)} (${horse.position.x.toFixed(0)},${horse.position.z.toFixed(0)})`; break; }
@@ -276,8 +305,9 @@ function cameraCheck(cam) {
       let tx, tz;
       if (n.s > track.length - 6) { tx = arch.x - 4; tz = arch.z; }
       else {
+        // On the safe line (through the gaps of the high walls), lined up with the next gem.
         const next = forestGems.find((g) => !g.collected && g.s > n.s + 2 && g.s < n.s + 30);
-        const lat = next ? next.lateral : 0;
+        const lat = world.safeLateral(track, n.s + 14) + (next ? next.lateral - world.safeLateral(track, next.s) : 0);
         const p = track.at(n.s + 14);
         tx = p.x - p.tz * lat; tz = p.z + p.tx * lat;
       }
@@ -289,6 +319,12 @@ function cameraCheck(cam) {
       cam.update(dt, hero.position, { mounted: horse.mounted, speed: horse.speedRatio, gallop: horse.galloping, heading: horse.heading });
       if (check) world.updateFoliage(dt, cam.camera.position, cam.focus);
       t += dt;
+      // Through each high wall: crossing its line inside the gap.
+      for (const w of gapWalls) {
+        if (gapsPassed.has(w) || n.s < w.s) continue;
+        const m = track.nearest(horse.position.x, horse.position.z, 30);
+        if (m && m.s >= w.s && m.s < w.s + 3) { gapsPassed.add(w); if (m.lateral < w.gapLo || m.lateral > w.gapHi) gapsMissed++; }
+      }
       topSpeed = Math.max(topSpeed, horse.speed);
       if (n.s > 5 && n.s < track.length - 5) maxLat = Math.max(maxLat, Math.abs(n.lateral));
       if (Math.sign(moveX) !== Math.sign(prevSteer) && Math.abs(moveX - prevSteer) > 0.5) wobble++;
@@ -307,17 +343,17 @@ function cameraCheck(cam) {
     }
     rideDists.sort((a, b) => a - b);
     return { gemsLeft: forestLeft(), missed: forestGems.filter((g) => !g.collected).map((g) => g.kind + '@' + g.s.toFixed(0)).join(' '), t, stuck, stuckAt, atCave, topSpeed, maxLat, wobble, frames, inside, worstBlock, medianDist: rideDists[Math.floor(rideDists.length / 2)],
-      waterTime, waterMaxSpeed, minSeat, stumbles: horse.stumbles - stumbles0, cleared: horse.obstaclesCleared - cleared0, falls: rideFalls, checkpoints };
+      waterTime, waterMaxSpeed, minSeat, stumbles: horse.stumbles - stumbles0, cleared: horse.obstaclesCleared - cleared0, falls: rideFalls, checkpoints, gaps: gapsPassed.size - gapsMissed };
   };
 
   // a) Normal speed, jumping and collecting.
   const r = ride({ check: true });
   const nCp = CONFIG.checkpoints.fractions.length - 1;
-  console.log(`ride (normal): ${r.t.toFixed(1)}s, top speed ${r.topSpeed.toFixed(1)}, gems ${forestGems.length - forestLeft()}/${forestGems.length} (${forestGems.filter((g) => !g.collected).map((g) => g.kind + '@' + g.s.toFixed(0)).join(' ') || 'all'}), counts ${JSON.stringify(gems.counts)}, unlocks [${[...abilities.unlocked]}], checkpoints ${r.checkpoints}/${nCp}, falls ${r.falls}, stumbles ${r.stumbles}, jumps cleared ${r.cleared}/${obs.length}, max off-centre ${r.maxLat.toFixed(1)}, stuck ${r.stuck}${r.stuck ? ' at ' + r.stuckAt : ''}, reached cave ${r.atCave}`);
+  console.log(`ride (normal): ${r.t.toFixed(1)}s, top speed ${r.topSpeed.toFixed(1)}, gems ${forestGems.length - forestLeft()}/${forestGems.length} (${forestGems.filter((g) => !g.collected).map((g) => g.kind + '@' + g.s.toFixed(0)).join(' ') || 'all'}), counts ${JSON.stringify(gems.counts)}, unlocks [${[...abilities.unlocked]}], checkpoints ${r.checkpoints}/${nCp}, falls ${r.falls}, stumbles ${r.stumbles}, jumps cleared ${r.cleared}/${obs.length}, high-wall gaps ${r.gaps}/${gapWalls.length}, max off-centre ${r.maxLat.toFixed(1)}, stuck ${r.stuck}${r.stuck ? ' at ' + r.stuckAt : ''}, reached cave ${r.atCave}`);
   console.log(`ford: ${r.waterTime.toFixed(1)}s in water, max speed there ${r.waterMaxSpeed.toFixed(1)} (cap ${(HC.maxSpeed * HC.waterSpeed).toFixed(1)}), rider seat ≥ ${r.minSeat.toFixed(2)} above water, sounds ${JSON.stringify(sound.counts)}`);
   console.log(`camera riding: median distance ${r.medianDist.toFixed(2)} (target ${CONFIG.camera.rideDistance}); checked frames ${r.frames}, inside-solid ${r.inside}, longest leaf block ${r.worstBlock.toFixed(2)}s`);
   if (r.stuck || r.falls || forestLeft() || abilities.unlocked.size !== 3 || !r.atCave || r.checkpoints !== nCp) failed = true;
-  if (r.stumbles || r.cleared < obs.length || r.maxLat > TRK.halfWidth) failed = true;
+  if (r.stumbles || r.cleared < obs.length || r.gaps < gapWalls.length || r.maxLat > TRK.halfWidth) failed = true;
   if (r.t < 75 || r.t > 105) { console.log('normal ride time out of the ~90 s target'); failed = true; }
   if (!(r.waterTime > 0.3) || r.waterMaxSpeed > HC.maxSpeed * HC.waterSpeed + 0.5 || r.minSeat < 0.5) failed = true;
   if (!sound.counts.splashEnter || !sound.counts.splashExit || !sound.counts.splashStep) failed = true;
@@ -326,13 +362,13 @@ function cameraCheck(cam) {
 
   // b) Holding Gallop the whole way (stamina permitting), easing off before tight corners.
   const rg = ride({ gallop: true });
-  console.log(`ride (gallop held): ${rg.t.toFixed(1)}s, top speed ${rg.topSpeed.toFixed(1)}, gems missed ${rg.gemsLeft} ${rg.missed}, stumbles ${rg.stumbles}, jumps cleared ${rg.cleared}/${obs.length}, max off-centre ${rg.maxLat.toFixed(1)}, stuck ${rg.stuck}, falls ${rg.falls}, reached cave ${rg.atCave}`);
-  if (rg.stuck || rg.falls || !rg.atCave || rg.maxLat > TRK.halfWidth || rg.t > 65 || rg.t < 40 || rg.gemsLeft || rg.stumbles || rg.cleared < obs.length) failed = true;
+  console.log(`ride (gallop held): ${rg.t.toFixed(1)}s, top speed ${rg.topSpeed.toFixed(1)}, gems missed ${rg.gemsLeft} ${rg.missed}, stumbles ${rg.stumbles}, jumps cleared ${rg.cleared}/${obs.length}, gaps ${rg.gaps}/${gapWalls.length}, max off-centre ${rg.maxLat.toFixed(1)}, stuck ${rg.stuck}, falls ${rg.falls}, reached cave ${rg.atCave}`);
+  if (rg.stuck || rg.falls || !rg.atCave || rg.maxLat > TRK.halfWidth || rg.t > 65 || rg.t < 40 || rg.gemsLeft || rg.stumbles || rg.cleared < obs.length || rg.gaps < gapWalls.length) failed = true;
 
   // c) Never jumping: every obstacle is a stumble (slows a little), never a trap or a respawn.
   const rn = ride({ jump: false });
-  console.log(`ride (no jumps): ${rn.t.toFixed(1)}s, stumbles ${rn.stumbles}/${obs.length}, stuck ${rn.stuck}${rn.stuck ? ' at ' + rn.stuckAt : ''}, falls ${rn.falls}, reached cave ${rn.atCave}`);
-  if (rn.stuck || rn.falls || !rn.atCave || rn.stumbles !== obs.length) failed = true;
+  console.log(`ride (no jumps): ${rn.t.toFixed(1)}s, stumbles ${rn.stumbles}/${obs.length}, gaps ${rn.gaps}/${gapWalls.length}, stuck ${rn.stuck}${rn.stuck ? ' at ' + rn.stuckAt : ''}, falls ${rn.falls}, reached cave ${rn.atCave}`);
+  if (rn.stuck || rn.falls || !rn.atCave || rn.stumbles !== obs.length || rn.gaps < gapWalls.length) failed = true;
 
   // Stumble: slowed a little, carries on.
   {
@@ -424,6 +460,33 @@ function cameraCheck(cam) {
     horse.toggle(hero); for (let i = 0; i < 40; i++) horse.update(dt, none, 0, hero);
     console.log(`side walls: ${tests} hard pushes on horseback — max off-centre ${worst.toFixed(2)} (trail half-width ${TRK.halfWidth}), slowest while sliding ${slowest.toFixed(1)}; on foot max off-centre ${footWorst.toFixed(2)}; remounted ${horse.mode === 'riding'}`);
     if (worst > TRK.halfWidth || footWorst > TRK.halfWidth || slowest < 3 || horse.mode !== 'riding') failed = true;
+  }
+
+  // High stone walls: ride at each one from the far side of the trail with the stick held hard
+  // away from the gap (normal and galloping) — the funnel rails the horse into the gap; it
+  // never stops dead or gets caught, and comes out through the gap.
+  {
+    let worstSlow = Infinity, through = 0, tests = 0, caught = '';
+    for (const w of gapWalls) for (const gallop of [false, true]) {
+      const away = w.gapCenter >= 0 ? -1 : 1; // the far side of the trail
+      const s0 = w.s - FW.leadIn - 20, p = track.at(s0), lat = away * 5;
+      horse.position.set(p.x - p.tz * lat, 0, p.z + p.tx * lat); horse.position.y = world.heightAt(horse.position.x, horse.position.z);
+      horse.heading = Math.atan2(p.tx, p.tz); horse.speed = HC.maxSpeed * (gallop ? 2 : 1); horse.stamina = 1; horse.steer = 0;
+      horse.velocity.set(0, 0, 0); horse.grounded = true;
+      let crossed = null, t = 0;
+      while (t < 8 && !crossed) {
+        // stick right = turn right (+lateral): hold it toward the far side
+        horse.update(dt, { moveX: away, moveY: 1, jumpPressed: false, gallop }, cam.yaw, hero); t += dt;
+        const m = track.nearest(horse.position.x, horse.position.z, 30);
+        if (t > 1 && m && m.s < w.s + 2) worstSlow = Math.min(worstSlow, horse.speed);
+        if (m && m.s >= w.s + w.depth / 2) crossed = m;
+      }
+      tests++;
+      if (crossed && crossed.lateral >= w.gapLo - 0.01 && crossed.lateral <= w.gapHi + 0.01) through++;
+      else caught += ` ${w.gap}@${w.s.toFixed(0)}${gallop ? ' galloping' : ''}`;
+    }
+    console.log(`high walls: ${through}/${tests} hard pushes away from the gap came through it (funnel), slowest ${worstSlow.toFixed(1)}${caught ? ', caught at' + caught : ''}`);
+    if (through < tests || worstSlow < 3) failed = true;
   }
 
   // Giant cave: entrance ~10x the horse's height, cliffs tower over the arena.
