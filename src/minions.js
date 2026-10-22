@@ -26,6 +26,7 @@ export class Minion {
     this.director = director;
     this.radius = T.radius;
     this.height = T.height;
+    this.flying = !!T.flying; // (the mounted Batarang auto-aims at flying targets)
     this.maxHp = T.hp;
     this.hp = T.hp;
     this.position = new THREE.Vector3();
@@ -54,7 +55,7 @@ export class Minion {
   /** The hero's hits: melee 4, Batarang 6 (MN.damage), the Flash bolt kills it. */
   takeHit({ amount = 0, source = 'melee', flash = false } = {}) {
     if (!this.alive) return 0;
-    const dmg = flash || source === 'flash' ? this.hp : (MN.damage[source] ?? amount);
+    const dmg = flash || source === 'flash' ? this.hp : (MN.types[this.type].damageTaken?.[source] ?? MN.damage[source] ?? amount);
     const dealt = Math.min(this.hp, dmg);
     this.hp -= dealt;
     this.flash = MN.hitFlash;
@@ -126,7 +127,7 @@ export class Minion {
     if (s === 'dying') an.set('death', { once: true });
     else if (s === 'fading') an.scrub('death', 1);
     else if (s === 'spawn' && this.type === 'skeleton') an.scrub('spawn', this.stateTime / SK.rise);
-    else if (s === 'attack') an.set('attack', { once: true });
+    else if (s === 'attack' || s === 'dive') an.set('attack', { once: true });
     else if (s === 'paralyzed' || s === 'smoked') an.set('idle', { timeScale: 0.35 });
     else if (this.flinch > 0) an.set('hit', { once: true });
     else if (s === 'idle') an.set('idle');
@@ -149,6 +150,13 @@ export class Minion {
       }
       m.opacity = this.opacity;
     }
+    if (this.marker) {
+      // The red telegraph marker over an attacking bat (pulsing).
+      this.marker.visible = s === 'telegraph';
+      this.marker.position.set(0, this.height + BT.marker.up, 0);
+      this.marker.scale.setScalar(1 + 0.25 * Math.sin(this.clock * 18));
+      this.marker.rotation.y += dt * 5;
+    }
     if (this.dizzy) {
       this.dizzy.visible = s === 'paralyzed';
       this.dizzy.position.set(0, this.height + 0.25, 0);
@@ -162,9 +170,9 @@ export class Minion {
 /**
  * Spawns and runs the minions:
  * - Forest bats: every `bats.interval` seconds of riding (only inside the allowed time windows,
- *   scheduleBats), 1–3 swoop in from the tree line ahead, arc toward the rider, bite once, then
- *   retreat or circle first; never within caveClear of the cave or in the first seconds after a
- *   checkpoint; Gallop outruns them.
+ *   scheduleBats), 1–3 fly in from the tree line ahead and wait in view ahead of the rider; only
+ *   the nearest attacks (never two within attackGap): telegraphed circling, one dive, one bite,
+ *   then it flees; never within caveClear of the cave or in the first seconds after a checkpoint.
  * - Cave slimes: every boss slam's crack lets 2 (3 below 50% HP) emerge and hop at the hero,
  *   inside the arena; they hop away after every hit; they go when the boss dies.
  * - Desert skeletons: only after the Lazarus Pit scene, pairs rise from the sand ahead every
@@ -189,7 +197,8 @@ export class Minions {
     this.epoch = 0; // bumped by clear() (spawns still loading are dropped)
     this.clock = 0;
     this.batWindows = [{ start: 0, end: Infinity }];
-    this.stats = { spawned: { bat: 0, skeleton: 0, slime: 0 }, defeated: { bat: 0, skeleton: 0, slime: 0 }, drops: 0, bites: 0, hits: 0, knocked: 0, horseEnergy: 0 };
+    this.lastBatAttackAt = -Infinity; // when the last bat started its dive (attackGap)
+    this.stats = { spawned: { bat: 0, skeleton: 0, slime: 0 }, defeated: { bat: 0, skeleton: 0, slime: 0 }, drops: 0, bites: 0, hits: 0, knocked: 0, horseEnergy: 0, dives: 0, screeches: 0, outOfView: 0 };
     this.resetTimers();
   }
 
@@ -202,7 +211,7 @@ export class Minions {
   }
 
   /**
-   * Bats only swoop in during these windows of riding time (seconds since the ride began);
+   * Bats only come in during these windows of riding time (seconds since the ride began);
    * the default is "anytime". (For an obstacle director to restrict them later.)
    * @param {{ start: number, end: number }[]} windows
    */
@@ -273,13 +282,14 @@ export class Minions {
       this.#spawnSkeletons(dt, ctx);
     }
     const target = this.#target(ctx);
+    this.viewPoint = target.point;
     for (const m of this.list) {
       if (m.removed) continue;
       m.stateTime += dt;
       m.cooldown = Math.max(0, m.cooldown - dt);
       if (m.state === 'dying' || m.state === 'fading') this.#updateDeath(m, dt);
       else if (m.state === 'smoked' || m.state === 'paralyzed') this.#updateDazed(m, dt);
-      else if (m.type === 'bat') this.#updateBat(m, dt, target, ctx);
+      else if (m.type === 'bat') this.#updateBat(m, dt, target);
       else if (m.type === 'slime') this.#updateSlime(m, dt, target, ctx);
       else this.#updateSkeleton(m, dt, target, ctx);
       m.pose(dt);
@@ -325,6 +335,11 @@ export class Minions {
     const m = new Minion(type, makeMinionModel(template), this);
     m.dizzy = makeDizzyModel();
     m.model.add(m.dizzy);
+    if (type === 'bat') {
+      m.marker = makeBatMarker();
+      m.model.add(m.marker);
+      m.extra.order = this.batOrder = (this.batOrder ?? 0) + 1;
+    }
     setup(m);
     this.list.push(m);
     this.scene.add(m.model);
@@ -397,8 +412,11 @@ export class Minions {
   /** Where they aim: the rider's body (mounted) or the hero's chest. */
   #target(ctx) {
     const { hero, horse } = this.deps;
-    if (ctx.riding && horse) return { point: horse.collectPoint.clone(), feet: horse.position, radius: CONFIG.horse.radius, riding: true };
-    return { point: hero.position.clone().setY(hero.position.y + 0.9), feet: hero.position, radius: CONFIG.hero.radius, riding: false };
+    if (ctx.riding && horse) {
+      const v = new THREE.Vector3(Math.sin(horse.heading), 0, Math.cos(horse.heading)).multiplyScalar(horse.speed);
+      return { point: hero.position.clone().setY(hero.position.y + 0.45), feet: horse.position, radius: CONFIG.horse.radius, riding: true, heading: horse.heading, velocity: v };
+    }
+    return { point: hero.position.clone().setY(hero.position.y + 0.9), feet: hero.position, radius: CONFIG.hero.radius, riding: false, heading: hero.facing, velocity: hero.velocity.clone().setY(0) };
   }
 
   /** A hit on the hero (half a heart, at most once per hitCooldown per enemy). */
@@ -410,25 +428,65 @@ export class Minions {
     return landed;
   }
 
-  #updateBat(m, dt, target, ctx) {
-    const flyTo = (point, speed, turn) => {
-      const want = point.clone().sub(m.position);
-      const d = want.length() || 1;
-      want.multiplyScalar(speed / d);
-      m.velocity.lerp(want, 1 - Math.exp(-turn * dt));
+  /**
+   * Bats: fly in to a waiting spot ahead of and above the rider (it moves with him), wait, and
+   * only the nearest attacks — no two within attackGap: it circles overhead for `telegraph` s
+   * (a screech, the red marker), dives once at batDiveSpeed, bites, then flees for good. While
+   * coming in, waiting and attacking it is kept inside the camera view.
+   */
+  #updateBat(m, dt, target) {
+    const fwd = new THREE.Vector3(Math.sin(target.heading), 0, Math.cos(target.heading));
+    const right = new THREE.Vector3(-fwd.z, 0, fwd.x);
+    const riderV = target.velocity;
+    const toward = (point, speed) => {
+      const d = point.clone().sub(m.position);
+      const l = d.length();
+      if (l > 1e-4) m.position.addScaledVector(d, Math.min(1, (speed * dt) / l));
+      return l;
     };
-    const toRider = target.point.clone().sub(m.position.clone().setY(m.position.y + m.height * 0.5));
-    const dist = toRider.length();
-    if (m.state !== 'spawn' && m.state !== 'retreat' && dist > BT.despawnFar) return this.#remove(m); // outrun (Gallop)
+    const dist = m.position.distanceTo(target.point);
+    if (m.state !== 'flee' && dist > BT.despawnFar) return this.#remove(m);
     switch (m.state) {
       case 'spawn':
-        if (m.stateTime > 0.2) m.set('swoop');
+        if (m.stateTime > 0.15) m.set('approach');
         break;
-      case 'swoop': {
-        // An arc in: a sideways swing that straightens out as it closes in.
-        const side = new THREE.Vector3(-toRider.z, 0, toRider.x).normalize().multiplyScalar(m.extra.side * BT.arc * Math.max(0, 1 - m.stateTime / 1.5));
-        flyTo(target.point.clone().add(side), BT.speed, BT.turn);
-        if (dist < BT.biteReach) {
+      case 'approach': {
+        m.position.addScaledVector(riderV, dt); // (keeps up with the rider, then closes in)
+        const l = toward(this.#clampToView(this.#holdSpot(m, target, fwd, right), m.height, BT.viewMargin + BT.spotMargin), BT.approachSpeed);
+        if (l < 1) m.set('hold');
+        else if (m.stateTime > BT.approachTimeout) this.#flee(m, fwd, right);
+        break;
+      }
+      case 'hold': {
+        const spot = this.#holdSpot(m, target, fwd, right);
+        spot.y += Math.sin(m.clock * BT.hold.bobRate) * BT.hold.bob;
+        this.#clampToView(spot, m.height, BT.viewMargin + BT.spotMargin); // (the spot is on screen too, whatever the FOV)
+        m.position.lerp(spot, 1 - Math.exp(-BT.hold.follow * dt));
+        if (m.stateTime >= BT.holdMin && this.#mayAttack(m, target)) {
+          m.set('telegraph');
+          m.extra.angle = Math.atan2(m.position.z - target.point.z, m.position.x - target.point.x);
+          this.stats.screeches++;
+          this.deps.onEvent?.('batScreech', m);
+        }
+        break;
+      }
+      case 'telegraph': {
+        // Circling overhead, screeching, the red marker on it.
+        m.extra.angle += ((Math.PI * 2) / BT.telegraph) * dt;
+        const c = target.point.clone().addScaledVector(fwd, BT.circleAhead).add(new THREE.Vector3(Math.cos(m.extra.angle) * BT.circleRadius, BT.circleUp, Math.sin(m.extra.angle) * BT.circleRadius));
+        m.position.lerp(c, 1 - Math.exp(-BT.circleFollow * dt));
+        if (m.stateTime >= BT.telegraph) {
+          m.set('dive');
+          this.lastBatAttackAt = this.clock;
+          this.stats.dives++;
+        }
+        break;
+      }
+      case 'dive': {
+        // One dive, in the rider's frame (so it's fair at any speed).
+        m.position.addScaledVector(riderV, dt);
+        const l = toward(target.point, BT.batDiveSpeed);
+        if (l < BT.biteReach) {
           this.stats.bites++;
           this.#hurtHero(m, { knockback: false });
           const horse = this.deps.horse;
@@ -436,35 +494,101 @@ export class Minions {
             horse.drainEnergy(BT.horseEnergy); // (only if the horse has an energy system)
             this.stats.horseEnergy += BT.horseEnergy;
           }
-          m.set('attack');
-          m.extra.after = this.random() < BT.retreatChance ? 'retreat' : 'circle';
-          m.extra.angle = Math.atan2(m.position.z - target.point.z, m.position.x - target.point.x);
-        }
+          this.#flee(m, fwd, right);
+        } else if (m.stateTime > BT.diveTimeout) this.#flee(m, fwd, right); // (safety)
         break;
       }
-      case 'attack':
-        flyTo(target.point.clone().add(new THREE.Vector3(0, BT.circleHeight, 0)), BT.speed * 0.6, BT.turn);
-        if (m.stateTime > 0.35) m.set(m.extra.after);
+      case 'flee':
+        m.position.addScaledVector(m.velocity, dt);
+        if (m.stateTime > BT.flee.time) return this.#remove(m);
         break;
-      case 'circle': {
-        m.extra.angle += (BT.speed / BT.circleRadius) * 0.5 * dt;
-        const p = target.point.clone().add(new THREE.Vector3(Math.cos(m.extra.angle) * BT.circleRadius, BT.circleHeight, Math.sin(m.extra.angle) * BT.circleRadius));
-        flyTo(p, BT.speed, BT.turn * 1.5);
-        if (m.stateTime > BT.circleTime) m.set('retreat');
-        break;
-      }
-      case 'retreat': {
-        const away = m.position.clone().sub(target.point).setY(0).normalize().multiplyScalar(20);
-        flyTo(m.position.clone().add(away).setY(target.point.y + 8), BT.speed, BT.turn);
-        if (m.stateTime > BT.retreatTime || dist > BT.despawnFar) return this.#remove(m);
-        break;
-      }
       default:
-        m.set('swoop');
+        m.set('hold');
     }
-    m.position.addScaledVector(m.velocity, dt);
-    m.position.y = Math.max(m.position.y, this.world.heightAt(m.position.x, m.position.z) + 0.4);
-    if (m.velocity.lengthSq() > 0.01) m.facing = Math.atan2(m.velocity.x, m.velocity.z);
+    if (m.state !== 'flee') {
+      m.position.y = Math.max(m.position.y, this.world.heightAt(m.position.x, m.position.z) + BT.groundClear);
+      this.#keepInView(m);
+    }
+    const look = m.state === 'flee' ? m.velocity : target.point.clone().sub(m.position);
+    if (look.lengthSq() > 0.01) m.facing = Math.atan2(look.x, look.z);
+  }
+
+  /** The bat's waiting spot: ahead of and above the rider, side by side by arrival. */
+  #holdSpot(m, target, fwd, right) {
+    const waiting = this.list.filter((b) => b.type === 'bat' && b.alive && (b.state === 'approach' || b.state === 'hold' || b.state === 'spawn')).sort((a, b) => a.extra.order - b.extra.order);
+    const k = Math.max(0, waiting.indexOf(m));
+    const H = BT.hold;
+    const side = k === 0 ? 0 : (k % 2 ? 1 : -1) * Math.ceil(k / 2);
+    return target.point.clone().addScaledVector(fwd, H.ahead + Math.ceil(k / 2) * 0.8).addScaledVector(right, side * H.side * 0.55 + side * H.spacing * 0.5).add(new THREE.Vector3(0, H.up + k * 0.4, 0));
+  }
+
+  /** Only the nearest waiting bat attacks, never two within attackGap, one at a time. */
+  #mayAttack(m, target) {
+    if (this.clock - this.lastBatAttackAt < BT.attackGap) return false;
+    if (this.list.some((b) => b.type === 'bat' && b.alive && (b.state === 'telegraph' || b.state === 'dive'))) return false;
+    const holding = this.list.filter((b) => b.type === 'bat' && b.alive && b.state === 'hold');
+    const nearest = holding.reduce((a, b) => (!a || b.position.distanceTo(target.point) < a.position.distanceTo(target.point) ? b : a), null);
+    return nearest === m;
+  }
+
+  #flee(m, fwd, right) {
+    const side = this.random() < 0.5 ? -1 : 1;
+    m.velocity.copy(right).multiplyScalar(side).add(new THREE.Vector3(0, BT.flee.up, 0)).addScaledVector(fwd, -0.3).normalize().multiplyScalar(BT.flee.speed);
+    m.set('flee');
+  }
+
+  /** Keeps a bat inside the camera view (a margin from the screen edge, in front of the camera). */
+  #keepInView(m) {
+    this.#clampToView(m.position, m.height, BT.viewMargin);
+  }
+
+  /** Moves a bat's spot `p` (its feet; `height` tall) inside the camera view, in place. */
+  #clampToView(p, height, margin) {
+    const cam = this.deps.camera;
+    if (!cam || (this.viewPoint && cam.position.distanceTo(this.viewPoint) > BT.viewFollow)) return p; // (the camera isn't on the hero yet)
+    cam.updateMatrixWorld();
+    const v = p.clone().setY(p.y + height * 0.5).applyMatrix4(cam.matrixWorldInverse); // view space: -z ahead
+    const depth = Math.max(-v.z, BT.minDepth);
+    const ty = Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2) * (1 - margin);
+    const tx = ty * cam.aspect;
+    const nx = THREE.MathUtils.clamp(v.x / depth, -tx, tx);
+    const ny = THREE.MathUtils.clamp(v.y / depth, -ty, ty);
+    if (depth !== -v.z || nx !== v.x / depth || ny !== v.y / depth) {
+      v.set(nx * depth, ny * depth, -depth).applyMatrix4(cam.matrixWorld);
+      p.set(v.x, v.y - height * 0.5, v.z);
+    }
+    return p;
+  }
+
+  /** Keeps every bat that's coming in, waiting or attacking inside the camera view (after the camera moved). */
+  fitView() {
+    for (const m of this.list) if (m.flying && m.alive && m.state !== 'flee') {
+      this.#keepInView(m);
+      m.model.position.copy(m.position);
+    }
+  }
+
+  /** Is the minion on screen (centre inside the view, in front of the camera)? (tests) */
+  inView(m, margin = 0) {
+    const cam = this.deps.camera;
+    if (!cam) return true;
+    cam.updateMatrixWorld();
+    const c = m.position.clone().setY(m.position.y + m.height * 0.5);
+    const v = c.clone().applyMatrix4(cam.matrixWorldInverse);
+    if (v.z > -0.1) return false;
+    const p = c.project(cam);
+    return Math.abs(p.x) <= 1 - margin && Math.abs(p.y) <= 1 - margin;
+  }
+
+  /** Debug B: a bat right in front of the rider (or the hero on foot), coming in at once. */
+  debugBat() {
+    const { hero, horse } = this.deps;
+    const riding = !!hero.riding;
+    const h = riding ? horse.heading : hero.facing;
+    const p = riding ? horse.position : hero.position;
+    const x = p.x + Math.sin(h) * 10;
+    const z = p.z + Math.cos(h) * 10;
+    return this.spawnAt('bat', { x, z, y: this.world.heightAt(x, z) + 4 });
   }
 
   #updateSlime(m, dt, target) {
@@ -577,8 +701,8 @@ export class Minions {
   #updateDazed(m, dt) {
     if (m.state === 'paralyzed') {
       m.paralyzed = Math.max(0, m.paralyzed - dt);
-      if (m.paralyzed <= 0) m.set(m.type === 'bat' ? 'swoop' : 'move');
-    } else if (m.stateTime > CONFIG.abilities.smokeBomb.smokeExposureSeconds * 4) m.set(m.type === 'bat' ? 'swoop' : 'move'); // (cloud gone)
+      if (m.paralyzed <= 0) m.set(m.type === 'bat' ? 'hold' : 'move');
+    } else if (m.stateTime > CONFIG.abilities.smokeBomb.smokeExposureSeconds * 4) m.set(m.type === 'bat' ? 'hold' : 'move'); // (cloud gone)
     m.velocity.multiplyScalar(Math.exp(-6 * dt));
     if (m.type === 'bat') {
       // Sinks to a low, wobbly hover.
@@ -658,4 +782,15 @@ export class Minions {
     this.deps.combat?.removeTarget(m);
     this.deps.abilities?.forget?.(m);
   }
+}
+
+/** The red telegraph marker over an attacking bat (an additive diamond, no lights). */
+function makeBatMarker() {
+  const m = new THREE.Mesh(
+    new THREE.OctahedronGeometry(BT.marker.size, 0).scale(1, 1.4, 1),
+    new THREE.MeshBasicMaterial({ color: BT.marker.color, transparent: true, opacity: 0.9, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }),
+  );
+  m.renderOrder = 9;
+  m.visible = false;
+  return m;
 }

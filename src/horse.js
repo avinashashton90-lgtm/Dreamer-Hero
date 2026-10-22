@@ -452,6 +452,7 @@ export class Horse {
 
   /** After a fall: back on the horse at the last checkpoint reached. */
   respawnAtCheckpoint(hero) {
+    hero.resetStatus?.(); // (invincibility, blink and flashes back to normal)
     const { position: cp, heading, s } = this.checkpoints[this.lastCheckpoint];
     this.position.copy(cp);
     this.position.y = this.world.heightAt(cp.x, cp.z);

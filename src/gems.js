@@ -169,8 +169,10 @@ export class Gems {
   /** A defeated minion drops one gem of a random colour at `position` (null if the pool is out). */
   drop(position, random = Math.random) {
     const order = [...COLORS].sort(() => random() - 0.5);
+    const far = (color) => // every slot of that colour still lying about: the one farthest away is moved
+      this.gems.filter((q) => q.zone === 'drop' && q.color === color).sort((a, b) => b.position.distanceToSquared(position) - a.position.distanceToSquared(position))[0];
     for (const color of order) {
-      const g = this.gems.find((q) => q.zone === 'drop' && q.color === color && (q.hidden || q.collected));
+      const g = this.gems.find((q) => q.zone === 'drop' && q.color === color && (q.hidden || q.collected)) ?? far(color);
       if (!g) continue;
       g.hidden = false;
       g.collected = false;

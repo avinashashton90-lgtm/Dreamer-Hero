@@ -33,6 +33,36 @@ export async function loadBatarangModel() {
   return group;
 }
 
+/** The Batarang's trail: fading additive diamonds along its path (so it can be followed). */
+export async function loadBatarangTrailModel() {
+  const T = BT.trail;
+  const geo = new THREE.OctahedronGeometry(T.size, 0);
+  addFadeAttribute(geo, T.count);
+  const mesh = new THREE.InstancedMesh(geo, makeFadeMaterial({ color: T.color, emissive: T.color, emissiveIntensity: 0.9, depthWrite: false, blending: THREE.AdditiveBlending, flatShading: true }), T.count);
+  mesh.frustumCulled = false;
+  mesh.renderOrder = 9;
+  mesh.count = 0;
+  return mesh;
+}
+
+/** The auto-aim bracket: four corner marks round the target (billboarded to the camera). */
+export async function loadTargetBracketModel() {
+  const B = BT.bracket;
+  const group = new THREE.Group();
+  const mat = new THREE.MeshBasicMaterial({ color: B.color, transparent: true, opacity: B.opacity, depthWrite: false, depthTest: false, fog: false });
+  const h = B.size / 2;
+  for (const [sx, sy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+    const across = new THREE.Mesh(new THREE.PlaneGeometry(B.arm, B.thickness), mat);
+    across.position.set(sx * (h - B.arm / 2), sy * h, 0);
+    const down = new THREE.Mesh(new THREE.PlaneGeometry(B.thickness, B.arm), mat);
+    down.position.set(sx * h, sy * (h - B.arm / 2), 0);
+    group.add(across, down);
+  }
+  group.renderOrder = 11;
+  group.visible = false;
+  return group;
+}
+
 /**
  * Placeholder smoke bomb: a small dark ball (in flight), soft green powder puffs (layered,
  * additive), glittering crystal sparks (tiny bright diamonds), the inhaled powder stream,
@@ -192,6 +222,9 @@ export class Abilities {
     this.cooldowns = { batarang: 0, smokeBomb: 0 };
     this.energy = 1; // Flash Mode bar 0..1 (full = ready; reloads after use)
     this.lives = null; // set by main: hearts pay for Flash
+    this.camera = null; // set by main: billboards the auto-aim bracket
+    this.trail = []; // recent Batarang positions { pos, age }
+    this.aimTarget = null; // mounted: what a tap would throw the Batarang at (bracketed)
     this.gems = null; // set by main: pink gems pay for Flash
     this.fx = new Map(); // per-enemy smoke visuals { glow, ring, level, wasParalyzed }
     this.sparkList = []; // twinkling sparks + paralysis bursts
@@ -208,6 +241,9 @@ export class Abilities {
     if (!this.scene) return;
     this.batModel = await loadBatarangModel();
     this.batModel.visible = false;
+    this.trailMesh = await loadBatarangTrailModel();
+    this.bracket = await loadTargetBracketModel();
+    this.scene.add(this.trailMesh, this.bracket);
     const { bomb, puffs, sparks, stream } = await loadSmokeModels();
     this.bombModel = bomb;
     this.bombModel.visible = false;
@@ -255,6 +291,9 @@ export class Abilities {
       f.glow.visible = f.ring.visible = false;
     }
     if (this.batModel) this.batModel.visible = false;
+    this.trail = [];
+    this.aimTarget = null;
+    if (this.bracket) this.bracket.visible = false;
   }
 
   /** A target is gone for good (a minion removed): drop its smoke glow and ring. */
@@ -346,7 +385,8 @@ export class Abilities {
     this.gems?.spend(color, n);
     if (name === 'batarang' || name === 'smokeBomb') {
       // Throw pose first; the item leaves the hand at the release point (see update).
-      this.pending = { name, t: 0 };
+      // (mounted, the bracketed bat is the target: kept from the tap to the release)
+      this.pending = { name, t: 0, target: name === 'batarang' && this.hero.riding ? this.mountedTarget() : null };
       this.hero.throwAnim = { kind: 'throw', t: 0 };
       this.cooldowns[name] = name === 'batarang' ? BT.cooldown : SB.cooldown;
       this.#faceTarget();
@@ -412,7 +452,44 @@ export class Abilities {
       }
     }
     this.#updateBatarang(dt);
+    this.#drawTrail(dt);
+    this.#updateBracket();
     this.#updateSmoke(dt);
+  }
+
+  /** The trail: the Batarang's recent positions, fading out. */
+  #drawTrail(dt) {
+    const T = BT.trail;
+    for (const p of this.trail) p.age += dt;
+    if (this.batarang) this.trail.push({ pos: this.batarang.pos.clone(), age: 0 });
+    this.trail = this.trail.filter((p) => p.age < T.life).slice(-T.count);
+    const mesh = this.trailMesh;
+    if (!mesh) return;
+    const m = new THREE.Matrix4();
+    const fade = mesh.geometry.attributes.instanceFade;
+    this.trail.forEach((p, i) => {
+      const k = 1 - p.age / T.life;
+      mesh.setMatrixAt(i, m.makeScale(k, k, k).setPosition(p.pos));
+      fade.array[i] = T.opacity * k;
+    });
+    mesh.count = this.trail.length;
+    mesh.instanceMatrix.needsUpdate = true;
+    fade.needsUpdate = true;
+  }
+
+  /** Mounted, with the Batarang ready: a bracket on what a tap would hit. */
+  #updateBracket() {
+    const hero = this.hero;
+    this.aimTarget = hero.riding && this.ready('batarang') ? this.mountedTarget() : null;
+    const br = this.bracket;
+    if (!br) return;
+    const t = this.aimTarget;
+    br.visible = !!t;
+    if (!t) return;
+    br.position.copy(this.#centre(t));
+    if (this.camera) br.quaternion.copy(this.camera.quaternion);
+    else br.lookAt(hero.position);
+    br.scale.setScalar(Math.max(1, (t.radius * 2) / BT.bracket.size) * (1 + BT.bracket.pulse * Math.sin(performance.now() * BT.bracket.pulseRate)));
   }
 
   /** On foot, turn to the lock-on target (or the given one) before throwing / blasting. */
@@ -436,7 +513,114 @@ export class Abilities {
     return f;
   }
 
+  /**
+   * Mounted auto-aim: the nearest living flying target (a bat) within autoAimRange that is in
+   * front of or beside the horse, or null (then the Batarang flies straight ahead).
+   */
+  mountedTarget() {
+    const hero = this.hero;
+    const M = BT.mounted;
+    const fx = Math.sin(hero.facing);
+    const fz = Math.cos(hero.facing);
+    let best = null;
+    let bestD = M.autoAimRange;
+    for (const t of this.combat?.targets ?? []) {
+      if (!t.alive || !t.flying) continue;
+      const dx = t.position.x - hero.position.x;
+      const dz = t.position.z - hero.position.z;
+      const d = Math.hypot(dx, dz, t.position.y + t.height * 0.5 - hero.position.y);
+      if (d > bestD) continue;
+      const flat = Math.hypot(dx, dz);
+      if (flat > M.overhead && (dx * fx + dz * fz) / flat < M.sideDot) continue; // behind the horse (not overhead)
+      best = t;
+      bestD = d;
+    }
+    return best;
+  }
+
+  /** Outside the camera view (with a small margin)? */
+  #offScreen(p) {
+    if (!this.camera) return false;
+    const v = p.clone().project(this.camera);
+    const lim = 1 - BT.mounted.screenMargin;
+    return v.z >= 1 || Math.abs(v.x) > lim || Math.abs(v.y) > lim;
+  }
+
+  /** Mounted throw: homing at the auto-aim target (or straight ahead), never beyond maxRange. */
+  #throwHoming(hand) {
+    const kept = this.pending?.target;
+    const t = kept?.alive ? kept : this.mountedTarget();
+    const dir = t ? this.#centre(t).sub(hand).normalize() : new THREE.Vector3(Math.sin(this.hero.facing), 0, Math.cos(this.hero.facing));
+    this.batarang = { mode: 'homing', phase: 'out', target: t, start: hand.clone(), pos: hand.clone(), dir, age: 0, travelled: 0, hit: null, rider: this.hero.moveSpeed, lastHand: null };
+    this.stats.batarangThrows++;
+    this.trail = [];
+    if (this.batModel) {
+      this.batModel.visible = true;
+      this.batModel.position.copy(hand);
+    }
+  }
+
+  #centre(t) {
+    return new THREE.Vector3(t.position.x, t.position.y + t.height * 0.5, t.position.z);
+  }
+
+  /** Turn `dir` toward `want` by at most `maxAngle` radians. */
+  #turnToward(dir, want, maxAngle) {
+    const w = want.clone().normalize();
+    const angle = dir.angleTo(w);
+    if (angle <= maxAngle || angle < 1e-5) return dir.copy(w);
+    const axis = new THREE.Vector3().crossVectors(dir, w);
+    if (axis.lengthSq() < 1e-10) axis.set(0, 1, 0);
+    return dir.applyAxisAngle(axis.normalize(), maxAngle).normalize();
+  }
+
+  #updateHoming(dt) {
+    const b = this.batarang;
+    const hero = this.hero;
+    const M = BT.mounted;
+    const hand = hero.handPosition();
+    // The rider's own speed, measured from the hand (the horse carries him; hero.update doesn't run).
+    if (b.lastHand && dt > 0) b.rider += (Math.hypot(hand.x - b.lastHand.x, hand.z - b.lastHand.z) / dt - b.rider) * (1 - Math.exp(-BT.mounted.riderSmoothing * dt));
+    b.lastHand = hand.clone();
+    const rider = Math.max(b.rider, hero.moveSpeed);
+    const rate = THREE.MathUtils.degToRad(M.turnRate);
+    const turn = rate * dt;
+    // Inside its own turning circle it would only orbit, and off screen the player loses it:
+    // then it flies straight at the point (the bat or the hand, both on screen).
+    const steer = (want, speed) => {
+      if (want.length() < Math.max(M.directHoming, (speed / rate) * M.orbitGuard) || this.#offScreen(b.pos)) b.dir.copy(want).normalize();
+      else this.#turnToward(b.dir, want, turn);
+    };
+    if (b.phase === 'out') {
+      if (b.target && !b.target.alive) b.phase = 'back'; // its target died: straight back
+      else {
+        const want = b.target ? this.#centre(b.target).sub(b.pos) : new THREE.Vector3(Math.sin(hero.facing), 0, Math.cos(hero.facing));
+        if (b.target) steer(want, M.homingSpeed + rider);
+        else this.#turnToward(b.dir, want, turn);
+        const step = (M.homingSpeed + rider) * dt;
+        b.pos.addScaledVector(b.dir, step);
+        b.travelled += step;
+        if (this.#batarangHit(b.pos)) b.phase = 'back';
+        else if (b.pos.distanceTo(hand) > M.maxRange || (!b.target && b.pos.distanceTo(hand) >= M.forwardRange)) b.phase = 'back';
+      }
+    } else {
+      // Back to the rider on a tight curve (turn-limited), straight to the hand at the end.
+      const speed = Math.max(BT.returnSpeed, rider * BT.chaseFactor + BT.returnSpeed * 0.5);
+      const to = hand.clone().sub(b.pos);
+      const d = to.length();
+      if (d <= Math.max(BT.catchRadius, speed * dt)) return this.#catchBatarang();
+      steer(to, speed);
+      b.pos.addScaledVector(b.dir, speed * dt);
+    }
+    if (b.age > BT.maxTime) return this.#catchBatarang(); // (safety net: it always returns)
+    if (this.batModel) {
+      this.batModel.position.copy(b.pos);
+      this.batModel.userData.spinner.rotation.y += BT.spin * dt;
+    }
+  }
+
   #throwBatarang(hand) {
+    if (this.hero.riding) return this.#throwHoming(hand);
     const start = hand.clone();
     const end = this.#aimPoint(BT.range);
     // Curve out to one side: control point off the straight line.
@@ -457,6 +641,7 @@ export class Abilities {
     if (!b) return;
     const hero = this.hero;
     b.age += dt;
+    if (b.mode === 'homing') return this.#updateHoming(dt);
     const hand = hero.handPosition(); // it comes back to the hand
     if (b.phase === 'out') {
       b.u = Math.min(1, b.u + (BT.speed * dt) / b.len);

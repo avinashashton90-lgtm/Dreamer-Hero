@@ -271,7 +271,10 @@ export const CONFIG = {
     hitStop: 0.05,         // heavy hits freeze the action this long
     flashHitStop: 0.18,
     dodge: { duration: 0.4, distance: 6, invincible: 0.4, cooldown: 1 },
-    hurtInvincible: 1.0,   // after taking damage
+    hurtInvincible: 1.0,   // after taking damage (a soft blink shows it; the hero is never hidden)
+    hurtBlink: { rate: 6, depth: 0.55 }, // blinks per second, how far the opacity dips
+    hurtRed: { time: 0.3, color: 0xff2a2a, intensity: 0.9 }, // a red flash that fades back to normal
+    riderFlinch: { time: 0.28, pitch: 0.14 }, // hit while mounted: a short jolt, seated (no hit clip, no knockback)
     hurtKnockback: 6,
     damageNumberMs: 900,
   },
@@ -287,6 +290,25 @@ export const CONFIG = {
       size: 0.35, spin: 22, height: 1.2,
       color: 0xffd23f,
       gemCost: 5,            // yellow gems spent per throw
+      // Mounted: a tap throws it at the nearest bat (flying target) within autoAimRange in front of
+      // or beside the horse (a bracket marks it while the Batarang is ready), homing in at
+      // turnRate°/s; with none it flies straight ahead `forwardRange`. It never goes beyond
+      // maxRange from the rider, comes straight back if its target dies, and returns on a tight
+      // curve to the rider (caught however far the horse has gone).
+      mounted: {
+        autoAimRange: 25, sideDot: -0.25, // in front of or beside the horse (cos of the angle off the heading)
+        overhead: 4,         // closer than this (flat) it counts whatever the angle: a bat circling overhead
+        homingSpeed: 30,     // on top of the rider's own speed
+        turnRate: 540,       // degrees per second
+        maxRange: 30,
+        forwardRange: 14,
+        directHoming: 6,     // this close to the rider it flies straight to the hand...
+        screenMargin: 0.05,  // (near the screen edge it heads straight for the bat / the hand, so it never stays off screen)
+        riderSmoothing: 10,  // (the rider's speed, measured from the hand, smoothed at this rate)
+        orbitGuard: 1.2,     // ...or within this × its turning radius (speed / turn rate) of the point, so it never orbits
+      },
+      trail: { count: 26, life: 0.32, size: 0.11, color: 0xffe680, opacity: 0.85 }, // so it can be followed
+      bracket: { size: 0.75, thickness: 0.05, arm: 0.28, color: 0xffd23f, opacity: 0.9, pulse: 0.08, pulseRate: 0.01 /* per ms */ }, // on the auto-aim target
     },
     // Smoke Bomb: a green powder cloud with twinkling crystal sparks (additive particles, no lights).
     smokeBomb: {
@@ -481,7 +503,8 @@ export const CONFIG = {
     sway: { rate: 1.6, angle: 0.22 },      // ...and swaying (not frozen); dizzy stars above
     types: {
       bat: {
-        file: 'bat.fbx', hp: 8, fit: ['x', 1.5], radius: 0.55, height: 0.7, flying: true,
+        file: 'bat.fbx', hp: 8, fit: ['x', 0.9], radius: 0.4, height: 0.45, flying: true, // (60% of the first size)
+        damageTaken: { batarang: 8 }, // a Batarang kills a bat outright
         roles: { idle: ['Bat_Flying'], move: ['Bat_Flying'], attack: ['Bat_Attack', 'Bat_Attack2'], hit: ['Bat_Hit'], death: ['Bat_Death'], spawn: [] },
         fallback: { idle: 'move', hit: 'idle', spawn: 'move' },
         color: 0x3a2f4a,
@@ -499,7 +522,9 @@ export const CONFIG = {
         color: 0x5fd06a,
       },
     },
-    // Forest: bats swoop in from the tree line while riding (scheduleBats(windows) limits when).
+    // Forest: bats come in from the tree line while riding (scheduleBats(windows) limits when),
+    // wait in view ahead of and above the rider, and only the nearest attacks: it circles
+    // overhead with a screech and a red marker (the telegraph), dives once, bites and flees.
     bats: {
       interval: [20, 30],    // seconds of riding between swarms...
       group: [1, 3],         // ...of this many...
@@ -507,14 +532,24 @@ export const CONFIG = {
       caveClear: 120,        // never within this of the cave
       checkpointQuiet: 5,    // never in the first seconds after a checkpoint
       spawnAhead: [16, 28], spawnSide: 13, spawnHeight: [4, 7], // from the tree line ahead
-      speed: 21,             // < galloping (35): Gallop outruns them
-      turn: 4.5,             // steering toward the rider (1/s)
-      arc: 6,                // sideways swing of the swoop
-      biteReach: 1.5,        // from the rider's body
-      retreatChance: 0.5,    // after the bite: retreat, or circle the rider first
-      circleTime: 3, circleRadius: 4.5, circleHeight: 2.2,
-      retreatTime: 5,
-      despawnFar: 45,        // gone once this far from the rider (outrun or retreated)
+      approachSpeed: 24,     // flying in to a waiting spot (on top of keeping up with the rider)
+      approachTimeout: 7,    // can't get there: it gives up and flies off
+      hold: { ahead: 9, side: 4.5, up: 4.2, spacing: 2.4, follow: 6, bob: 0.25, bobRate: 3 }, // waiting spots ahead of / above the rider
+      holdMin: 1,            // waits this long in its spot before it may attack (time to aim)
+      telegraph: 1.2,        // circling overhead before the dive (screech, red marker)...
+      circleRadius: 1.8, circleUp: 1.6, circleAhead: 5, circleFollow: 8, // (round a point just ahead of and above the rider, in plain view)
+      diveTimeout: 2,        // (a dive that hasn't reached him by then flees: safety)
+      groundClear: 0.4,      // never lower than this above the ground
+      batDiveSpeed: 21,      // ...then one dive at ~60% of the gallop (35)
+      attackGap: 2,          // no two bats attack within this many seconds; only the nearest attacks
+      biteReach: 1.1,        // from the rider's body
+      flee: { time: 1.4, speed: 20, up: 0.7 }, // one bite, then it flees for good
+      viewFollow: 15,        // (only while the camera is this close to the hero, not mid teleport)
+      viewMargin: 0.2,       // while coming in, waiting and attacking it stays this far inside the screen edge (NDC)...
+      minDepth: 3,           // ...and at least this far in front of the camera
+      spotMargin: 0.04,      // its waiting spot is kept a little further inside still (so it arrives there)
+      marker: { size: 0.2, up: 0.35, color: 0xff2a2a }, // the red telegraph marker over it
+      despawnFar: 70,
       horseEnergy: 5,        // a bite costs the horse this much energy (if it has an energy system)
     },
     // Cave: every boss slam opens a crack and slimes emerge from it, hopping at the hero.
@@ -796,7 +831,7 @@ export const CONFIG = {
     },
     // Landscape phone viewports (CSS px) the layout is checked on: 20:9, 18:9, 16:9.
     checkSizes: [[915, 412], [760, 360], [640, 360]],
-    debugKeys: { grantGems: 'KeyG', damageHero: 'KeyH', teleportArena: 'KeyT', killBoss: 'KeyB', cutscene: 'KeyP', desert: 'KeyO', ending: 'KeyU', pit: 'KeyL' },
+    debugKeys: { grantGems: 'KeyG', damageHero: 'KeyH', teleportArena: 'KeyT', killBoss: 'KeyX', spawnBat: 'KeyB', cutscene: 'KeyP', desert: 'KeyO', ending: 'KeyU', pit: 'KeyL' },
   },
 
   cutscene: {

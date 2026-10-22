@@ -222,6 +222,8 @@ export class Hero {
     this.dodgeDir = new THREE.Vector2();
     this.iframes = 0; // invincible while > 0 (dodge or just hurt)
     this.hurtT = 0; // blink after being hurt
+    this.hurtRed = 0; // red flash after being hurt
+    this.riderFlinch = 0; // the jolt of a hit while mounted
     this.glow = 0; // 0..1 gold glow (Flash Mode)
     this.redFlicker = 0; // seconds of red flicker (paying hearts for Flash)
     this.throwAnim = null; // { kind: 'throw' | 'catch', t } (driven by Abilities)
@@ -282,7 +284,10 @@ export class Hero {
     this.position.copy(p);
     this.facing = yaw;
     this.model.position.copy(p);
-    this.model.rotation.set(0, yaw, lean, 'YXZ'); // leans into the horse's turns
+    // Leans into the horse's turns; a hit jolts him back a little (seated).
+    const F = CB.riderFlinch;
+    const jolt = this.riderFlinch > 0 ? -F.pitch * Math.sin((this.riderFlinch / F.time) * Math.PI) : 0;
+    this.model.rotation.set(jolt, yaw, lean, 'YXZ');
     this.#animate(this.lastDt ?? 0);
   }
 
@@ -324,8 +329,14 @@ export class Hero {
   hurt(fromX, fromZ, knockback = true, invincible = true) {
     if (invincible) this.iframes = Math.max(this.iframes, CB.hurtInvincible);
     this.hurtT = CB.hurtInvincible;
+    this.hurtRed = CB.hurtRed.time;
+    if (this.riding) {
+      // Mounted: a small jolt, staying seated — no hit clip, no knockback, no position change.
+      this.riderFlinch = CB.riderFlinch.time;
+      return;
+    }
     this.hitT = CONFIG.heroModel.clips.hit.time; // hit reaction (Mixamo model)
-    if (this.riding || !knockback) return;
+    if (!knockback) return;
     const dx = this.position.x - fromX;
     const dz = this.position.z - fromZ;
     const d = Math.hypot(dx, dz) || 1;
@@ -354,6 +365,7 @@ export class Hero {
   /** Out of hearts: the death fall plays (until the respawn puts him back on the horse). */
   die() {
     if (this.deathT < 0) this.deathT = 0;
+    this.hurtT = this.riderFlinch = 0; // (no blink on the way down)
     this.attack = null;
     this.throwAnim = null;
     this.dodgeT = 0;
@@ -393,6 +405,7 @@ export class Hero {
   /** Back to the last safe platform after a fall. */
   respawn() {
     this.deathT = -1;
+    this.resetStatus();
     this.#placeAt(this.lastSafe);
     this.onRespawn?.(this.position);
   }
@@ -405,8 +418,7 @@ export class Hero {
   update(dt, input, cameraYaw) {
     this.lastDt = dt;
     this.dodgeCooldown = Math.max(0, this.dodgeCooldown - dt);
-    this.iframes = Math.max(0, this.iframes - dt);
-    this.hurtT = Math.max(0, this.hurtT - dt);
+    // (invincibility, blink, red flash and flinch tick in #animate: on foot and riding alike)
     // Camera-relative desired velocity on XZ.
     const sin = Math.sin(cameraYaw);
     const cos = Math.cos(cameraYaw);
@@ -519,6 +531,11 @@ export class Hero {
     }
     this.prevPos.copy(this.position);
     this.hitT = Math.max(0, this.hitT - dt);
+    // Status timers tick here, every frame, mounted or not (main skips hero.update while riding).
+    this.iframes = Math.max(0, this.iframes - dt);
+    this.hurtT = Math.max(0, this.hurtT - dt);
+    this.hurtRed = Math.max(0, (this.hurtRed ?? 0) - dt);
+    this.riderFlinch = Math.max(0, (this.riderFlinch ?? 0) - dt);
     if (this.deathT >= 0) this.deathT += dt;
     if (u.animator) {
       u.animator.update(dt, this);
@@ -552,16 +569,43 @@ export class Hero {
     pos.needsUpdate = true;
   }
 
-  /** Flash Mode glow, the red flicker when paying hearts for it, and the hurt blink. */
+  /**
+   * Flash Mode glow, the red flicker when paying hearts for it, the red flash of a hit, and the
+   * hurt blink — a soft opacity pulse while invincible. The model is never hidden, and every
+   * effect returns to normal on its own (or at once with resetStatus).
+   */
   #glow(dt, mats) {
     this.redFlicker = Math.max(0, this.redFlicker - dt);
-    const red = this.redFlicker > 0 && Math.sin(this.redFlicker * 40) > 0;
+    const flicker = this.redFlicker > 0 && Math.sin(this.redFlicker * 40) > 0;
+    const hitRed = this.hurtRed > 0 ? this.hurtRed / CB.hurtRed.time : 0;
     const g = this.glow;
+    const blinking = this.hurtT > 0 && this.deathT < 0;
+    const opacity = blinking ? 1 - CB.hurtBlink.depth * (0.5 - 0.5 * Math.cos(this.hurtT * CB.hurtBlink.rate * Math.PI * 2)) : 1;
     for (const m of mats) {
-      m.emissive.setHex(red ? CONFIG.abilities.flashMode.hurtColor : CONFIG.abilities.flashMode.glowColor);
-      m.emissiveIntensity = red ? 0.9 : g * 0.8;
+      const red = flicker || hitRed > 0;
+      m.emissive.setHex(red ? CB.hurtRed.color : CONFIG.abilities.flashMode.glowColor);
+      m.emissiveIntensity = flicker ? 0.9 : hitRed > 0 ? CB.hurtRed.intensity * hitRed : g * 0.8;
+      if (m.transparent !== blinking) {
+        m.transparent = blinking;
+        m.needsUpdate = true;
+      }
+      m.opacity = opacity;
     }
-    this.model.visible = this.deathT >= 0 || !(this.hurtT > 0 && Math.floor(this.hurtT * 12) % 2 === 0); // no blink while falling dead
+    this.model.visible = true;
+  }
+
+  /** Invincibility, blink, red flashes and flinch back to normal at once (a death, a respawn). */
+  resetStatus() {
+    this.iframes = this.hurtT = this.hurtRed = this.riderFlinch = this.hitT = this.redFlicker = 0;
+    this.model.visible = true;
+    for (const m of this.model.userData.mats ?? []) {
+      m.opacity = 1;
+      if (m.transparent) {
+        m.transparent = false;
+        m.needsUpdate = true;
+      }
+      m.emissiveIntensity = 0;
+    }
   }
 
   /** The placeholder rig: walk/run cycle, jump tuck, combo, roll, riding, throw, drink. */

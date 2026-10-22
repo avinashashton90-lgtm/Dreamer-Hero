@@ -152,8 +152,13 @@ async function boot() {
   // type's model loads the first time one spawns.
   const minions = new Minions(world.scene, world, {
     hero, horse, combat, abilities, gems,
+    camera: cam.camera, // (bats stay inside the view while coming in, waiting and attacking)
     onHitHero: (hearts, x, z, opts) => damageHero(hearts, x, z, opts),
+    onEvent: (name) => {
+      if (name === 'batScreech') sound.play('batScreech'); // (the telegraph before a dive)
+    },
   });
+  abilities.camera = cam.camera; // (billboards the mounted Batarang's target bracket)
   const story = new Story({ world, hero, horse, boss, girl, gems, abilities, combat, lives, quests, cinematic, state, cam, pit, sound, ui, guide });
   quests.story = story;
   const NEUTRAL = { moveX: 0, moveY: 0, jumpPressed: false };
@@ -300,6 +305,7 @@ async function boot() {
       if (inp.debugGrantGems) gems.grantAll();
       if (inp.debugDamageHero) damageHero(CONFIG.lives.debugDamage, hero.position.x + Math.sin(hero.facing), hero.position.z + Math.cos(hero.facing));
       if (inp.debugKillBoss) boss.kill();
+      if (inp.debugSpawnBat) minions.debugBat(); // a bat in front of the hero / rider
       if (inp.debugCutscene) story.debugCutscene();
       if (inp.debugDesert) story.debugDesert();
       if (inp.debugEnding) story.debugEnding();
@@ -357,6 +363,7 @@ async function boot() {
     story.update(dt, !state.paused && (state.is(STATES.PLAY) || state.is(STATES.CUTSCENE)));
     if (cinematic.active) cinematic.update(state.paused ? 0 : realDt);
     else cam.update(dt, hero.position, { mounted: horse.mounted, speed: horse.speedRatio, gallop: horse.galloping, heading: horse.heading });
+    minions.fitView(); // (bats stay on screen: once more against this frame's camera)
     world.update(dt, cam.camera.position);
     world.updateFoliage(dt, cam.camera.position, cam.focus);
     renderer.render(world.scene, cam.camera);

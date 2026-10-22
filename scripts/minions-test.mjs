@@ -18,6 +18,7 @@ import { Lives } from '../src/lives.js';
 import { Gems } from '../src/gems.js';
 import { Boss, BOSS_STATES as S } from '../src/boss.js';
 import { Minions } from '../src/minions.js';
+import { FollowCamera } from '../src/camera.js';
 import { loadedMinionTypes } from '../src/minionModels.js';
 import { PROFILES, makeFight } from './boss-bot.mjs';
 
@@ -54,7 +55,12 @@ const onHitHero = (n, x, z, o = {}) => {
   if (lives.hearts < 1.5) lives.setHearts(lives.maxHearts); // (keep riding: hits are counted)
   return true;
 };
-const minions = new Minions(scene, world, { hero, horse, combat, abilities, gems, onHitHero, readFile: heroAssets.readFile, placeholder: heroAssets.placeholder, random });
+// The follow camera, as in the game (bats are kept inside its view; a phone's 20:9 landscape).
+const cam = new FollowCamera(915 / 412, world);
+const screeches = [];
+const minions = new Minions(scene, world, { hero, horse, combat, abilities, gems, camera: cam.camera, onHitHero, readFile: heroAssets.readFile, placeholder: heroAssets.placeholder, random,
+  onEvent: (name, m) => { if (name === 'batScreech') screeches.push({ t: clock, m }); } });
+abilities.camera = cam.camera;
 let pitDone = false, playing = true;
 const ctx = () => ({ playing, riding: horse.controlsHero, route: horse.route === world.desertTrack ? 'desert' : 'forest', pitDone, galloping: horse.galloping });
 // Real game loop order (main.js), plus a riding bot.
@@ -88,6 +94,8 @@ const step = (n = 1, { ride = null, input = {}, each = null } = {}) => {
     boss.update(dt, hero);
     minions.update(dt, ctx());
     gems.update(dt, horse.controlsHero ? horse.collectPoint : hero.position.clone().setY(hero.position.y + 0.9));
+    cam.update(dt, hero.position, { mounted: horse.mounted, speed: horse.speedRatio, gallop: horse.galloping, heading: horse.heading });
+    minions.fitView();
     clock += dt;
     if (each?.() === false) break;
   }
@@ -180,30 +188,170 @@ for (const t of ['bat', 'skeleton', 'slime']) {
   check(outside === minions.stats.spawned.bat - notPlaying && minions.rideTime >= 0 && notPlaying === 0, `scheduleBats([1e6…2e6]): no bats in 70 s of riding; none while not playing (cutscenes) either (${notPlaying})`);
 }
 
-// 1c) Gallop outruns them; the Batarang hits a bat from the saddle.
+// 1c) Fair bats: they wait in view, only the nearest attacks, never two within 2 s; each
+// attack is telegraphed (circling overhead 1.2 s, a screech, the red marker), then one dive at
+// batDiveSpeed (60% of the gallop), one bite, and it flees. No bat leaves the camera view while
+// coming in, waiting or attacking — at a gallop too.
 {
   reset();
-  mountAt(world.track, 250);
-  const r = horse.position;
-  for (const k of [-1, 0, 1]) await minions.spawnAt('bat', { x: r.x - Math.sin(horse.heading) * 6 + k * 3, z: r.z - Math.cos(horse.heading) * 6, y: r.y + 3 });
-  let worst = Infinity;
-  step(secs(10), { ride: { gallop: true }, each: () => { worst = Math.min(worst, ...alive('bat').map((m) => m.position.distanceTo(horse.collectPoint)), Infinity); } });
-  check(alive('bat').length === 0, `galloping (${CONFIG.horse.maxSpeed * CONFIG.horse.gallop.speedMultiplier}) outruns bats (${BT.speed}): all ${minions.stats.spawned.bat} left behind after 10 s`);
-  reset();
-  mountAt(world.track, 250);
-  step(secs(0.5));
-  const p = horse.position;
-  const bat = await minions.spawnAt('bat', { x: p.x + Math.sin(horse.heading) * 8, z: p.z + Math.cos(horse.heading) * 8, y: p.y + 2.2 });
-  bat.state = 'circle'; bat.extra.after = 'retreat'; bat.extra.angle = 0; // (hovering ahead)
-  abilities.cooldowns.batarang = 0;
-  const hp0 = bat.hp;
-  let thrown = false;
-  step(secs(2.5), { each: () => {
-    bat.position.set(p.x + Math.sin(horse.heading) * 8, p.y + 2.2, p.z + Math.cos(horse.heading) * 8); bat.velocity.set(0, 0, 0); bat.state = 'circle'; bat.stateTime = 0;
-    if (!thrown && combat.lockTarget === bat) thrown = abilities.use('batarang');
-  } });
-  check(thrown && hp0 - bat.hp === MN.damage.batarang, `mounted: the Batarang locks onto a bat and hits it for ${hp0 - bat.hp} (${bat.hp}/${bat.maxHp} left)`);
+  screeches.length = 0;
+  mountAt(world.track, 120);
+  cam.reset(); cam.snapTo(hero.position);
+  step(secs(0.5), { ride: {} });
+  for (let i = 0; i < 3; i++) await minions.debugBat();
+  const seq = new Map(); // bat → states in order
+  const dives = [];
+  let telegraphMarker = true, outOfView = 0, viewFrames = 0, maxAtOnce = 0, nonNearest = 0;
+  const bitesBy = new Map();
+  let t = 0;
+  for (const gallop of [false, true]) {
+    t = 0;
+    if (gallop) { for (let i = 0; i < 3; i++) await minions.debugBat(); horse.stamina = 1; }
+    while (t < 14) {
+      const before = new Map(alive('bat').map((m) => [m, m.state]));
+      const bites0 = minions.stats.bites;
+      step(1, { ride: { gallop } });
+      t += dt;
+      maxAtOnce = Math.max(maxAtOnce, alive('bat').length);
+      for (const m of alive('bat')) {
+        const list = seq.get(m) ?? []; if (list.at(-1) !== m.state) list.push(m.state); seq.set(m, list);
+        if (['approach', 'hold', 'telegraph', 'dive'].includes(m.state) && m.stateTime > 0.05) { viewFrames++; if (!minions.inView(m)) outOfView++; }
+        if (m.state === 'telegraph' && !m.marker.visible) telegraphMarker = false;
+        if (m.state === 'telegraph' && before.get(m) === 'hold') {
+          // it was the nearest waiting bat
+          const holding = [...before].filter(([b, st]) => st === 'hold' && b !== m);
+          if (holding.some(([b]) => b.position.distanceTo(hero.position) < m.position.distanceTo(hero.position) - 0.5)) nonNearest++;
+        }
+        if (m.state === 'dive' && before.get(m) === 'telegraph') dives.push({ t: clock, m, telegraphed: (seq.get(m) ?? []).includes('telegraph') });
+      }
+      if (minions.stats.bites > bites0) for (const [m, st] of before) if (st === 'dive' && (m.state === 'flee' || !m.alive || m.removed)) bitesBy.set(m, (bitesBy.get(m) ?? 0) + 1);
+    }
+  }
+  const gaps = dives.slice(1).map((d, i) => d.t - dives[i].t);
+  const flowOk = [...seq.values()].filter((l) => l.includes('dive')).every((l) => l.indexOf('telegraph') >= 0 && l.indexOf('telegraph') < l.indexOf('dive') && l.indexOf('dive') < (l.indexOf('flee') < 0 ? Infinity : l.indexOf('flee')) && l.lastIndexOf('dive') === l.indexOf('dive'));
+  check(dives.length >= 3 && gaps.every((g) => g >= BT.attackGap - 1e-6) && nonNearest === 0 && maxAtOnce <= BT.max, `attacks: ${dives.length}, ≥ ${BT.attackGap} s apart (gaps ${gaps.map((g) => g.toFixed(1)).join(', ')}), only the nearest waiting bat attacks, ≤ ${BT.max} at once (max ${maxAtOnce})`);
+  check(flowOk && telegraphMarker && screeches.length >= dives.length && [...bitesBy.values()].every((n) => n <= 1),
+    `each attack: circles overhead ${BT.telegraph} s with a screech and the red marker, dives once (${BT.batDiveSpeed} = ${Math.round((BT.batDiveSpeed / (CONFIG.horse.maxSpeed * CONFIG.horse.gallop.speedMultiplier)) * 100)}% of the gallop), at most one bite, then flees`);
+  check(outOfView === 0 && viewFrames > 500, `no bat out of the camera view while coming in, waiting or attacking (${outOfView} of ${viewFrames} bat-frames), at a canter and at a gallop`);
+  const tpl = await minions.ready('bat');
+  if (tpl.kind === 'fbx') {
+    const b = await minions.spawnAt('bat', { x: hero.position.x, z: hero.position.z + 30 });
+    let span = 0;
+    for (let k = 0; k < secs(1); k++) {
+      step(1, { ride: { stop: true } });
+      b.dizzy.visible = false; b.marker.visible = false;
+      b.u.body.updateMatrixWorld(true);
+      span = Math.max(span, new THREE.Box3().setFromObject(b.u.body, true).getSize(new THREE.Vector3()).x);
+    }
+    check(Math.abs(span - MN.types.bat.fit[1]) < 0.2, `bat wingspan ${span.toFixed(2)} (60% of the first 1.5)`);
+  }
 }
+
+// 1d) The Batarang from the saddle: auto-aims at the nearest bat (a bracket shows which while it's
+// ready), homes in, kills it (8 against a bat's 8 HP), always comes back; a galloping bot that
+// taps it whenever a bracket shows kills at least 70% of the bats.
+{
+  reset();
+  mountAt(world.track, 120);
+  cam.reset(); cam.snapTo(hero.position);
+  const gemsBack = { ...gems.counts };
+  abilities.gems = gems; gems.counts.yellow = 500;
+  step(secs(0.3), { ride: {} });
+  await minions.debugBat();
+  let bracketOn = false;
+  for (let k = 0; k < secs(3) && alive('bat')[0]?.state !== 'hold'; k++) step(1, { ride: {}, each: () => { if (abilities.bracket.visible && abilities.aimTarget) bracketOn = true; } });
+  const bat = alive('bat')[0];
+  const hp0 = bat.hp;
+  const y0 = gems.counts.yellow;
+  check(bracketOn && abilities.aimTarget === bat && abilities.use('batarang') && gems.counts.yellow === y0 - CONFIG.abilities.batarang.gemCost, `a bracket marks the nearest bat while the Batarang is ready; a tap throws it (5 yellow)`);
+  let killedAt = -1, back = -1, tt = 0, maxD = 0;
+  const trailSeen = { n: 0 };
+  while (tt < 4) {
+    step(1, { ride: {} }); tt += dt;
+    if (abilities.batarang) { maxD = Math.max(maxD, abilities.batarang.pos.distanceTo(hero.handPosition())); trailSeen.n = Math.max(trailSeen.n, abilities.trailMesh.count); }
+    if (!bat.alive && killedAt < 0) killedAt = tt;
+    if (!abilities.batarangOut && back < 0 && tt > 0.3) back = tt;
+  }
+  check(killedAt > 0 && hp0 === 8 && back > 0 && trailSeen.n > 5 && maxD <= CONFIG.abilities.batarang.mounted.maxRange + 1, `it homes in and kills the bat (${killedAt.toFixed(2)} s; 8 HP, Batarang 8), leaves a trail (${trailSeen.n}), comes back on a curve and is caught (${back.toFixed(2)} s, never beyond ${maxD.toFixed(1)} of the rider)`);
+  // No bat: straight ahead along the heading and back.
+  abilities.cooldowns.batarang = 0;
+  step(secs(2), { ride: {} });
+  const hd = new THREE.Vector3(Math.sin(horse.heading), 0, Math.cos(horse.heading));
+  abilities.use('batarang');
+  step(secs(0.45), { ride: {} });
+  const v = abilities.batarang ? abilities.batarang.pos.clone().sub(hero.handPosition()).setY(0).normalize() : null;
+  let back2 = -1; tt = 0;
+  while (tt < 4) { step(1, { ride: {} }); tt += dt; if (!abilities.batarangOut) { back2 = tt; break; } }
+  check(v && v.dot(hd) > 0.9 && back2 > 0, `no bat about: it flies straight ahead along the heading and comes back (${back2.toFixed(2)} s)`);
+  // The galloping bot (swarms coming every 4–6 s for the test).
+  const iv = BT.interval, gr = BT.group;
+  BT.interval = [4, 6]; BT.group = [1, 2];
+  minions.clear();
+  mountAt(world.track, 100);
+  horse.stamina = 1;
+  const killed = new Set();
+  const throws0 = abilities.stats.batarangThrows, catches0 = abilities.stats.batarangCatches;
+  const spawned0 = minions.stats.spawned.bat;
+  let longest = 0, flight = 0, lastThrows = abilities.stats.batarangThrows, offScreen = 0, offLongest = 0;
+  const drops0 = minions.stats.drops;
+  const onScreen = (p) => { const v = p.clone().project(cam.camera); return v.z < 1 && Math.abs(v.x) <= 1 && Math.abs(v.y) <= 1; };
+  const logLen = log.length;
+  step(secs(60), { ride: { gallop: true }, each: () => {
+    if (horse.stamina < 0.05) horse.stamina = 1; // (galloping the whole minute)
+    if (abilities.aimTarget && abilities.ready('batarang')) abilities.use('batarang');
+    if (abilities.stats.batarangThrows !== lastThrows) { lastThrows = abilities.stats.batarangThrows; flight = 0; }
+    flight = abilities.batarangOut ? flight + dt : 0;
+    longest = Math.max(longest, flight);
+    offScreen = abilities.batarang && !onScreen(abilities.batarang.pos) ? offScreen + dt : 0;
+    offLongest = Math.max(offLongest, offScreen);
+    for (const e of log.slice(logLen)) if (e.source === 'batarang' && e.target.type === 'bat' && !e.target.alive) killed.add(e.target);
+  } });
+  step(secs(4), { ride: {} });
+  for (const e of log.slice(logLen)) if (e.source === 'batarang' && e.target.type === 'bat' && !e.target.alive) killed.add(e.target);
+  const spawned = minions.stats.spawned.bat - spawned0 - alive('bat').length; // (the ones still about at the end don't count)
+  BT.interval = iv; BT.group = gr;
+  const throws = abilities.stats.batarangThrows - throws0, catches = abilities.stats.batarangCatches - catches0;
+  check(spawned >= 8 && killed.size / spawned >= 0.7, `galloping bot with the Batarang: killed ${killed.size} of ${spawned} bats (${Math.round((killed.size / spawned) * 100)}%, needs 70%)`);
+  check(throws > 0 && throws === catches && longest < CONFIG.abilities.batarang.maxTime && offLongest < 0.5, `the Batarang always came back: ${catches}/${throws} caught, longest flight ${longest.toFixed(2)} s, never off screen for more than ${offLongest.toFixed(2)} s`);
+  check(minions.stats.drops - drops0 === killed.size, `every bat killed dropped one gem (${minions.stats.drops - drops0})`);
+  abilities.gems = null; Object.assign(gems.counts, gemsBack);
+}
+
+// 1e) Bites on the mounted hero: 20 in a row — he stays visible and in the saddle, only a small
+// flinch and a red flash (no hit clip, no knockback), a soft blink that always ends visible.
+{
+  reset();
+  mountAt(world.track, 300);
+  const seatGap = () => hero.position.distanceTo(hero.model.position);
+  let hidden = 0, offSaddle = 0, minOpacity = 1, flinched = 0, hitClip = 0, landed = 0;
+  for (let i = 0; i < 20; i++) {
+    const b = await minions.debugBat();
+    b.state = 'dive'; b.stateTime = 0;
+    b.position.copy(hero.position).setY(hero.position.y + 1.2);
+    const h0 = lives.hearts;
+    step(1, { ride: { stop: true } });
+    if (lives.hearts < h0 || damage.at(-1)?.t >= clock - dt * 1.5) landed++;
+    for (let k = 0; k < secs(1.15); k++) {
+      step(1, { ride: { stop: true } });
+      if (!hero.model.visible) hidden++;
+      if (!hero.riding || horse.mode !== 'riding' || seatGap() > 1e-6) offSaddle++;
+      if (hero.riderFlinch > 0) flinched++;
+      if (hero.model.userData.animator?.primary === 'hit') hitClip++;
+      for (const m of hero.model.userData.mats) minOpacity = Math.min(minOpacity, m.opacity);
+    }
+    minions.clear();
+  }
+  const mats = hero.model.userData.mats;
+  const restored = mats.every((m) => m.opacity === 1 && !m.transparent) && hero.iframes === 0 && hero.hurtT === 0 && hero.model.visible;
+  check(landed === 20 && hidden === 0 && offSaddle === 0 && hitClip === 0 && flinched > 0, `20 bites on the mounted hero: all landed (${landed}), never hidden (${hidden} frames), never off the saddle (${offSaddle}), a flinch but no hit clip (${hitClip})`);
+  check(minOpacity < 0.8 && minOpacity > 0.3 && restored, `a soft blink while invincible (opacity down to ${minOpacity.toFixed(2)}), then fully back: opacity 1, invincibility and blink over, visible`);
+  // Death and respawn reset it all too, even mid-blink.
+  hero.hurt(0, 0, false); hero.resetStatus();
+  hero.hurt(0, 0, false);
+  horse.respawnAtCheckpoint(hero);
+  check(hero.iframes === 0 && hero.hurtT === 0 && hero.model.visible && mats.every((m) => m.opacity === 1), 'a respawn mid-blink resets invincibility, blink and flash');
+}
+
 
 // 2) HP and the hero's damage: melee 4 per hit, Batarang 6, Flash kills; bat 8, skeleton 14, slime 10.
 {
@@ -249,7 +397,7 @@ for (const t of ['bat', 'skeleton', 'slime']) {
   let fadedAt = -1, t = 0;
   const states = new Set();
   while (!slime.removed && t < 5) { step(1, { each: () => { hero.position.set(cx - 12, hero.position.y, cz - 6); } }); t += dt; states.add(slime.state); if (slime.opacity < 1 && fadedAt < 0) fadedAt = t; }
-  const drop = gems.gems.find((g) => g.zone === 'drop' && !g.hidden && !g.collected);
+  const drop = gems.gems.filter((g) => g.zone === 'drop' && !g.hidden && !g.collected).sort((a, b) => a.position.distanceTo(slime.position) - b.position.distanceTo(slime.position))[0];
   check(states.has('dying') && states.has('fading') && fadedAt > 0 && slime.removed && minions.stats.drops === drops0 + 1 && drop && Math.hypot(drop.position.x - slime.position.x, drop.position.z - slime.position.z) < 2,
     `defeated: death clip (${slime.u.animator.duration('death').toFixed(2)} s), fade from ${fadedAt.toFixed(2)} s, then a ${drop?.color} gem where it fell`);
   const c0 = gems.counts[drop.color];
@@ -434,6 +582,7 @@ for (const t of ['bat', 'skeleton', 'slime']) {
 {
   reset();
   boss.reset();
+  placeHero(cx - 14, cz, Math.PI / 2);
   await minions.spawnAt('bat', { x: cx - 10, z: cz, y: world.heightAt(cx - 10, cz) + 2 });
   await minions.spawnAt('skeleton', { x: cx - 8, z: cz + 2 });
   minions.slimesFromCrack(new THREE.Vector3(cx - 4, 0, cz), true);
