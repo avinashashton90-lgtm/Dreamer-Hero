@@ -288,6 +288,8 @@ export const CONFIG = {
     batarang: {
       damage: 8, range: 14, speed: 20, returnSpeed: 24, arc: 3, // sideways bulge of the flight
       radius: 0.5, catchRadius: 1.2, maxTime: 3, cooldown: 1.5, chaseFactor: 2, // returns faster than the hero (even galloping)
+      hitPad: 0.3,           // slack above / below an enemy's hit body (`hit` per minion type); it also strikes on the way back...
+      returnReach: 0.8,      // ...with this much more reach above a body (it flies back at the rider's hand height)
       size: 0.35, spin: 22, height: 1.2,
       color: 0xffd23f,
       // Mounted: a tap throws it at the nearest bat (flying target) within autoAimRange in front of
@@ -296,8 +298,10 @@ export const CONFIG = {
       // maxRange from the rider, comes straight back if its target dies, and returns on a tight
       // curve to the rider (caught however far the horse has gone).
       mounted: {
-        autoAimRange: 25, sideDot: -0.25, // in front of or beside the horse (cos of the angle off the heading)
-        overhead: 4,         // closer than this (flat) it counts whatever the angle: a bat circling overhead
+        autoAimRange: 25,    // the nearest living enemy of any kind within this, in any direction...
+        preferFront: 1.6,    // ...preferring ones in front (one right behind counts as this × as far)
+        overhead: 4,         // closer than this (flat) counts as in front: a bat circling overhead
+        aimLift: 0.6,        // aim at least this far above the ground (a skeleton still rising from the sand)
         homingSpeed: 30,     // on top of the rider's own speed
         turnRate: 540,       // degrees per second
         maxRange: 30,
@@ -532,6 +536,7 @@ export const CONFIG = {
       },
       skeleton: {
         file: 'skeleton.fbx', hp: 14, fit: ['y', 1.85], radius: 0.45, height: 1.85,
+        hit: { radius: 0.6, height: 2.1 }, // a generous hit body (1.2 wide, the whole skeleton), counted while it rises
         roles: { idle: ['Skeleton_Idle'], move: ['Skeleton_Running'], attack: ['Skeleton_Attack'], hit: [], death: ['Skeleton_Death'], spawn: ['Skeleton_Spawn'] },
         fallback: { hit: 'idle', spawn: 'idle', move: 'idle' },
         color: 0xe9e2cf,
@@ -618,6 +623,11 @@ export const CONFIG = {
     // Slimes stay out of `exclusion` round the hero: pushed out at `push` (a dodge shoves them at
     // `dodgeShove`), never inside longer than `maxInside` s.
     slimes: { exclusion: 1.5, maxInside: 0.5, push: 5, dodgeShove: 12 },
+    // Riding and surrounded — `count` or more ground enemies within `range` of the horse for more
+    // than `time` s: the horse rears up (`rear`: nose-up pitch over `time`) with a shockwave that
+    // knocks enemies within `knockRadius` back `knock` and defeats skeletons within `defeatRadius`;
+    // then `mountedRescueCooldown` s.
+    mounted: { count: 2, range: 3, time: 2, knockRadius: 6, knock: 4, defeatRadius: 3.5, mountedRescueCooldown: 10, rear: { time: 0.7, pitch: 0.45 } },
   },
 
   // The cave monster (boss.js). Arena = CONFIG.cave.center / radius.
@@ -890,7 +900,7 @@ export const CONFIG = {
     // slower than `maxSpeed` (greyed out while it moves) and after a `holdSeconds` press-and-hold,
     // a ring filling as you hold. `fallback`: its top / right edge (px from the safe-area corner)
     // when the gem counter can't be measured. Keyboard E dismounts under the same speed limit.
-    dismount: { size: 44, gap: 6, holdSeconds: 0.4, maxSpeed: 2, fallback: { top: 42, right: 26 } },
+    dismount: { size: 44, gap: 6, holdSeconds: 0.4, maxSpeed: 3, fallback: { top: 42, right: 26 } },
     // Landscape phone viewports (CSS px) the layout is checked on: 20:9, 18:9, 16:9.
     checkSizes: [[915, 412], [760, 360], [640, 360]],
     debugKeys: { grantGems: 'KeyG', damageHero: 'KeyH', teleportArena: 'KeyT', killBoss: 'KeyX', spawnBat: 'KeyB', cutscene: 'KeyP', desert: 'KeyO', ending: 'KeyU', pit: 'KeyL' },

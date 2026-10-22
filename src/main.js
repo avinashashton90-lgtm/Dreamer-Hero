@@ -163,7 +163,11 @@ async function boot() {
   abilities.camera = cam.camera; // (billboards the mounted Batarang's target bracket)
   // Cornered (pinned against a rock with enemies close for 1.5 s): a pulse pushes them back.
   const rescue = new CornerRescue(world.scene, world, {
-    hero, boss, minions,
+    hero, boss, minions, horse,
+    onRear: () => {
+      cam.shake(CONFIG.combat.shake.heavy, CONFIG.combat.shake.time);
+      sound.play('rearUp');
+    },
     onPulse: () => {
       cam.shake(CONFIG.combat.shake.heavy, CONFIG.combat.shake.time);
       sound.play('rescuePulse');
@@ -357,7 +361,7 @@ async function boot() {
         pitDone: story.pitDone,
         galloping: horse.galloping,
       });
-      rescue.update(dt, { onFoot: !horse.controlsHero });
+      rescue.update(dt, { onFoot: !horse.controlsHero, riding: horse.controlsHero });
       ui.setBossBar(boss.active, boss.hp / boss.maxHp, DIALOGUE.bossName);
       input.setCombatButtons(horse.controlsHero, abilities, story.fatigue > 0);
       // Collect from the body centre: horse + rider when riding, the hero's chest on foot.
@@ -367,7 +371,8 @@ async function boot() {
       // Mount: on foot near the horse (with its pulse). Dismount: small, under the Pink counter,
       // press-and-hold, only while the horse is (nearly) stopped.
       input.setMountButton(!horse.controlsHero && horse.mode !== 'riding' && horse.canMount(hero));
-      input.setDismountButton(horse.mode === 'riding', Math.abs(horse.speed) < CONFIG.input.dismount.maxSpeed, realDt, ui.gemPillRect('pink'));
+      const DM = CONFIG.input.dismount;
+      input.setDismountButton(horse.mode === 'riding', Math.abs(horse.speed) < DM.maxSpeed, realDt, ui.gemPillRect('pink'), DM.maxSpeed / Math.max(DM.maxSpeed, Math.abs(horse.speed)));
       input.setGallopButton(horse.mode === 'riding', DIALOGUE.gallop, horse.stamina, horse.galloping);
       ui.showGems(quests.index >= 2); // from "Mount the horse" on
     } else if (!state.paused && state.is(STATES.CUTSCENE)) {

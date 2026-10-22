@@ -107,7 +107,7 @@ check(R.owners.size === 0 && R.held.size === 0, 'endAll clears everything');
 // a hold (0.4 s), never a tap; only while the horse is slow enough; once per press.
 {
   const D = CONFIG.input.dismount;
-  check(!CONFIG.input.layout.ride.dismount && !CONFIG.input.layout.ride.mount && D.size === 44 && D.maxSpeed === 2 && D.holdSeconds === 0.4, `Dismount: ${D.size}px, top right (not in the corner cluster), hold ${D.holdSeconds} s, only below speed ${D.maxSpeed}`);
+  check(!CONFIG.input.layout.ride.dismount && !CONFIG.input.layout.ride.mount && D.size === 44 && D.maxSpeed === 3 && D.holdSeconds === 0.4, `Dismount: ${D.size}px, top right (not in the corner cluster), hold ${D.holdSeconds} s, only below speed ${D.maxSpeed}`);
   const dt = 1 / 60;
   const run = (secs, down, allowed, h) => { let fired = 0; for (let t = 0; t < secs - 1e-9; t += dt) if (h.update(dt, down, allowed)) fired++; return fired; };
   const h = new HoldTimer(D.holdSeconds);

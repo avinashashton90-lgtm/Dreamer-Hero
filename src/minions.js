@@ -48,6 +48,15 @@ export class Minion {
     this.extra = {}; // per-type behaviour data (side, angle, base height…)
   }
 
+  /** The hit body (a vertical capsule from its feet): MN.types[type].hit, else its collision size. */
+  get hitRadius() {
+    return MN.types[this.type].hit?.radius ?? this.radius;
+  }
+
+  get hitHeight() {
+    return MN.types[this.type].hit?.height ?? this.height;
+  }
+
   get alive() {
     return this.hp > 0 && !this.removed && this.state !== 'dying' && this.state !== 'fading';
   }
@@ -652,7 +661,7 @@ export class Minions {
     const ground = this.world.heightAt(m.position.x, m.position.z);
     // Left far behind the horse: gone.
     if (target.riding && m.state !== 'spawn') {
-      const behind = -(dx * Math.sin(horse.heading) + dz * Math.cos(horse.heading));
+      const behind = dx * Math.sin(horse.heading) + dz * Math.cos(horse.heading); // (dx, dz: from it to the horse — positive = it is behind)
       if (behind > SK.despawnBehind) return this.#remove(m);
     }
     // Galloping straight into it: knocked aside, defeated, no harm to the rider.

@@ -503,6 +503,7 @@ export class Horse {
     else if ((this.refillWait -= dt) <= 0) this.stamina = this.stamina + GAL.staminaRefill * dt;
     this.stamina = Math.min(this.stamina, staminaCap);
     this.stumble = Math.max(0, this.stumble - dt);
+    this.rearT = Math.max(0, (this.rearT ?? 0) - dt);
 
     // Turning: slower the faster it goes, slower again while galloping.
     const prevHeading = this.heading;
@@ -707,6 +708,11 @@ export class Horse {
     }
   }
 
+  /** Surrounded: a short rear-up (nose-up pitch; the riders go with the back bone). See rescue.js. */
+  rearUp() {
+    this.rearT = CONFIG.corner.mounted.rear.time;
+  }
+
   /** Places the model (with gallop / idle animation); returns the rider's seat (world). */
   #syncModel(dt) {
     const u = this.model.userData;
@@ -743,7 +749,9 @@ export class Horse {
     const leanTarget = this.mode === MODES.RIDING ? clamp(-this.yawRate * HC.leanFactor * Math.min(1, this.speedRatio), -HC.maxLean, HC.maxLean) : 0;
     this.lean += (leanTarget - this.lean) * (1 - Math.exp(-HC.leanSmoothing * dt));
     body.rotation.z = this.lean;
-    body.rotation.x = Math.sin(ph) * 0.05 * s + (this.stumble > 0 ? Math.sin((this.stumble / OBS.stumbleTime) * Math.PI) * 0.3 : 0);
+    const RU = CONFIG.corner.mounted.rear;
+    body.rotation.x = Math.sin(ph) * 0.05 * s + (this.stumble > 0 ? Math.sin((this.stumble / OBS.stumbleTime) * Math.PI) * 0.3 : 0)
+      - (this.rearT > 0 ? Math.sin((this.rearT / RU.time) * Math.PI) * RU.pitch : 0); // (rearing up: nose up)
     const graze = this.mode === MODES.IDLE ? Math.max(0, Math.sin(this.time * 0.8)) : 0;
     neck.rotation.x = graze * 0.9 + Math.sin(ph) * 0.12 * s;
     tail.rotation.x = -0.2 - s * 0.6 + Math.sin(this.time * 3) * 0.08;

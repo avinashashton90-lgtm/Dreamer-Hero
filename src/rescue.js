@@ -40,6 +40,10 @@ export class CornerRescue {
     this.effectT = -1; // seconds since the last pulse (-1: none showing)
     this.pulses = 0;
     this.pinned = false;
+    this.mountedCooldown = 0;
+    this.surroundT = 0; // seconds surrounded on horseback
+    this.rears = 0;
+    this.rearKills = 0;
   }
 
   async init() {
@@ -52,15 +56,16 @@ export class CornerRescue {
     this.cooldown = 0;
     this.effectT = -1;
     this.pinned = false;
+    this.mountedCooldown = 0;
+    this.surroundT = 0;
     if (this.model) this.model.visible = false;
   }
 
-  /** Living enemies (with their body radius) near the hero. */
-  #enemies(range) {
-    const hero = this.deps.hero;
+  /** Living ground enemies whose body is within `range` of a body of `radius` at `at` (default: the hero). */
+  #enemies(range, at = this.deps.hero.position, radius = CONFIG.hero.radius) {
     const out = [];
     const add = (t) => {
-      const d = Math.hypot(t.position.x - hero.position.x, t.position.z - hero.position.z) - (t.radius ?? 0) - CONFIG.hero.radius;
+      const d = Math.hypot(t.position.x - at.x, t.position.z - at.z) - (t.radius ?? 0) - radius;
       if (d <= range) out.push(t);
     };
     const boss = this.deps.boss;
@@ -69,10 +74,17 @@ export class CornerRescue {
     return out;
   }
 
-  /** @param {{ onFoot: boolean }} ctx */
+  /** @param {{ onFoot: boolean, riding?: boolean }} ctx */
   update(dt, ctx) {
     const hero = this.deps.hero;
     this.cooldown = Math.max(0, this.cooldown - dt);
+    // Riding and surrounded: the horse rears up with a shockwave (its own cooldown).
+    const MR = R.mounted;
+    const horse = this.deps.horse;
+    this.mountedCooldown = Math.max(0, this.mountedCooldown - dt);
+    const ringed = ctx.riding && horse ? this.#enemies(MR.range, horse.position, CONFIG.horse.radius).length >= MR.count : false;
+    this.surroundT = ringed ? this.surroundT + dt : 0;
+    if (this.surroundT > MR.time && this.mountedCooldown <= 0) this.rearUp();
     const H = CONFIG.hero;
     this.pinned = !!ctx.onFoot && !hero.riding && !(hero.deathT >= 0) &&
       this.world.solidsNear(hero.position, H.radius, R.pinGap, H.height).length > 0 &&
@@ -80,6 +92,34 @@ export class CornerRescue {
     this.pinnedT = this.pinned ? this.pinnedT + dt : 0;
     if (this.pinnedT >= R.pinTime && this.cooldown <= 0) this.pulse();
     this.#animate(dt);
+  }
+
+  /**
+   * Surrounded on horseback: the horse rears up and a shockwave knocks every ground enemy within
+   * `mounted.knockRadius` back (`knock`) and defeats the skeletons within `defeatRadius` (each
+   * drops its gem); then `mountedRescueCooldown` s.
+   */
+  rearUp() {
+    const horse = this.deps.horse;
+    const MR = R.mounted;
+    const { x, z } = horse.position;
+    for (const t of this.#enemies(MR.knockRadius, horse.position, CONFIG.horse.radius)) {
+      if (t === this.deps.boss) continue;
+      const dx = t.position.x - x;
+      const dz = t.position.z - z;
+      const l = Math.hypot(dx, dz) || 1;
+      if (t.type === 'skeleton' && l - t.radius - CONFIG.horse.radius <= MR.defeatRadius) {
+        t.die?.();
+        this.rearKills++;
+      } else t.knockback?.(dx / l, dz / l, MR.knock);
+    }
+    horse.rearUp?.();
+    this.mountedCooldown = MR.mountedRescueCooldown;
+    this.surroundT = 0;
+    this.rears++;
+    this.effectT = 0;
+    this.model.position.set(x, this.world.heightAt(x, z), z);
+    this.deps.onRear?.();
   }
 
   /** The rescue pulse: enemies near the hero pushed back, the boss into its recovery. */

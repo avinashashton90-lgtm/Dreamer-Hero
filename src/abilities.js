@@ -533,17 +533,23 @@ export class Abilities {
     const fx = Math.sin(hero.facing);
     const fz = Math.cos(hero.facing);
     let best = null;
-    let bestD = M.autoAimRange;
+    let bestScore = Infinity;
+    // Any living enemy (bats, skeletons, slimes, whatever comes later) within autoAimRange in any
+    // direction; ones in front are preferred (a target behind counts up to preferFront× as far).
     for (const t of this.combat?.targets ?? []) {
-      if (!t.alive || !t.flying) continue;
-      const dx = t.position.x - hero.position.x;
-      const dz = t.position.z - hero.position.z;
-      const d = Math.hypot(dx, dz, t.position.y + t.height * 0.5 - hero.position.y);
-      if (d > bestD) continue;
+      if (!t.alive) continue;
+      const c = this.#centre(t);
+      const dx = c.x - hero.position.x;
+      const dz = c.z - hero.position.z;
+      const d = Math.hypot(dx, dz, c.y - hero.position.y);
+      if (d > M.autoAimRange) continue;
       const flat = Math.hypot(dx, dz);
-      if (flat > M.overhead && (dx * fx + dz * fz) / flat < M.sideDot) continue; // behind the horse (not overhead)
-      best = t;
-      bestD = d;
+      const dot = flat > M.overhead ? (dx * fx + dz * fz) / flat : 1; // (overhead counts as in front)
+      const score = d * (1 + (M.preferFront - 1) * (1 - dot) / 2);
+      if (score < bestScore) {
+        best = t;
+        bestScore = score;
+      }
     }
     return best;
   }
@@ -570,8 +576,50 @@ export class Abilities {
     }
   }
 
+  /** Where to aim: the middle of its hit body, but never below the visible part (one rising from the sand). */
   #centre(t) {
-    return new THREE.Vector3(t.position.x, t.position.y + t.height * 0.5, t.position.z);
+    const h = t.hitHeight ?? t.height;
+    const ground = this.world?.heightAt ? this.world.heightAt(t.position.x, t.position.z) : -Infinity;
+    return new THREE.Vector3(t.position.x, Math.max(t.position.y + h * 0.5, ground + BT.mounted.aimLift), t.position.z);
+  }
+
+  /**
+   * The first living enemy whose hit body (a vertical capsule: `hitRadius` round its position,
+   * from its feet to `hitHeight` — generous for skeletons, and counted while one rises from the
+   * sand) the Batarang touches between `from` and `to`, skipping `skip` (already hit this pass).
+   */
+  #enemyAt(from, to, skip, extraTop = 0) {
+    const steps = Math.max(1, Math.ceil(from.distanceTo(to) / BT.radius));
+    const p = new THREE.Vector3();
+    for (let i = 1; i <= steps; i++) {
+      p.lerpVectors(from, to, i / steps);
+      for (const t of this.combat?.targets ?? []) {
+        if (!t.alive || skip?.has(t)) continue;
+        const r = (t.hitRadius ?? t.radius) + BT.radius;
+        if (Math.abs(p.x - t.position.x) > r || Math.abs(p.z - t.position.z) > r) continue;
+        const top = t.position.y + (t.hitHeight ?? t.height) + BT.hitPad + extraTop;
+        if (Math.hypot(p.x - t.position.x, p.z - t.position.z) < r && p.y > t.position.y - BT.hitPad && p.y < top) return t;
+      }
+    }
+    return null;
+  }
+
+  #strikeWithBatarang(t, p) {
+    const dx = p.x - this.hero.position.x;
+    const dz = p.z - this.hero.position.z;
+    const l = Math.hypot(dx, dz) || 1;
+    this.combat.hitTarget(t, { amount: BT.damage, dirX: dx / l, dirZ: dz / l, knockback: 0.5, source: 'batarang' });
+    this.stats.batarangHits++;
+  }
+
+  /** On the way back it still strikes any enemy in its path (each at most once on the way back). */
+  #returnHits(b, from) {
+    b.backHits ??= new Set();
+    const t = this.#enemyAt(from, b.pos, b.backHits, BT.returnReach);
+    if (!t) return;
+    b.backHits.add(t);
+    this.#strikeWithBatarang(t, b.pos);
+    this.stats.batarangReturnHits = (this.stats.batarangReturnHits ?? 0) + 1;
   }
 
   /** Turn `dir` toward `want` by at most `maxAngle` radians. */
@@ -608,6 +656,7 @@ export class Abilities {
         if (b.target) steer(want, M.homingSpeed + rider);
         else this.#turnToward(b.dir, want, turn);
         const step = (M.homingSpeed + rider) * dt;
+        b.prev = b.pos.clone();
         b.pos.addScaledVector(b.dir, step);
         b.travelled += step;
         if (this.#batarangHit(b.pos)) b.phase = 'back';
@@ -620,7 +669,9 @@ export class Abilities {
       const d = to.length();
       if (d <= Math.max(BT.catchRadius, speed * dt)) return this.#catchBatarang();
       steer(to, speed);
+      const from = b.pos.clone();
       b.pos.addScaledVector(b.dir, speed * dt);
+      this.#returnHits(b, from);
     }
     if (b.age > BT.maxTime) return this.#catchBatarang(); // (safety net: it always returns)
     if (this.batModel) {
@@ -660,6 +711,7 @@ export class Abilities {
         .addScaledVector(b.start, (1 - u) * (1 - u))
         .addScaledVector(b.ctrl, 2 * u * (1 - u))
         .addScaledVector(b.end, u * u);
+      b.prev = b.pos.clone();
       b.pos.copy(p);
       const hit = this.#batarangHit(p);
       if (hit || u >= 1) b.phase = 'back';
@@ -672,7 +724,9 @@ export class Abilities {
         this.#catchBatarang();
         return;
       }
+      const from = b.pos.clone();
       b.pos.addScaledVector(to, (speed * dt) / d);
+      this.#returnHits(b, from);
     }
     // Safety net: it always returns.
     if (b.age > BT.maxTime) {
@@ -696,18 +750,12 @@ export class Abilities {
   /** First enemy or solid object at p → hits it (enemies take damage). */
   #batarangHit(p) {
     const b = this.batarang;
-    for (const t of this.combat?.targets ?? []) {
-      if (!t.alive) continue;
-      const d = Math.hypot(p.x - t.position.x, p.z - t.position.z);
-      if (d < t.radius + BT.radius && p.y > t.position.y - 0.2 && p.y < t.position.y + t.height + 0.3) {
-        const dx = p.x - this.hero.position.x;
-        const dz = p.z - this.hero.position.z;
-        const l = Math.hypot(dx, dz) || 1;
-        this.combat.hitTarget(t, { amount: BT.damage, dirX: dx / l, dirZ: dz / l, knockback: 0.5, source: 'batarang' });
-        this.stats.batarangHits++;
-        b.hit = t;
-        return true;
-      }
+    const t = this.#enemyAt(b.prev ?? p, p, null);
+    if (t) {
+      this.#strikeWithBatarang(t, p);
+      b.hit = t;
+      (b.backHits ??= new Set()).add(t); // (not again on the very same spot on the way back)
+      return true;
     }
     const w = this.world;
     if (!w) return false;

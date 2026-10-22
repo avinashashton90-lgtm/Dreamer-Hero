@@ -346,7 +346,7 @@ export class Input {
     this.dismountBtn.className = 'dismount-btn disabled';
     this.dismountBtn.style.display = 'none';
     this.dismountBtn.style.width = this.dismountBtn.style.height = `${D.size}px`;
-    this.dismountBtn.innerHTML = `<i class="hold-ring"></i><span>${DIALOGUE.dismount}</span>`;
+    this.dismountBtn.innerHTML = `<i class="limit-ring"></i><i class="hold-ring"></i><span>${DIALOGUE.dismount}</span>`;
     this.dismountHold = new HoldTimer(D.holdSeconds);
     this.dismountAnchor = null;
     this.#placeDismount(null);
@@ -558,13 +558,17 @@ export class Input {
   /**
    * The Dismount button (while riding): greyed and inert unless `allowed` (horse slower than
    * dismount.maxSpeed); held for dismount.holdSeconds it dismounts (once per press), the ring
-   * filling meanwhile. `anchor`: the Pink gem counter's screen rect (it sits just below it).
+   * filling meanwhile (a hit doesn't interrupt it). `anchor`: the Pink gem counter's screen rect
+   * (it sits just below it). `limit`: dismount.maxSpeed ÷ the horse's speed, shown as a small ring
+   * while it is too fast.
    */
-  setDismountButton(visible, allowed, dt, anchor = null) {
+  setDismountButton(visible, allowed, dt, anchor = null, limit = 1) {
     const b = this.dismountBtn;
     const display = visible ? '' : 'none';
     if (b.style.display !== display) b.style.display = display;
     b.classList.toggle('disabled', !allowed);
+    // Greyed while too fast: a small ring shows how close the horse is to the speed limit.
+    b.style.setProperty('--limit', (allowed ? 0 : Math.min(1, Math.max(0, limit))).toFixed(3));
     const down = visible && this.enabled && (this.touch.held.has('dismount') || this.mouseDismount);
     if (this.dismountHold.update(dt, down, allowed)) this.mountQueued = true;
     b.style.setProperty('--hold', this.dismountHold.progress.toFixed(3));
