@@ -415,3 +415,12 @@ html, body {
   .slide, .ca-hero, .ca-eq, .ca-swirl-start { opacity: 1; }
   .ca-z, .ca-dim { opacity: 0.4; }
 }
+
+/* Hidden test menu (?debug only) */
+.test-menu { position: absolute; inset: 0; pointer-events: none; z-index: 1000; }
+.test-menu button { pointer-events: auto; font: 800 16px system-ui, sans-serif; color: #fff; border-radius: 12px; cursor: pointer; }
+.test-toggle { position: absolute; top: max(10px, env(safe-area-inset-top)); left: max(10px, env(safe-area-inset-left)); padding: 6px 10px; background: #c0392b; border: 2px solid #fff; font-size: 13px !important; }
+.test-panel { position: absolute; inset: max(52px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); pointer-events: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; align-content: start; overflow-y: auto; padding: 12px; border-radius: 16px; background: rgba(20, 16, 50, 0.92); }
+.test-panel button { min-height: 56px; padding: 8px 12px; background: #3b2f6e; border: 2px solid #ffd23f; }
+.test-panel .test-close { background: #555; border-color: #fff; }
+body.test-mode .quest { left: calc(max(10px, env(safe-area-inset-left)) + 62px); }

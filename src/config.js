@@ -964,6 +964,14 @@ export const CONFIG = {
     debugKeys: { grantGems: 'KeyG', damageHero: 'KeyH', teleportArena: 'KeyT', killBoss: 'KeyX', spawnBat: 'KeyB', cutscene: 'KeyP', desert: 'KeyO', ending: 'KeyU', pit: 'KeyL' },
   },
 
+  // Hidden test menu (testMenu.js): only with ?debug in the URL. Every jump starts with full
+  // hearts and this many uses of each ability (gems = uses × the ability's gem cost).
+  testMenu: {
+    param: 'debug',
+    abilityUses: 5,
+    caveApproach: 45,        // "Cave entrance": on the horse this far from the arena centre (it auto-dismounts at boss.dismountRange)
+  },
+
   cutscene: {
     fadeMs: 450,       // fade between slides
     swirlMs: 1600,     // swirl transition into the dream world
@@ -1269,6 +1277,11 @@ export const DIALOGUE = {
   loading: 'Loading the hero…',
   title: 'Dreamer Hero',
   rotatePhone: 'Please rotate your phone to landscape',
+  testMenu: {
+    open: 'TEST', close: 'Close',
+    forest: 'Forest start', cave: 'Cave entrance', boss: 'Boss fight', afterBoss: 'After boss (Amy rescued)',
+    pit: 'Lazarus Pit scene', chase: 'Desert chase', storm: 'Sandstorm', gate: 'Castle gate cinematic', ending: 'Ending screen',
+  },
   skip: 'Skip ▶▶',
   gameOver: 'You woke up with a jolt!',
   retry: 'Tap to dream again',

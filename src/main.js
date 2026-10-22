@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import './style.css';
-import { CONFIG, DIALOGUE } from './config.js';
+import { CONFIG, DIALOGUE, abilityGemCost } from './config.js';
 import { GameState, STATES } from './state.js';
 import { World } from './world.js';
 import { Hero } from './hero.js';
@@ -26,6 +26,7 @@ import { CornerRescue } from './rescue.js';
 import { characterBodies } from './fade.js';
 import { Sandstorm } from './sandstorm.js';
 import { CastleGate } from './gate.js';
+import { TestMenu, testMenuWanted } from './testMenu.js';
 
 async function boot() {
   const app = document.getElementById('app');
@@ -302,6 +303,107 @@ async function boot() {
   });
   state.paused = ui.isPortrait();
 
+  /** Debug T (and the test menu's "Boss fight"): on foot at the arena entrance, the horse waiting beside it. */
+  function teleportArena() {
+    const [cx, cz] = CONFIG.cave.center;
+    const x = cx - CONFIG.cave.radius - 4;
+    if (horse.controlsHero) horse.toggle(hero);
+    horse.mode = 'idle';
+    hero.riding = false;
+    hero.shadow.visible = true;
+    horse.position.set(x - 4, world.heightAt(x - 4, cz + 3), cz + 3);
+    horse.everMounted = horse.arrivedAtCave = true;
+    horse.lastCheckpoint = horse.checkpoints.length - 1;
+    hero.lastSafe.set(x, world.heightAt(x, cz), cz);
+    hero.respawn();
+    hero.facing = Math.PI / 2;
+    cam.yaw = -Math.PI / 2;
+    cam.snapTo(hero.position);
+  }
+
+  // --- Hidden test menu (?debug): jump straight to any part of the game ---
+  if (testMenuWanted()) {
+    const TM = CONFIG.testMenu;
+    const nextFrame = () => new Promise((r) => requestAnimationFrame(() => r()));
+    const behindHorse = () => {
+      cam.yaw = horse.heading + Math.PI;
+      cam.snapTo(hero.position);
+    };
+    /** Out of whatever is running (intro, a cutscene, Game Over, the ending) into a fresh game in play. */
+    const freshPlay = async () => {
+      if (state.is(STATES.ENDING)) state.set(STATES.INTRO);
+      if (state.is(STATES.INTRO)) cutscene.finish(); // (entering play from the intro resets everything)
+      if (state.is(STATES.CUTSCENE)) cinematic.stop();
+      if (!state.is(STATES.PLAY)) state.set(STATES.PLAY);
+      while (!state.is(STATES.PLAY)) await nextFrame();
+      story.resetAll(); // (the same full reset as Play Again)
+      rescue.reset();
+      minions.clear();
+    };
+    /** Full hearts and `abilityUses` uses of every ability (unlocked). */
+    const kit = () => {
+      lives.setHearts(lives.maxHearts);
+      for (const [color, ability] of Object.entries(CONFIG.gems.abilities)) {
+        gems.counts[color] = TM.abilityUses * abilityGemCost(ability);
+        gems.unlocked.add(color);
+        abilities.unlock(ability);
+      }
+      ui.setGems(gems.counts);
+    };
+    /** Through the Lazarus Pit scene (Skip): the chase starts as the ride resumes. */
+    const pastPit = async () => {
+      await story.debugPit();
+      await cinematic.skip();
+      while (!state.is(STATES.PLAY)) await nextFrame();
+    };
+    const jumps = {
+      forest: async () => {
+        horse.restartRide(hero); // on the horse at the start of the forest ride
+        quests.goTo('ride');
+        behindHorse();
+      },
+      cave: async () => {
+        // On the horse on the trail just short of the arena (it auto-dismounts there).
+        const t = world.track;
+        const [cx, cz] = CONFIG.cave.center;
+        let s = t.length;
+        while (s > 0 && Math.hypot(t.at(s).x - cx, t.at(s).z - cz) < TM.caveApproach) s -= 1;
+        const p = t.at(s);
+        horse.restartRide(hero);
+        horse.checkpoints.forEach((cp) => (cp.reached = true));
+        horse.lastCheckpoint = horse.checkpoints.length - 1;
+        horse.position.set(p.x, world.heightAt(p.x, p.z), p.z);
+        horse.heading = Math.atan2(p.tx, p.tz);
+        horse.trackS = s;
+        horse.mountNow(hero);
+        quests.goTo('ride');
+        behindHorse();
+      },
+      boss: async () => {
+        teleportArena();
+        quests.goTo('cave');
+      },
+      afterBoss: () => story.debugDesert(),
+      pit: () => story.debugPit(),
+      chase: pastPit,
+      storm: async () => {
+        await pastPit();
+        story.chaseTime = CONFIG.desert.chase.stormDelay + CONFIG.desert.chase.stormBuild; // (the storm at full strength)
+        storm.strength = 1;
+      },
+      gate: () => story.debugGate(),
+      ending: () => story.finish(),
+    };
+    new TestMenu(overlay, Object.entries(jumps).map(([key, jump]) => ({
+      label: DIALOGUE.testMenu[key],
+      run: async () => {
+        await freshPlay();
+        await jump();
+        kit();
+      },
+    })));
+  }
+
   // --- Resize ---
   const onResize = () => {
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, CONFIG.render.maxPixelRatio));
@@ -342,23 +444,7 @@ async function boot() {
       if (inp.debugSkeletons) minions.skeletonGroup(); // (Alt+K)
       if (inp.debugStorm) story.stormForced = story.stormLevel > 0.5 ? 0 : 1; // (Alt+S)
       if (inp.debugGate) story.debugGate(); // (Alt+G)
-      if (inp.debugTeleportArena) {
-        // Debug: on foot at the arena entrance, the horse waiting beside it.
-        const [cx, cz] = CONFIG.cave.center;
-        const x = cx - CONFIG.cave.radius - 4;
-        if (horse.controlsHero) horse.toggle(hero);
-        horse.mode = 'idle';
-        hero.riding = false;
-        hero.shadow.visible = true;
-        horse.position.set(x - 4, world.heightAt(x - 4, cz + 3), cz + 3);
-        horse.everMounted = horse.arrivedAtCave = true;
-        horse.lastCheckpoint = horse.checkpoints.length - 1;
-        hero.lastSafe.set(x, world.heightAt(x, cz), cz);
-        hero.respawn();
-        hero.facing = Math.PI / 2;
-        cam.yaw = -Math.PI / 2;
-        cam.snapTo(hero.position);
-      }
+      if (inp.debugTeleportArena) teleportArena();
       // (dismounting only below dismount.maxSpeed: the hold button and keyboard E alike)
       if (inp.mountPressed && (horse.mode !== 'riding' || horse.speed < CONFIG.input.dismount.maxSpeed)) horse.toggle(hero);
       hero.lastDt = dt;
