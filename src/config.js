@@ -446,9 +446,10 @@ export const CONFIG = {
         behind: { back: 7.5, up: 3.4, ahead: 6, duration: 1.4 },
         reveal: { side: -6, up: 3.2, back: 6, duration: 2.2 },
         sideOn: { dist: 8.5, up: 2.6, duration: 1.6 },
-        // The drink: side-front of AJ (`angle`° off his facing, away from Amy) at shoulder height,
-        // framing him and the pit (the look point `pitWeight` of the way from his chest to it).
-        drink: { angle: 60, dist: 3.1, up: 1.25, chest: 1.1, pitWeight: 0.4, duration: 1.0 }, // (his shoulders are at ~1.25 bent over the cup)
+        // The drink: a simple wide side shot — `dist` from the group (AJ, Amy and the pit), from
+        // the side (`angle`° round toward the trail so the two don't overlap), at chest height
+        // (`up`), looking at the pit (`look` above its water) with AJ and Amy both in frame.
+        drink: { dist: 4, angle: 25, up: 1.3, look: 0.4, duration: 1.0 },
         // "Who are you?" and her smile: a close-up on Amy's face from the front, slightly below
         // eye level (`eye` − `below`), `dist` from her body (≥ guard.minDist), `angle`° round from
         // the line to AJ (so the camera keeps clear of him), her yaw turned `cheat` of the way to

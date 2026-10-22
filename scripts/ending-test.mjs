@@ -243,15 +243,16 @@ for (const at of ['second line, mid-typewriter', 'first line']) {
       if (cam.insideSolid(p, 0)) inSolid++;
       if (p.y < world.heightAt(p.x, p.z)) underGround++;
       const settled = cinematic.moves.length === 0;
-      // The drink: side-front of AJ at shoulder height, AJ and the pit in frame.
+      // The drink: a wide side shot ~4 from the group at chest height, looking at the pit, AJ and Amy in frame.
       if (hero.drink && settled) {
         drinkShot.frames++;
-        const f = new THREE.Vector3(Math.sin(hero.facing), 0, Math.cos(hero.facing));
-        const c = p.clone().sub(hero.position).setY(0).normalize();
-        drinkShot.angle.push(THREE.MathUtils.radToDeg(Math.acos(THREE.MathUtils.clamp(f.dot(c), -1, 1))));
-        drinkShot.up.push(p.y - hero.position.y);
-        if (onScreen(hero.position.clone().setY(hero.position.y + 1.45)) && onScreen(hero.position.clone().setY(hero.position.y + 0.3))) drinkShot.heroIn++;
-        if (onScreen(pit.position)) drinkShot.pitIn++;
+        const mid = hero.position.clone().add(boss.girl.position).add(pit.position).divideScalar(3);
+        drinkShot.angle.push(Math.hypot(p.x - mid.x, p.z - mid.z));
+        drinkShot.up.push(p.y - world.heightAt(p.x, p.z));
+        const body = (o) => [0.3, 1.0].every((k) => onScreen(o.clone().setY(o.y + k)));
+        if (body(hero.position) && body(boss.girl.position)) drinkShot.heroIn++;
+        const q = onScreen(pit.position);
+        if (q && Math.abs(q.x) < 0.25 && Math.abs(q.y) < 0.35) drinkShot.pitIn++;
       }
       // The close-up: Amy's face from the front, slightly below eye level; AJ out of frame or soft.
       if (girl.smiling && settled) {
@@ -276,8 +277,8 @@ for (const at of ['second line, mid-typewriter', 'first line']) {
   }
   const range = (a) => a.length ? `${Math.min(...a).toFixed(0)}–${Math.max(...a).toFixed(0)}` : 'none';
   check(camFrames > 300 && tooClose === 0 && inSolid === 0 && underGround === 0, `pit scene camera, every frame (${camFrames}): ≥ ${GD.minDist} from every character's body or that one faded (closest ${closest.toFixed(2)}, ${tooClose} unfaded closer), never in a solid (${inSolid}) or below the ground (${underGround})`);
-  check(drinkShot.frames > 30 && drinkShot.angle.every((a) => a > 20 && a < 65) && drinkShot.up.every((u) => Math.abs(u - SHT.drink.up) < 0.3) && drinkShot.heroIn === drinkShot.frames && drinkShot.pitIn === drinkShot.frames,
-    `the drink: side-front of AJ (${range(drinkShot.angle)}° off his facing) at shoulder height (${range(drinkShot.up.map((u) => u * 100))} cm up), AJ and the pit in frame (${drinkShot.heroIn}/${drinkShot.pitIn} of ${drinkShot.frames} frames)`);
+  check(drinkShot.frames > 30 && drinkShot.angle.every((d) => Math.abs(d - SHT.drink.dist) < 0.4) && drinkShot.up.every((u) => Math.abs(u - SHT.drink.up) < 0.15) && drinkShot.heroIn === drinkShot.frames && drinkShot.pitIn === drinkShot.frames,
+    `the drink: a wide side shot ${drinkShot.angle.length ? Math.min(...drinkShot.angle).toFixed(1) : '?'} from AJ, Amy and the pit at chest height (${range(drinkShot.up.map((u) => u * 100))} cm), looking at the pit (centred ${drinkShot.pitIn}/${drinkShot.frames}), AJ and Amy both in frame (${drinkShot.heroIn}/${drinkShot.frames})`);
   check(closeShot.frames > 30 && closeShot.front.every((a) => a < 30) && closeShot.below === closeShot.frames && closeShot.eyesCentred === closeShot.frames && closeShot.heroSoft === closeShot.frames && closeShot.glow > 0 && closeShot.heroDist >= GD.minDist - 1e-3 && closeShot.fov < CONFIG.render.fov,
     `the close-up: Amy's face from the front (${range(closeShot.front)}° off her facing), just below eye level, her eyes centred (${closeShot.eyesCentred}/${closeShot.frames}) and glowing (${closeShot.glow} frames), AJ out of frame or soft (${closeShot.heroSoft}/${closeShot.frames}), ${closeShot.heroDist.toFixed(2)} from his body, fov ${closeShot.fov.toFixed(0)}`);
   const S = DIALOGUE.speakers;

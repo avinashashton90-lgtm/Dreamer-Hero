@@ -271,21 +271,20 @@ export class Story {
       const side = new THREE.Vector3(-spots.toTrail.z, 0, spots.toTrail.x);
       return { pos: mid.clone().addScaledVector(side, SH.sideOn.dist).setY(mid.y + SH.sideOn.up), look: mid.clone().setY(mid.y + 0.9) };
     };
-    // The drink: side-front of AJ at shoulder height (on the side away from Amy), him and the pit in frame.
+    // The drink: a wide side shot at chest height, looking at the pit, AJ and Amy both in frame.
     const drinkShot = () => {
       const D = SH.drink;
       const h = this.hero.position;
-      const f = new THREE.Vector3(Math.sin(this.hero.facing), 0, Math.cos(this.hero.facing));
-      let side = new THREE.Vector3(-f.z, 0, f.x);
       const g = this.boss.girl.position;
-      if (side.dot(g.clone().sub(h)) > 0) side.negate(); // (away from her)
+      const mid = h.clone().add(g).add(pit.position).divideScalar(3);
+      const { toTrail } = this.#pitSpots();
+      const side = new THREE.Vector3(-toTrail.z, 0, toTrail.x);
+      if (side.dot(h.clone().sub(g)) < 0) side.negate(); // (from AJ's side)
       const a = THREE.MathUtils.degToRad(D.angle);
-      const dir = f.clone().multiplyScalar(Math.cos(a)).addScaledVector(side, Math.sin(a));
-      const chest = h.clone().setY(h.y + D.chest);
-      return {
-        pos: h.clone().addScaledVector(dir, D.dist).setY(h.y + D.up),
-        look: chest.lerp(pit.position.clone().setY(pit.position.y + 0.3), D.pitWeight),
-      };
+      const dir = side.multiplyScalar(Math.cos(a)).addScaledVector(toTrail, Math.sin(a));
+      const pos = mid.clone().addScaledVector(dir, D.dist);
+      pos.y = this.world.heightAt(pos.x, pos.z) + D.up;
+      return { pos, look: pit.position.clone().setY(pit.position.y + D.look) };
     };
     const pullBack = () => {
       const g = this.boss.girl.position;
