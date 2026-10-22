@@ -227,6 +227,7 @@ export class Horse {
     this.checkpoints = this.forestCheckpoints;
     this.passenger = null; // the girl, riding behind the hero (desert)
     this.hold = false; // ending: brake to a stop and stay put
+    this.scripted = false; // a cutscene drives position / heading / speed itself (the castle gate)
     this.prints = []; // hoof prints in the sand
     this.dust = [];
 
@@ -276,6 +277,20 @@ export class Horse {
       const p = track.at(s);
       return { s, position: new THREE.Vector3(p.x, world.heightAt(p.x, p.z), p.z), heading: track.headingAt(s), reached: false };
     });
+  }
+
+  /**
+   * A checkpoint right here on the current route, reached at once (after the Lazarus Pit: dying
+   * in the sandstorm chase restarts from there, the pit not replayed).
+   */
+  checkpointHere() {
+    const s = this.trackS ?? 0;
+    const cp = { s, position: this.position.clone(), heading: this.heading, reached: true, here: true };
+    const i = this.checkpoints.findIndex((c) => c.s > s);
+    const at = i < 0 ? this.checkpoints.length : i;
+    this.checkpoints.splice(at, 0, cp);
+    this.lastCheckpoint = at;
+    return cp;
   }
 
   /** Ride along another trail (the desert): its path assist and its own checkpoints. */
@@ -354,6 +369,7 @@ export class Horse {
     this.markers?.forEach((m) => m.userData.flag.material.color.setHex(CP.flagColor));
     this.setPassenger(null);
     this.hold = false;
+    this.scripted = false;
     for (const d of [...this.dust, ...this.drops, ...this.ripples, ...this.prints]) d.age = d.life;
     this.stamina = 1;
     this.fatigue = 0;
@@ -400,7 +416,9 @@ export class Horse {
    */
   update(dt, input, cameraYaw, hero) {
     this.time += dt;
-    if (input && this.mode === MODES.RIDING) this.#ride(dt, input, cameraYaw, hero);
+    if (this.scripted) {
+      // (position, heading, speed and gallop set by the cutscene; only the animation runs here)
+    } else if (input && this.mode === MODES.RIDING) this.#ride(dt, input, cameraYaw, hero);
     else if (this.mode !== MODES.RIDING) this.speed = Math.max(0, this.speed - HC.braking * dt);
 
     const seat = this.#syncModel(dt);

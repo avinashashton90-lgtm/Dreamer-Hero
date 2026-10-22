@@ -58,7 +58,7 @@ export class Minion {
   }
 
   get alive() {
-    return this.hp > 0 && !this.removed && this.state !== 'dying' && this.state !== 'fading';
+    return this.hp > 0 && !this.removed && this.state !== 'dying' && this.state !== 'fading' && this.state !== 'sink';
   }
 
   /** The hero's hits: melee 4, Batarang 6 (MN.damage), the Flash bolt kills it. */
@@ -207,14 +207,14 @@ export class Minions {
     this.clock = 0;
     this.batWindows = [{ start: 0, end: Infinity }];
     this.lastBatAttackAt = -Infinity; // when the last bat started its dive (attackGap)
-    this.stats = { spawned: { bat: 0, skeleton: 0, slime: 0 }, defeated: { bat: 0, skeleton: 0, slime: 0 }, drops: 0, bites: 0, hits: 0, knocked: 0, horseEnergy: 0, dives: 0, screeches: 0, outOfView: 0 };
+    this.stats = { spawned: { bat: 0, skeleton: 0, slime: 0 }, defeated: { bat: 0, skeleton: 0, slime: 0 }, drops: 0, bites: 0, hits: 0, knocked: 0, horseEnergy: 0, dives: 0, screeches: 0, outOfView: 0, skeletonGroups: 0 };
     this.resetTimers();
   }
 
   resetTimers() {
     this.rideTime = 0; // seconds riding the forest trail
     this.nextBat = this.#range(BT.interval);
-    this.desertTime = 0; // seconds riding the desert after the Lazarus Pit
+    this.chaseClock = 0; // the chase clock last seen (it restarts on a respawn)
     this.nextSkeletons = SK.firstDelay;
     this.lastCheckpointAt = -Infinity;
   }
@@ -282,7 +282,8 @@ export class Minions {
 
   /**
    * @param {number} dt
-   * @param {{ playing: boolean, riding: boolean, route: 'forest' | 'desert' | null, pitDone: boolean, galloping: boolean }} ctx
+   * @param {{ playing: boolean, riding: boolean, route: 'forest' | 'desert' | null, pitDone: boolean, galloping: boolean,
+   *   chase?: { active: boolean, time: number, over: boolean } }} ctx  chase: the sandstorm chase after the pit
    */
   update(dt, ctx) {
     this.clock += dt;
@@ -392,29 +393,54 @@ export class Minions {
     }
   }
 
+  /**
+   * The sandstorm chase (only while `ctx.chase.active` — set when the Lazarus Pit scene ends —
+   * and not over): the first group rises `firstDelay` s after the ride resumes, close behind and
+   * beside the horse, then a group every `interval` s, `max` alive at most, from the sides and
+   * from behind. The chase clock (`ctx.chase.time`) restarts on a respawn, and so does this.
+   */
   #spawnSkeletons(dt, ctx) {
-    if (!(ctx.route === 'desert' && ctx.pitDone && ctx.riding)) return;
-    this.desertTime += dt;
-    if (this.desertTime < this.nextSkeletons) return;
-    this.nextSkeletons = this.desertTime + this.#range(SK.interval);
+    const C = ctx.chase;
+    if (!(C?.active && !C.over && ctx.route === 'desert' && ctx.riding)) return;
+    if (C.time < this.chaseClock) this.nextSkeletons = SK.firstDelay; // (restarted)
+    this.chaseClock = C.time;
+    if (C.time < this.nextSkeletons) return;
+    const first = this.nextSkeletons === SK.firstDelay;
+    this.nextSkeletons = C.time + this.#range(SK.interval);
+    this.skeletonGroup(first);
+  }
+
+  /** A group of `group` skeletons rising from the sand round the horse (debug Alt+K too). */
+  skeletonGroup(first = false) {
     const h = this.deps.horse;
     const track = this.world.desertTrack;
-    const castle = this.world.castlePosition;
     const n = Math.min(SK.group, SK.max - this.count('skeleton'));
+    const base = h.trackS ?? (track.nearest(h.position.x, h.position.z, 30) ?? track.nearestGlobal(h.position.x, h.position.z)).s;
     for (let i = 0; i < n; i++) {
-      const s = (h.trackS ?? 0) + this.#range(SK.ahead);
-      if (s > track.length) continue;
+      const s = THREE.MathUtils.clamp(base + this.#range(first ? SK.firstAlong : SK.along), 0, track.length);
       const p = track.at(s);
-      const lat = (i % 2 ? 1 : -1) * this.#range(SK.lateral);
+      const lat = (i % 2 ? 1 : -1) * this.#range(SK.side);
       const x = p.x - p.tz * lat;
       const z = p.z + p.tx * lat;
-      if (castle && (Math.hypot(x - castle.x, z - castle.z) < SK.castleClear || Math.hypot(h.position.x - castle.x, h.position.z - castle.z) < SK.castleClear)) continue;
+      if (i === 0) this.stats.skeletonGroups++;
       this.#spawn('skeleton', (m) => {
         m.position.set(x, this.world.heightAt(x, z), z);
         m.extra.groundY = m.position.y;
         m.facing = Math.atan2(h.position.x - x, h.position.z - z);
       });
     }
+  }
+
+  /** Sinking back into the sand (the chase is over), then gone (no gem). */
+  #sink(m, dt, ground) {
+    const f = Math.min(1, m.stateTime / SK.sink);
+    m.position.y = ground - m.height * f;
+    if (f >= 1) this.#remove(m);
+  }
+
+  /** The chase is over: every skeleton sinks back into the sand (no gems). */
+  sinkSkeletons() {
+    for (const m of this.list) if (m.type === 'skeleton' && m.alive && m.state !== 'sink') m.set('sink');
   }
 
   // --- behaviour ------------------------------------------------------------
@@ -660,6 +686,7 @@ export class Minions {
     const edge = d - target.radius - m.radius;
     const ground = this.world.heightAt(m.position.x, m.position.z);
     // Left far behind the horse: gone.
+    if (m.state === 'sink') return this.#sink(m, dt, ground);
     if (target.riding && m.state !== 'spawn') {
       const behind = dx * Math.sin(horse.heading) + dz * Math.cos(horse.heading); // (dx, dz: from it to the horse — positive = it is behind)
       if (behind > SK.despawnBehind) return this.#remove(m);
@@ -681,6 +708,7 @@ export class Minions {
         if (f >= 1) m.set('move');
         break;
       }
+
       case 'move':
         m.facing = Math.atan2(dx, dz);
         if (edge <= SK.attackReach && m.cooldown <= 0) {
@@ -688,8 +716,9 @@ export class Minions {
           break;
         }
         if (edge > SK.attackReach * 0.5) {
-          m.position.x += (dx / d) * SK.speed * dt;
-          m.position.z += (dz / d) * SK.speed * dt;
+          const speed = target.riding ? SK.speedFactor * CONFIG.horse.maxSpeed : SK.footSpeed;
+          m.position.x += (dx / d) * speed * dt;
+          m.position.z += (dz / d) * speed * dt;
         }
         m.position.y = ground;
         break;

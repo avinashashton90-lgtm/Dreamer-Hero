@@ -27,6 +27,8 @@ export class FollowCamera {
     this.shakeT = 0;
     this.shakeTime = 1;
     this.shakeAmp = 0;
+    this.wind = 0; // sandstorm: a gentle, smooth shake (units), set by the storm each frame
+    this.windT = 0;
     this.raise = 0; // extra pitch (radians) while a solid right behind the hero blocks the view
     this.#dir = new THREE.Vector3();
     this.#ray = new THREE.Raycaster();
@@ -104,6 +106,15 @@ export class FollowCamera {
       this.camera.position.y += (Math.random() - 0.5) * 2 * a;
       this.camera.position.z += (Math.random() - 0.5) * 2 * a;
       this.#clearOfSolids(this.camera.position); // (a shake never puts it inside a rock)
+    }
+    if (this.wind > 0) {
+      // Buffeted by the wind: a few slow sines, no jitter.
+      const t = (this.windT += dt);
+      const a = this.wind;
+      this.camera.position.x += a * (Math.sin(t * 7.3) + 0.5 * Math.sin(t * 13.1));
+      this.camera.position.y += a * 0.6 * Math.sin(t * 9.7 + 1);
+      this.camera.position.z += a * (Math.sin(t * 6.1 + 2) + 0.5 * Math.sin(t * 11.3));
+      this.#clearOfSolids(this.camera.position);
     }
   }
 

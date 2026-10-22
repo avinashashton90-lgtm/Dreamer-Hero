@@ -1,14 +1,16 @@
 import * as THREE from 'three';
 import { CONFIG, DIALOGUE } from './config.js';
 import { STATES } from './state.js';
+import { loadMinionTemplate } from './minionModels.js';
 
 const CI = CONFIG.cinematic;
 const DS = CONFIG.desert;
-const EN = CONFIG.ending;
 const GL = CONFIG.boss.girl;
 const EX = DS.exhaustion;
 const PIT = DS.pit;
-const { smoothstep } = THREE.MathUtils;
+const CH = DS.chase;
+const GT = DS.gate;
+const { smoothstep, clamp } = THREE.MathUtils;
 
 /**
  * The end of Part 1, kept free of the DOM so it runs headless in tests:
@@ -17,11 +19,16 @@ const { smoothstep } = THREE.MathUtils;
  *  - the boss fight leaves the hero on 1 heart, exhausted (slumped, a slower horse) and more
  *    so along the desert trail, until the girl stops him at a Lazarus Pit ("Stop." scene)
  *    whose water refills his hearts — only his hearts;
- *  - near the castle the horse slows, a wide sunset shot, then the ending screens;
+ *  - the moment the pit scene ends (also skipped) the sandstorm chase starts
+ *    (`desertChaseActive`): the storm builds, skeletons rise round the horse (minions.js) until
+ *    `castleClear` from the castle, where they sink back into the sand;
+ *  - 70 from the castle gate the gate cinematic: the storm clears, the horse gallops through a
+ *    line of skeletons (thrown aside) into the castle, the gates slam shut, then the ending screens;
  *  - `resetAll()` puts every system back to a new game (Play Again).
  *
  * @param {object} sys  { world, hero, horse, boss, girl, gems, abilities, combat, lives,
- *   quests, cinematic, state, cam, pit (LazarusPit), sound?, ui? (fadeOut/fadeIn), guide? }
+ *   quests, cinematic, state, cam, pit (LazarusPit), gate (CastleGate), storm? (Sandstorm),
+ *   minions?, sound?, ui? (fadeOut/fadeIn), guide? }
  */
 export class Story {
   constructor(sys) {
@@ -40,6 +47,41 @@ export class Story {
     this.fatigue = 0; // 0..1, drives the slump, the HUD vignette and the slower horse
     this.tweens = []; // scripted movement during the pit scene
     this.actors = { hero: null, girl: null }; // { pos, yaw } while puppeted on foot
+    this.desertChaseActive = false; // set when the pit scene ends (also when skipped): the sandstorm chase
+    this.chaseTime = 0; // seconds of play since the ride resumed (restarts on a respawn)
+    this.chaseOver = false; // within castleClear of the castle: the skeletons sink back
+    this.stormForced = null; // (debug Alt+S: 0 or 1 instead of the story's storm)
+    this.gateStarted = false; // the castle-gate cinematic
+    this.gateDone = false;
+    this.gateTime = 0;
+    this.gateRide = null; // the horse's scripted path through the gate
+    this.glanceT = 0; // Amy's nervous glance back
+    this.chaseGrace = 0; // seconds before a skeleton can land another hit in the chase
+  }
+
+  /**
+   * The chase is tense, never lethal: a skeleton hit never takes the hero below `minHearts`
+   * (half a heart) and after each one there is a `grace`. Returns the hearts this hit may cost
+   * (0: none). Other sources, and outside the chase, pass through unchanged.
+   */
+  chaseHit(n, source) {
+    if (source !== 'skeleton' || !this.desertChaseActive || this.gateStarted) return n;
+    if (this.chaseGrace > 0) return 0;
+    const k = Math.min(n, this.lives.hearts - CH.minHearts);
+    if (k <= 0) return 0;
+    this.chaseGrace = CH.grace;
+    return k;
+  }
+
+  /**
+   * The sandstorm's strength (0..1): it starts building `stormDelay` s after the ride resumes
+   * and is full `stormBuild` s later; it clears over `gate.stormClear` s in the gate scene.
+   */
+  get stormLevel() {
+    if (this.stormForced !== null) return this.stormForced;
+    if (!this.desertChaseActive) return 0;
+    const build = clamp((this.chaseTime - CH.stormDelay) / CH.stormBuild, 0, 1);
+    return this.gateStarted ? build * Math.max(0, 1 - this.gateTime / GT.stormClear) : build;
   }
 
   /** Per frame. `counting`: the game clock runs (play or cutscene, not paused). */
@@ -53,6 +95,13 @@ export class Story {
     this.#updateFatigue(counting ? dt : 0);
     this.#updateScripted(counting ? dt : 0);
     this.pit?.update(counting ? dt : 0);
+    if (counting && this.desertChaseActive && !this.gateStarted && state.is(STATES.PLAY)) this.chaseTime += dt;
+    if (counting) this.chaseGrace = Math.max(0, this.chaseGrace - dt);
+    if (counting && this.gateStarted) {
+      this.gateTime += dt;
+      this.#rideGate(dt);
+    }
+    if (this.glanceT > 0 && (this.glanceT -= counting ? dt : 0) <= 0) this.girl.glanceBack = false;
     if (!state.is(STATES.PLAY)) return;
     // The girl's scene: after the boss, on foot, close to her.
     if (this.phase === 'forest' && boss.defeated && !hero.riding && boss.girl.visible) {
@@ -63,11 +112,25 @@ export class Story {
     if (this.phase === 'desert' && !this.pitDone && horse.route === this.world.desertTrack && horse.trackS >= this.pitTriggerS) {
       this.startPitScene();
     }
-    // The ending: close to the castle.
-    if (this.phase === 'desert' && this.world.castlePosition) {
-      const c = this.world.castlePosition;
-      if (Math.hypot(horse.position.x - c.x, horse.position.z - c.z) < DS.endRange) this.startEnding();
+    // The chase is over near the castle: the skeletons sink back into the sand.
+    const c = this.world.castlePosition;
+    if (this.desertChaseActive && !this.chaseOver && c && Math.hypot(horse.position.x - c.x, horse.position.z - c.z) < CONFIG.minions.skeletons.castleClear) {
+      this.chaseOver = true;
+      this.minions?.sinkSkeletons();
     }
+    // The castle gate: 70 from it, the gate cinematic (then the ending).
+    if (this.phase === 'desert' && this.gate && this.world.castle) {
+      const g = this.gate.frame.gate;
+      if (Math.hypot(horse.position.x - g.x, horse.position.z - g.z) < GT.trigger) this.startGateScene();
+    }
+  }
+
+  /** Dying in the chase: back at the checkpoint after the pit, the storm and skeletons from scratch. */
+  restartChase() {
+    if (!this.desertChaseActive || this.gateStarted) return;
+    this.chaseTime = 0;
+    this.chaseOver = false;
+    this.storm?.reset();
   }
 
   // --- The girl's cutscene ---------------------------------------------------
@@ -470,31 +533,163 @@ export class Story {
     horse.hold = false;
     this.pitDone = true;
     this.phase = 'desert';
+    // The sandstorm chase starts as the ride resumes; dying in it restarts here (the pit not replayed).
+    this.desertChaseActive = true;
+    this.chaseTime = 0;
+    this.chaseOver = false;
+    horse.checkpointHere();
     this.#cameraBehindHorse();
   }
 
   // --- The ending ------------------------------------------------------------
 
-  /** The horse slows near the castle; a wide sunset shot from behind; then the ending screens. */
-  async startEnding() {
-    if (this.endingStarted) return;
-    this.endingStarted = true;
-    this.phase = 'ending';
-    this.horse.hold = true;
+  /**
+   * The castle gate (not a fight): control is taken, the HUD hides, the storm clears; four
+   * skeletons stand in a line before the gates with a clear lane in the middle; a low chase
+   * camera follows the horse galloping through it (each skeleton thrown aside); the gates swing
+   * open, horse and riders ride in, the gates slam shut behind them and Amy glances back. Then
+   * the ending screens. Skip runs `finishGate()` (inside, gates shut, the ending).
+   */
+  async startGateScene() {
+    if (this.gateStarted) return;
+    this.gateStarted = this.endingStarted = true;
+    this.phase = 'gate';
+    this.gateTime = 0;
+    this.stormForced = null;
+    this.chaseOver = true;
+    this.minions?.sinkSkeletons();
     this.state.set(STATES.CUTSCENE);
+    const template = await (this.minions ? this.minions.ready('skeleton') : loadMinionTemplate('skeleton', { placeholder: true }));
+    if (this.phase !== 'gate') return; // (reset while it loaded)
+    this.gate.stage(template);
+    this.#gatePath();
+    this.horse.hold = false;
+    this.horse.scripted = true;
+    await this.cinematic.play(this.gateSteps());
+  }
+
+  /** The horse's path: from where it is, lined up with the gate, through the lane, into the passage. */
+  #gatePath() {
+    const { horse } = this;
+    const { gate, inside, out } = this.gate.frame;
+    const flat = (v) => new THREE.Vector3(v.x, 0, v.z);
+    const along = (v) => v.clone().sub(gate).dot(out);
+    const h = flat(horse.position);
+    const f = new THREE.Vector3(Math.sin(horse.heading), 0, Math.cos(horse.heading));
+    const hAlong = along(h);
+    const pts = [h, h.clone().addScaledVector(f, Math.min(10, hAlong * 0.15))];
+    for (const d of [GT.approach, GT.line.before * 0.5]) if (d < hAlong - 8) pts.push(flat(gate).addScaledVector(out, d));
+    pts.push(flat(gate), flat(inside));
+    const curve = new THREE.CatmullRomCurve3(pts, false, 'centripetal');
+    this.gateRide = { curve, length: curve.getLength(), d: 0, done: false };
+  }
+
+  /** Height along the path: the dunes outside, levelling onto the castle floor through the gate. */
+  #gateY(p) {
+    const { gate, out, floor } = this.gate.frame;
+    const a = p.clone().sub(gate).dot(out);
+    return THREE.MathUtils.lerp(floor, this.world.heightAt(p.x, p.z), smoothstep(a, 0, GT.level));
+  }
+
+  /** Drives the horse along the gate path (a full gallop, braking into the passage). */
+  #rideGate(dt) {
+    const R = this.gateRide;
     const horse = this.horse;
-    const shot = () => {
-      const f = new THREE.Vector3(Math.sin(horse.heading), 0, Math.cos(horse.heading));
+    if (!R || R.done || !horse.scripted) return;
+    const target = Math.min(GT.speed, Math.sqrt(2 * GT.brake * Math.max(0, R.length - R.d)));
+    horse.speed = horse.speed < target ? Math.min(target, horse.speed + GT.accel * dt) : target;
+    R.d = Math.min(R.length, R.d + horse.speed * dt);
+    const u = R.d / R.length;
+    const p = R.curve.getPointAt(u);
+    const t = R.curve.getTangentAt(u);
+    horse.position.set(p.x, this.#gateY(p), p.z);
+    horse.heading = Math.atan2(t.x, t.z);
+    horse.galloping = horse.speed > CONFIG.horse.maxSpeed;
+    horse.grounded = true;
+    const g = this.gate.frame.gate;
+    if (Math.hypot(p.x - g.x, p.z - g.z) < GT.open.at) this.gate.startOpening();
+    if (R.length - R.d < 0.02) {
+      R.done = true;
+      horse.speed = 0;
+      horse.galloping = false;
+    }
+  }
+
+  /** How far the horse is out from the gate (along `out`). */
+  get #gateAlong() {
+    const { gate, out } = this.gate.frame;
+    return this.horse.position.clone().sub(gate).dot(out);
+  }
+
+  gateSteps() {
+    const S = GT.shots;
+    const { horse } = this;
+    // A low chase camera behind and beside the galloping horse.
+    const chase = () => {
+      const { f, r } = this.#frame();
+      const p = horse.position;
       return {
-        pos: horse.position.clone().addScaledVector(f, -EN.shot.back).setY(horse.position.y + EN.shot.height),
-        look: horse.position.clone().addScaledVector(f, EN.shot.lookAhead).setY(horse.position.y + EN.shot.lookUp),
+        pos: p.clone().addScaledVector(f, -S.chase.back).addScaledVector(r, S.chase.side).setY(p.y + S.chase.up),
+        look: p.clone().addScaledVector(f, S.chase.ahead).setY(p.y + S.chase.look),
       };
     };
-    await this.cinematic.play([
-      { camera: { pos: () => shot().pos, look: () => shot().look, duration: EN.shot.duration } },
-      { wait: EN.holdTime },
-      { call: () => this.finish(), essential: true },
-    ]);
+    // Outside the gate, to one side: they gallop past it into the castle; the gates shut.
+    const gateShot = () => {
+      const { gate, out, right, floor } = this.gate.frame;
+      const pos = gate.clone().addScaledVector(out, S.gate.out).addScaledVector(right, S.gate.side);
+      pos.y = this.world.heightAt(pos.x, pos.z) + S.gate.up;
+      return { pos, look: gate.clone().setY(floor + S.gate.look) };
+    };
+    return [
+      { camera: { pos: () => chase().pos, look: () => chase().look, duration: S.chase.duration, follow: true, wait: false } },
+      { call: () => this.#tween(() => this.#gateAlong < GT.line.before - S.gate.after) }, // (through the skeleton line)
+      { camera: { pos: () => gateShot().pos, look: () => gateShot().look, duration: S.gate.duration, wait: false } },
+      { call: () => this.#tween(() => this.gateRide.done) },
+      { call: () => this.#slamGates() },
+      { wait: GT.hold },
+      { call: () => this.finishGate(), essential: true },
+    ];
+  }
+
+  /** Amy glances back nervously as the gates slam shut behind them (a heavy thud, dust, a shake). */
+  async #slamGates() {
+    this.girl.glanceBack = true;
+    this.glanceT = GT.glance;
+    this.gate.slam();
+    await this.#tween(() => this.gate.slams > 0);
+    this.sound?.play('gateSlam');
+    this.cinematic.shake(GT.slam.shake, GT.slam.shakeTime);
+  }
+
+  /** Inside with the gates shut (also on Skip); then the ending screens. */
+  finishGate() {
+    if (this.gateDone) return;
+    this.gateDone = true;
+    const { horse, gate } = this;
+    const R = this.gateRide;
+    if (R && !R.done) {
+      // (skipped: straight to the stop inside)
+      R.d = R.length;
+      const p = R.curve.getPointAt(1);
+      const t = R.curve.getTangentAt(1);
+      horse.position.set(p.x, this.#gateY(p), p.z);
+      horse.heading = Math.atan2(t.x, t.z);
+      R.done = true;
+    }
+    for (const p of gate.puppets) p.model.visible = p.launched; // (any still standing stay out of the shot)
+    if (gate.slams === 0) {
+      gate.open = 0;
+      gate.opening = false;
+      gate.slamT = -1;
+      gate.slams = 1;
+      gate.update(0);
+    }
+    horse.scripted = false;
+    horse.hold = true;
+    horse.speed = 0;
+    horse.galloping = false;
+    horse.mountNow(this.hero); // (the riders' pose where the horse stands)
+    this.finish();
   }
 
   finish() {
@@ -523,6 +718,8 @@ export class Story {
     this.boss.reset();
     this.girl.reset();
     this.pit?.reset();
+    this.gate?.reset();
+    this.storm?.reset();
     this.lives.newGame();
     this.quests.reset();
     this.guide?.reset();
@@ -587,7 +784,28 @@ export class Story {
     this.startPitScene();
   }
 
-  /** Debug U: ride up to the castle → the ending. */
+  /** Debug Alt+G: just short of the castle gate on the desert trail → the gate cinematic. */
+  async debugGate() {
+    if (this.phase !== 'desert') await this.debugDesert();
+    if (this.phase !== 'desert') return;
+    if (!this.pitDone) this.finishPit();
+    const t = this.world.desertTrack;
+    const g = this.gate.frame.gate;
+    let s = t.length;
+    for (; s > 0; s -= 1) {
+      const p = t.at(s);
+      if (Math.hypot(p.x - g.x, p.z - g.z) > GT.trigger + 4) break;
+    }
+    const p = t.at(s);
+    this.horse.position.set(p.x, this.world.heightAt(p.x, p.z), p.z);
+    this.horse.heading = Math.atan2(p.tx, p.tz);
+    this.horse.trackS = s;
+    this.horse.mountNow(this.hero);
+    this.horse.speed = CONFIG.horse.maxSpeed;
+    this.#cameraBehindHorse();
+  }
+
+  /** Debug U: ride up to the castle → the gate cinematic → the ending. */
   async debugEnding() {
     if (this.phase !== 'desert') await this.debugDesert();
     if (!this.pitDone) this.finishPit(); // past the pit: healed

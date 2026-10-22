@@ -331,7 +331,18 @@ export async function loadCastleModel() {
     group.add(m);
     return m;
   };
-  add(new THREE.BoxGeometry(H * 0.9, H * 0.32, H * 0.25), dark, 0, H * 0.16, 0); // curtain wall
+  // Curtain wall with a gate passage through it (the horse rides in at the castle-gate scene).
+  const G = DS.castle.gate;
+  const W2 = H * 0.45;
+  const gw = G.width / 2;
+  const depth = H * 0.25;
+  const wallH = H * 0.32;
+  add(new THREE.BoxGeometry(W2 - gw, wallH, depth), dark, -(gw + (W2 - gw) / 2), wallH / 2, 0);
+  add(new THREE.BoxGeometry(W2 - gw, wallH, depth), dark, gw + (W2 - gw) / 2, wallH / 2, 0);
+  add(new THREE.BoxGeometry(G.width, wallH - G.height, depth), dark, 0, G.height + (wallH - G.height) / 2, 0); // over the passage
+  const tunnel = new THREE.MeshBasicMaterial({ color: G.passageColor, fog: false, side: THREE.BackSide });
+  add(new THREE.BoxGeometry(G.width * 0.98, G.height * 0.99, depth * 0.98), tunnel, 0, G.height / 2, 0); // the dark passage
+  add(new THREE.PlaneGeometry(G.width, G.height).translate(0, G.height / 2, 0), new THREE.MeshBasicMaterial({ color: G.passageColor, fog: false }), 0, 0, -depth / 2 + 0.05); // (its far end)
   for (let i = 0; i < 13; i++) add(new THREE.BoxGeometry(H * 0.04, H * 0.05, H * 0.26), dark, -H * 0.42 + i * H * 0.07, H * 0.345, 0); // battlements
   for (const [x, z, k] of [[-0.45, 0, 0.55], [0.45, 0, 0.55], [-0.17, -0.12, 0.75], [0.17, -0.12, 0.7], [0, -0.22, 1]]) {
     const r = H * 0.07 * (0.8 + k * 0.4);
@@ -340,7 +351,28 @@ export async function loadCastleModel() {
     add(new THREE.ConeGeometry(r * 1.35, H * 0.22, 10), dark, x * H, h + H * 0.11, z * H);
     add(new THREE.BoxGeometry(r * 0.35, r * 0.6, 0.2), glow, x * H, h * 0.8, z * H + r * 1.02);
   }
-  add(new THREE.BoxGeometry(H * 0.1, H * 0.16, 0.3), glow, 0, H * 0.08, H * 0.13); // gate
+  // The gates: two separate leaves hinged at the passage's sides on its outer face (swappable
+  // parts: a real castle model can hand its own leaves to the gate scene through userData.gates).
+  const leaf = (side) => {
+    const hinge = new THREE.Group();
+    hinge.position.set(side * gw, 0, depth / 2 + 0.05);
+    const door = new THREE.Mesh(new THREE.BoxGeometry(gw, G.height, G.thickness).translate(-side * gw / 2, G.height / 2, 0), new THREE.MeshBasicMaterial({ color: G.color, fog: false }));
+    const bands = new THREE.Mesh(new THREE.BoxGeometry(gw * 0.96, G.height * 0.06, G.thickness * 1.4).translate(-side * gw / 2, 0, 0), new THREE.MeshBasicMaterial({ color: G.bandColor, fog: false }));
+    for (const k of [0.25, 0.7]) {
+      const b = bands.clone();
+      b.position.y = G.height * k;
+      hinge.add(b);
+    }
+    hinge.add(door);
+    hinge.userData.side = side; // −1 left, +1 right; opens inward by rotating −side × openAngle
+    group.add(hinge);
+    return hinge;
+  };
+  group.userData.gates = { left: leaf(-1), right: leaf(1) };
+  group.userData.gateLocal = new THREE.Vector3(0, 0, depth / 2); // the passage's outer opening (castle-local)
+  group.userData.insideLocal = new THREE.Vector3(0, 0, -depth / 2 + G.insideStop); // where the riders stop inside
+  // A warm glow over the gate (seen through the sandstorm).
+  add(new THREE.BoxGeometry(G.width * 1.2, H * 0.03, 0.3), glow, 0, G.height + H * 0.02, depth / 2 + 0.1);
   return group;
 }
 
@@ -1162,7 +1194,8 @@ export class World {
     u.horizon.value.copy(mix(SKY.horizon, SS.horizon));
     u.sunColor.value.copy(mix(SKY.sunColor, SS.sunColor));
     u.sunDir.value.set(...SKY.sunDirection).normalize().lerp(new THREE.Vector3(...SS.sunDirection).normalize(), f).normalize();
-    this.scene.fog.color.copy(mix(SKY.horizon, SS.fog));
+    this.fogBase = mix(SKY.horizon, SS.fog); // (the sandstorm blends its own fog from this)
+    this.scene.fog.color.copy(this.fogBase);
     this.scene.background.copy(this.scene.fog.color);
     this.lights.hemi.color.copy(mix(L.hemiSky, SS.hemiSky));
     this.lights.hemi.groundColor.copy(mix(L.hemiGround, SS.hemiGround));

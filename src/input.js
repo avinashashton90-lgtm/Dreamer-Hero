@@ -218,7 +218,7 @@ export class Input {
     this.attackQueued = false;
     this.dodgeQueued = false;
     this.abilityQueued = null; // 'batarang' | 'smokeBomb' | 'flashMode'
-    this.debugQueued = { grantGems: false, damageHero: false, teleportArena: false, killBoss: false, spawnBat: false, cutscene: false, desert: false, ending: false, pit: false };
+    this.debugQueued = { grantGems: false, damageHero: false, teleportArena: false, killBoss: false, spawnBat: false, cutscene: false, desert: false, ending: false, pit: false, skeletons: false, storm: false, gate: false };
 
     this.#buildDom(overlayRoot);
     this.#bind();
@@ -283,6 +283,9 @@ export class Input {
       debugDesert: this.enabled && this.debugQueued.desert,
       debugEnding: this.enabled && this.debugQueued.ending,
       debugPit: this.enabled && this.debugQueued.pit,
+      debugSkeletons: this.enabled && this.debugQueued.skeletons, // (Alt+K)
+      debugStorm: this.enabled && this.debugQueued.storm, // (Alt+S)
+      debugGate: this.enabled && this.debugQueued.gate, // (Alt+G)
       lookDX: this.enabled ? this.lookDX : 0,
       lookDY: this.enabled ? this.lookDY : 0,
       lookSensitivity: this.lookSensitivity,
@@ -429,6 +432,17 @@ export class Input {
     }
 
     window.addEventListener('keydown', (e) => {
+      if (e.altKey) {
+        // Alt + K / S / G: debug only (a skeleton group, the storm, the gate cinematic) — never
+        // a dodge, a step back or the gems.
+        for (const [name, code] of Object.entries(I.altDebugKeys)) {
+          if (e.code === code) {
+            e.preventDefault();
+            if (!e.repeat) this.debugQueued[name] = true;
+          }
+        }
+        return;
+      }
       if (e.code === 'KeyE' && !e.repeat) this.mountQueued = true;
       if (!e.repeat) {
         if (e.code === 'KeyJ') this.attackQueued = true;

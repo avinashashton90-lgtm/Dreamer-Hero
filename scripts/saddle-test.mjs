@@ -159,7 +159,7 @@ const throwAndFly = (maxS = 3) => { abilities.cooldowns.batarang = 0; const ok =
   const backHit = log.find((e) => e.target === b2 && e.source === 'batarang');
   check(moved && log.some((e) => e.target === a) && backHit && b2.hp === MN.types.skeleton.hp - MN.damage.batarang && (abilities.stats.batarangReturnHits ?? 0) >= 1,
     `on its way back it strikes a skeleton in its path too (${MN.types.skeleton.hp} → ${b2.hp} HP)`);
-  // Two throws at the same skeleton: 6 + 6 of its 14 (the out and back strikes don't double-count one pass).
+  // Two throws at the same skeleton: 6 + 6 of its 12 (a kill) (the out and back strikes don't double-count one pass).
   reset();
   const c = await skeleton(10, 0);
   throwAndFly(); throwAndFly();

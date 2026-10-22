@@ -24,6 +24,8 @@ import { Minions } from './minions.js';
 import { LazarusPit } from './pit.js';
 import { CornerRescue } from './rescue.js';
 import { characterBodies } from './fade.js';
+import { Sandstorm } from './sandstorm.js';
+import { CastleGate } from './gate.js';
 
 async function boot() {
   const app = document.getElementById('app');
@@ -174,7 +176,13 @@ async function boot() {
     },
   });
   await rescue.init();
-  const story = new Story({ world, hero, horse, boss, girl, gems, abilities, combat, lives, quests, cinematic, state, cam, pit, sound, ui, guide });
+  // The sandstorm chase after the Lazarus Pit, and the castle gates at the end of the ride.
+  const storm = new Sandstorm(world.scene, world);
+  await storm.init();
+  const gate = new CastleGate(world.scene, world);
+  await gate.init();
+  gate.camera = cam.camera; // (its dust puffs face the camera)
+  const story = new Story({ world, hero, horse, boss, girl, gems, abilities, combat, lives, quests, cinematic, state, cam, pit, gate, storm, minions, sound, ui, guide });
   quests.story = story;
   const NEUTRAL = { moveX: 0, moveY: 0, jumpPressed: false };
 
@@ -192,11 +200,14 @@ async function boot() {
       boss.onHeroRespawn();
       if (!boss.defeated) gems.resetArena();
       gems.restock(horse.checkpoints[horse.lastCheckpoint].s);
+      story.restartChase(); // (in the sandstorm chase: from the checkpoint after the pit, storm and skeletons afresh)
     },
   };
   /** The hero takes `n` hearts of damage from (fromX, fromZ); opts.knockback false for e.g. fire. */
   damageHero = (n, fromX, fromZ, opts = {}) => {
     if (dying || hero.invincible || !state.is(STATES.PLAY)) return false;
+    n = story.chaseHit(n, opts.source); // (the sandstorm chase: never below half a heart, a grace after each hit)
+    if (n <= 0) return false;
     // (fire ticks every 0.8 s: no post-hit invincibility from a burn, so every tick counts)
     hero.hurt(fromX, fromZ, opts.knockback !== false, opts.source !== 'fire');
     input.unstick(); // (a hit never leaves a drag or a touch stuck: a live swipe keeps turning the camera)
@@ -328,6 +339,9 @@ async function boot() {
       if (inp.debugDesert) story.debugDesert();
       if (inp.debugEnding) story.debugEnding();
       if (inp.debugPit) story.debugPit();
+      if (inp.debugSkeletons) minions.skeletonGroup(); // (Alt+K)
+      if (inp.debugStorm) story.stormForced = story.stormLevel > 0.5 ? 0 : 1; // (Alt+S)
+      if (inp.debugGate) story.debugGate(); // (Alt+G)
       if (inp.debugTeleportArena) {
         // Debug: on foot at the arena entrance, the horse waiting beside it.
         const [cx, cz] = CONFIG.cave.center;
@@ -360,6 +374,7 @@ async function boot() {
         route: horse.route === world.desertTrack ? 'desert' : 'forest',
         pitDone: story.pitDone,
         galloping: horse.galloping,
+        chase: { active: story.desertChaseActive, time: story.chaseTime, over: story.chaseOver },
       });
       rescue.update(dt, { onFoot: !horse.controlsHero, riding: horse.controlsHero });
       ui.setBossBar(boss.active, boss.hp / boss.maxHp, DIALOGUE.bossName);
@@ -390,12 +405,14 @@ async function boot() {
     if (!cinematic.active) hero.cameraOpacity = cam.heroOpacity; // (he fades if the camera is squeezed in right behind him; cutscenes fade him themselves)
     minions.fitView(); // (bats stay on screen: once more against this frame's camera)
     world.update(dt, cam.camera.position);
+    storm.update(state.paused ? 0 : realDt, story.stormLevel, cam.camera, cam); // (after the sky: it blends the fog from it)
+    gate.update(state.paused ? 0 : dt, story.gateStarted && !story.gateDone ? horse : null);
     world.updateFoliage(dt, cam.camera.position, cinematic.active ? cinematic.look : cam.focus); // (rocks / leaves in front of the shot's subject fade)
     renderer.render(world.scene, cam.camera);
   });
 
   // Exposed for debugging in the browser console (e.g. game.state.set('ending')).
-  window.game = { state, hero, cam, world, quests, horse, input, guide, gems, abilities, sound, combat, lives, boss, girl, pit, story, cinematic, minions, rescue, damageHero, lifeEvents, STATES };
+  window.game = { state, hero, cam, world, quests, horse, input, guide, gems, abilities, sound, combat, lives, boss, girl, pit, story, cinematic, minions, rescue, storm, gate, damageHero, lifeEvents, STATES };
 
   state.start();
 }

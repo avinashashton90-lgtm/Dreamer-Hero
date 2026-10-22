@@ -15,7 +15,8 @@
     "sim:boss": "node scripts/boss-sim.mjs",
     "test:minions": "node scripts/minions-test.mjs",
     "test:corner": "node scripts/corner-test.mjs",
-    "test:saddle": "node scripts/saddle-test.mjs"
+    "test:saddle": "node scripts/saddle-test.mjs",
+    "test:chase": "node scripts/chase-test.mjs"
   },
   "dependencies": {
     "three": "^0.186.1"

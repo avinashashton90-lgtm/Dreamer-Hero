@@ -200,6 +200,13 @@ export class GirlAnimator {
       rotateBone(b.head, axis(0, 1, 0), L.yaw * 0.6 * this.look);
       rotateBone(b.head, axis(1, 0, 0), L.pitch * this.look);
     }
+    // A nervous glance back over her shoulder (the castle gates closing).
+    this.glance = (this.glance ?? 0) + ((girl.glanceBack ? 1 : 0) - (this.glance ?? 0)) * (1 - Math.exp(-GM.glanceBack.rate * dt));
+    if (this.glance > 0.001) {
+      const G = GM.glanceBack;
+      rotateBone(b.chest, axis(0, 1, 0), G.yaw * 0.45 * this.glance);
+      rotateBone(b.head, axis(0, 1, 0), G.yaw * 0.55 * this.glance);
+    }
     // Witch hint: the eye glow (flickering while hinting; steady in her witch form).
     this.u.eyes.visible = girl.eyesGlowing;
   }

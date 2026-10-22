@@ -395,8 +395,11 @@ export const CONFIG = {
       [192, 0], [420, 0], [560, 90], [600, 260], [480, 400], [520, 560], [720, 600],
     ],
     minLength: 1000,         // the route test fails if the desert trail is shorter
-    castle: { distance: 35, height: 44, color: 0x2c2238, glow: 0xffb36b }, // castle this far past the trail end
-    endRange: 40,            // the ending starts within this distance of the castle
+    castle: {
+      distance: 35, height: 44, color: 0x2c2238, glow: 0xffb36b, // castle this far past the trail end
+      // The gate passage through the curtain wall and its two leaves (loadCastleModel → userData.gates).
+      gate: { width: 7, height: 8.5, thickness: 0.45, color: 0x4a3423, bandColor: 0x1d1a1f, passageColor: 0x0c0a10, insideStop: 3 },
+    },
     checkpoints: [0, 0.33, 0.66],
     // Rolling dunes: value noise (octaves of [wavelength, height]); gentle rolls on the trail.
     dunes: [[140, 7], [55, 2.6], [22, 0.7]],
@@ -462,6 +465,53 @@ export const CONFIG = {
         pullBack: { dist: 11, up: 5, duration: 1.6 },
       },
     },
+    // The sandstorm chase after the Lazarus Pit (story.desertChaseActive, set when the pit scene
+    // ends — also when it is skipped; skeleton spawning: minions.skeletons).
+    chase: {
+      stormDelay: 2,         // the storm starts building this long after the ride resumes...
+      stormBuild: 3,         // ...and is at full strength this long after that
+      minHearts: 0.5,        // a skeleton hit never takes the hero below half a heart during the chase...
+      grace: 1,              // ...and after each hit there is this long before the next can land
+    },
+    // The sandstorm (sandstorm.js): particles and cheap fog, a clear corridor along the trail.
+    storm: {
+      seed: 7,
+      ease: 1.6,             // strength follows the story's target this quickly (1/s)
+      shake: 0.035,          // gentle camera shake at full strength (units; grows with the wind)
+      wind: { across: 1, along: -0.35, speed: 26 }, // blowing across the trail (and a little back)
+      gust: { every: [5, 9], time: [1, 2], gain: 0.8 }, // the sides thicken for 1–2 s now and then
+      // Kept clear of sand: ±halfWidth of the trail (soft over `soft`), from `behind` to `ahead` of the camera.
+      clear: { halfWidth: 12, soft: 6, ahead: 70, behind: 20, step: 10 },
+      streaks: { count: 150, area: 42, length: [2.5, 6.5], width: [0.04, 0.09], height: [0.3, 7], color: 0xf3d7a6, opacity: 0.55 },
+      clouds: { count: 28, area: 48, band: 20, size: [9, 18], height: [1.5, 7], drift: 5, roll: 0.18, color: 0xd9a96b, opacity: 0.6 },
+      sky: { radius: 420, color: 0xc89060, opacity: 0.6 }, // the sky veils over (drawn behind everything near)
+      tint: { color: 0xd8944f, opacity: 0.1 },             // a light warm dusty tint over the view
+      fog: { color: 0xcf9c66, near: 30, far: 150 },        // still ≥ 60 of visibility along the trail
+      castleGlow: { color: 0xffb36b, up: 16, size: 46, opacity: 0.55 }, // the castle's warm glow reads through it
+    },
+    // The castle-gate cinematic (not a fight): 70 from the castle, control is taken, the storm
+    // clears, the horse gallops through a line of 4 skeletons (thrown aside) and into the castle.
+    gate: {
+      trigger: 70,           // from the castle's gate
+      stormClear: 3,         // the storm clears over this long
+      line: { before: 24, lateral: [-7, -3.4, 3.4, 7] }, // the skeleton line this far before the gate (a clear lane in the middle)
+      speed: 24, accel: 12,  // the horse's scripted gallop through it...
+      brake: 14,             // ...braking to a stop inside the passage
+      level: 8,              // the path levels onto the castle floor over the last 8 before the gate
+      approach: 32,          // the path lines up with the gate this far out
+      launch: { reach: 3.5, up: 6.5, out: 5.5, back: 1, spin: 8, gravity: 20, life: 2.2 }, // thrown aside as the horse passes (an arc that stays in the shot)
+      bones: { count: 8, speed: 6, up: 5.5, size: 0.13, life: 1.5, gravity: 18, color: 0xe9e1cb },
+      dust: { count: 10, size: [0.7, 1.6], speed: 3, life: 1.1, color: 0xd9b07c, opacity: 0.5 },
+      open: { angle: 1.5, time: 1.3, at: 28 }, // the gates swing open when the horse is this far from them
+      slam: { time: 0.32, shake: 0.55, shakeTime: 0.6, dust: 18 },
+      glance: 1.5,           // Amy glances back over her shoulder this long, as the gates shut
+      hold: 1.2,             // then the "To be continued" title
+      // Shots: a low chase camera behind the horse; then from outside the gate as they pass in.
+      shots: {
+        chase: { back: 6.5, up: 0.9, side: 2.4, ahead: 9, look: 1.5, duration: 0.8 },
+        gate: { out: 13, up: 1.6, side: 4.5, look: 3, duration: 0.05, after: 5 }, // (a cut, once the horse is `after` past the line)
+      },
+    },
     // Sunset: sky, fog and light colours blend in as the camera moves east into the desert.
     sunset: {
       blend: [150, 260],     // camera x range over which the sunset takes over
@@ -503,9 +553,7 @@ export const CONFIG = {
 
   // The end of Part 1.
   ending: {
-    brake: 10,               // the horse slows to a stop near the castle
-    shot: { back: 24, height: 11, lookAhead: 45, lookUp: 19, duration: 3.5 }, // wide shot from behind, castle and sunset ahead
-    holdTime: 2.2,           // then the title...
+    brake: 10,               // the horse slows to a stop (cutscenes: the Lazarus Pit)
     titleMs: 3200,           // ..."To be continued... Part 2" for this long, then the summary
   },
 
@@ -535,7 +583,7 @@ export const CONFIG = {
         color: 0x3a2f4a,
       },
       skeleton: {
-        file: 'skeleton.fbx', hp: 14, fit: ['y', 1.85], radius: 0.45, height: 1.85,
+        file: 'skeleton.fbx', hp: 12, fit: ['y', 1.85], radius: 0.45, height: 1.85, // (12 HP: 2 Batarang hits)
         hit: { radius: 0.6, height: 2.1 }, // a generous hit body (1.2 wide, the whole skeleton), counted while it rises
         roles: { idle: ['Skeleton_Idle'], move: ['Skeleton_Running'], attack: ['Skeleton_Attack'], hit: [], death: ['Skeleton_Death'], spawn: ['Skeleton_Spawn'] },
         fallback: { hit: 'idle', spawn: 'idle', move: 'idle' },
@@ -588,14 +636,18 @@ export const CONFIG = {
       hopAway: { time: 0.6, speed: 7 }, // after every hit on it: hops away (never blocks the way)
       edge: 1,               // stays this far inside the arena radius
     },
-    // Desert: skeletons rise from the sand ahead (only after the Lazarus Pit scene).
+    // The sandstorm chase after the Lazarus Pit (story.desertChaseActive; nothing before it).
     skeletons: {
-      firstDelay: 5,         // the first pair this long after the Lazarus Pit (only ~20 s of trail are left)...
-      interval: [25, 35], group: 2, max: 4, // ...then every 25–35 s
-      castleClear: 120,
-      ahead: [34, 44], lateral: [1, 3.5],
+      firstDelay: 2,         // the first group rises this long after the ride resumes...
+      interval: [6, 9], group: 2, max: 5, // ...then a group every 6–9 s, 5 alive at most
+      castleClear: 120,      // the chase ends this far from the castle: the rest sink back into the sand
+      firstAlong: [-8, 1],   // the first group close behind / beside the horse (along the trail from it)...
+      along: [-16, 2],       // ...later ones from behind and the sides
+      side: [3.5, 6.5],      // this far left / right of the trail's centre line
       rise: 1.6,             // seconds rising from the sand
-      speed: 7.5,            // running at the horse
+      sink: 1.2,             // seconds sinking back into it (the chase is over)
+      speedFactor: 0.9,      // running at this × the horse's normal (non-gallop) top speed: a steady ride keeps them close...
+      footSpeed: 7.5,        // ...and at this after a hero on foot
       attackReach: 1.4, windup: 0.45,
       gallopKnock: 1.2,      // galloping into one (this close to the horse) knocks it aside: defeated
       knockSpeed: 9,
@@ -885,10 +937,14 @@ export const CONFIG = {
         smokeBomb: [204, 190, 58],
         flashMode: [128, 224, 58],
       },
+      // Riding: the three abilities in a small arc above Gallop and Jump (only Attack and Dodge
+      // are hidden). (Dismount is not in the corner: see `dismount`.)
       ride: {
         gallop: [66, 66, 80],
         jump: [166, 60, 62],
-        batarang: [118, 230, 58],  // (Dismount is not in the corner: see `dismount`)
+        batarang: [222, 130, 58],
+        smokeBomb: [140, 160, 58],
+        flashMode: [60, 170, 58],
       },
       minGap: 12,                // px of clear space kept between the corner buttons
     },
@@ -903,6 +959,8 @@ export const CONFIG = {
     dismount: { size: 44, gap: 6, holdSeconds: 0.4, maxSpeed: 3, fallback: { top: 42, right: 26 } },
     // Landscape phone viewports (CSS px) the layout is checked on: 20:9, 18:9, 16:9.
     checkSizes: [[915, 412], [760, 360], [640, 360]],
+    // With Alt (K, S and G alone are dodge, move back and grant gems): a skeleton group, the storm on/off, the castle-gate cinematic.
+    altDebugKeys: { skeletons: 'KeyK', storm: 'KeyS', gate: 'KeyG' },
     debugKeys: { grantGems: 'KeyG', damageHero: 'KeyH', teleportArena: 'KeyT', killBoss: 'KeyX', spawnBat: 'KeyB', cutscene: 'KeyP', desert: 'KeyO', ending: 'KeyU', pit: 'KeyL' },
   },
 
@@ -947,6 +1005,7 @@ export const CONFIG = {
     // the legs hang down its sides (clear of the rump).
     ride: { lift: 0.06, thighPitch: 1.1, spread: 0.5, knee: -0.3 },
     lookAtHero: { yaw: 0.5, pitch: 0.12 }, // riding, turning to look at him (head + upper spine)
+    glanceBack: { yaw: -1.7, rate: 7 },    // a nervous glance back over her shoulder (the castle gates)
     // Witch hint: a faint purple glow over each eye (on the head bone), flickering.
     eyes: { up: 0.072, apart: 0.032, back: 0.018, size: 0.028, color: 0xb04dff, opacity: 0.75 },
   },

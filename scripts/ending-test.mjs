@@ -1,6 +1,6 @@
 // Headless end-of-Part-1 test: the girl's cutscene (trigger, camera, typewriter, taps, witch
 // hint, Skip mid-typewriter), exhaustion on 1 heart and the Lazarus Pit scene, the desert (layout, a bot riding the whole trail at normal speed
-// and galloping, walls), the ending (horse slows, wide shot, ending state, stats) and Play
+// and galloping, walls), the castle-gate cinematic and the ending state, and Play
 // Again resetting everything.
 // Usage: npm run test:ending   (exits non-zero on failure)
 import { heroAssets } from './node-assets.mjs'; // the real Mixamo hero, read from public/
@@ -23,6 +23,7 @@ import { Story } from '../src/story.js';
 import { Sound } from '../src/audio.js';
 import { LazarusPit } from '../src/pit.js';
 import { characterBodies } from '../src/fade.js';
+import { CastleGate } from '../src/gate.js';
 
 const world = new World(); await world.init();
 const scene = world.scene;
@@ -49,7 +50,8 @@ const view = { shown: false, lines: [], typed: '', complete: false,
 const cinematic = new Cinematic(cam, view);
 cinematic.bodies = characterBodies({ hero, girlModel: boss.girl, horse }); // (as in main.js)
 const pit = new LazarusPit(scene, world, sound); await pit.init();
-const story = new Story({ world, hero, horse, boss, girl, gems, abilities, combat, lives, quests, cinematic, state, cam, pit, sound });
+const gate = new CastleGate(scene, world); await gate.init(); gate.camera = cam.camera;
+const story = new Story({ world, hero, horse, boss, girl, gems, abilities, combat, lives, quests, cinematic, state, cam, pit, gate, sound });
 quests.story = story;
 const DS = CONFIG.desert, CI = CONFIG.cinematic, TRK = CONFIG.track, L = DIALOGUE.girlScene, PL = DIALOGUE.pitScene, EX = DS.exhaustion;
 const dt = 1 / 60, NEUTRAL = { moveX: 0, moveY: 0, jumpPressed: false };
@@ -70,6 +72,7 @@ async function frame(input = null) {
   if (cinematic.active) cinematic.update(dt);
   else cam.update(dt, hero.position, { mounted: horse.mounted, speed: horse.speedRatio, heading: horse.heading });
   world.update(dt, cam.camera.position);
+  gate.update(dt, story.gateStarted && !story.gateDone ? horse : null);
   await null;
 }
 const run = async (secs, input) => { for (let i = 0; i < Math.round(secs / dt); i++) await frame(input); };
@@ -365,23 +368,18 @@ for (const at of ['second line, mid-typewriter', 'first line']) {
   };
   const rn = await ride(false);
   check(rn.pitScene && story.pitDone, 'the ride stops at the Lazarus Pit on the way');
-  check(!rn.stuck && story.phase === 'ending' && rn.maxLat <= TRK.halfWidth, `bot rides the desert at normal speed in ${rn.tt.toFixed(1)} s to the castle; stuck ${rn.stuck}, max off-centre ${rn.maxLat.toFixed(1)}`);
+  check(!rn.stuck && story.phase === 'gate' && rn.maxLat <= TRK.halfWidth, `bot rides the desert at normal speed in ${rn.tt.toFixed(1)} s to the castle; stuck ${rn.stuck}, max off-centre ${rn.maxLat.toFixed(1)}`);
   check(rn.prints > 20 && rn.dust > 0 && rn.gemsGot > 0, `hoof prints ${rn.prints}, dust puffs, optional gems picked up ${rn.gemsGot}`);
-  // 6) The ending: horse slows to a stop, a wide shot from behind, then the ending state.
+  // 6) The ending: the castle-gate cinematic (the horse rides in, the gates shut), then the ending state.
   const camBefore = cam.camera.position.clone();
-  const tStop = await until(() => horse.speed < 0.1, 6);
-  const f = new THREE.Vector3(Math.sin(horse.heading), 0, Math.cos(horse.heading));
-  await until(() => !cinematic.moves?.length, 6);
-  const behind = cam.camera.position.clone().sub(horse.position);
-  const tEnd = await until(() => state.is(STATES.ENDING), 10);
+  const tEnd = await until(() => state.is(STATES.ENDING), 20);
   const stats = story.stats();
-  check(tStop > 0 && horse.hold && horse.mode === 'riding', `the horse slows to a stop near the castle in ${tStop.toFixed(1)} s`);
-  check(behind.dot(f) < -CONFIG.ending.shot.back * 0.8 && behind.y > CONFIG.ending.shot.height * 0.8, `wide shot from behind (${(-behind.dot(f)).toFixed(1)} back, ${behind.y.toFixed(1)} up)`);
+  check(tEnd > 0 && horse.hold && horse.mode === 'riding' && gate.closed && story.gateRide?.done, `the gate cinematic: the horse rides into the castle in ${tEnd.toFixed(1)} s, the gates shut`);
   check(tEnd >= 0 && story.phase === 'done' && stats.time > rn.tt && stats.gems >= rn.gemsGot && stats.deaths === 0 && stats.gemsTotal === gems.gems.filter((g) => g.zone !== 'drop').length,
     `ending state; summary: gems ${stats.gems}/${stats.gemsTotal}, time ${stats.time.toFixed(1)} s, deaths ${stats.deaths}`);
-  check(camBefore.distanceTo(cam.camera.position) > 1, 'the camera moved for the ending shot');
+  check(camBefore.distanceTo(cam.camera.position) > 1, 'the camera moved for the gate cinematic');
   const rg = await ride(true);
-  check(!rg.stuck && story.phase === 'ending' && rg.maxLat <= TRK.halfWidth && rg.tt < rn.tt, `galloping: ${rg.tt.toFixed(1)} s, max off-centre ${rg.maxLat.toFixed(1)}`);
+  check(!rg.stuck && story.phase === 'gate' && rg.maxLat <= TRK.halfWidth && rg.tt < rn.tt, `galloping: ${rg.tt.toFixed(1)} s, max off-centre ${rg.maxLat.toFixed(1)}`);
   // Walls: steering hard into the side keeps the horse on the desert trail.
   story.resetAll(); state.current = STATES.PLAY;
   await story.debugDesert();

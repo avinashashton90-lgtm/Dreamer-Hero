@@ -62,7 +62,10 @@ const minions = new Minions(scene, world, { hero, horse, combat, abilities, gems
   onEvent: (name, m) => { if (name === 'batScreech') screeches.push({ t: clock, m }); } });
 abilities.camera = cam.camera;
 let pitDone = false, playing = true;
-const ctx = () => ({ playing, riding: horse.controlsHero, route: horse.route === world.desertTrack ? 'desert' : 'forest', pitDone, galloping: horse.galloping });
+// The sandstorm chase as the story runs it: active from the end of the pit scene, its clock
+// counting in play, over within castleClear of the castle (the skeletons sink back).
+const chase = { active: false, time: 0, over: false };
+const ctx = () => ({ playing, riding: horse.controlsHero, route: horse.route === world.desertTrack ? 'desert' : 'forest', pitDone, galloping: horse.galloping, chase });
 // Real game loop order (main.js), plus a riding bot.
 const tApex = CONFIG.horse.hopVelocity / CONFIG.horse.gravity;
 const shouldJump = () => {
@@ -92,6 +95,12 @@ const step = (n = 1, { ride = null, input = {}, each = null } = {}) => {
     combat.update(dt, inp, { mounted: horse.controlsHero });
     abilities.update(dt);
     boss.update(dt, hero);
+    if (chase.active && playing) chase.time += dt;
+    const c = world.castlePosition;
+    if (chase.active && !chase.over && Math.hypot(horse.position.x - c.x, horse.position.z - c.z) < CONFIG.minions.skeletons.castleClear) {
+      chase.over = true;
+      minions.sinkSkeletons();
+    }
     minions.update(dt, ctx());
     gems.update(dt, horse.controlsHero ? horse.collectPoint : hero.position.clone().setY(hero.position.y + 0.9));
     cam.update(dt, hero.position, { mounted: horse.mounted, speed: horse.speedRatio, gallop: horse.galloping, heading: horse.heading });
@@ -353,7 +362,7 @@ for (const t of ['bat', 'skeleton', 'slime']) {
 }
 
 
-// 2) HP and the hero's damage: melee 4 per hit, Batarang 6, Flash kills; bat 8, skeleton 14, slime 10.
+// 2) HP and the hero's damage: melee 4 per hit, Batarang 6, Flash kills; bat 8, skeleton 12, slime 10.
 {
   reset();
   placeHero(cx - 14, cz + 8, Math.PI / 2);
@@ -515,48 +524,62 @@ for (const t of ['bat', 'skeleton', 'slime']) {
   boss.reset();
 }
 
-// 8) Desert skeletons: none before the Lazarus Pit scene; afterwards pairs rise from the sand
-// ahead every 25–35 s (4 at most), none within 120 of the castle; galloping into one knocks it
-// aside (defeated, no harm); standing still they hit for half a heart.
+// 8) Desert skeletons — the sandstorm chase: none before it (the pit scene's end starts it); the
+// first group 2 s after the ride resumes, close behind / beside the horse; then a group every
+// 6–9 s, 5 alive at most; they run at 90% of the horse's normal top speed; once the chase is
+// over (castleClear from the castle) none rise and the rest sink back; galloping into one
+// knocks it aside (defeated, no harm); standing still they hit for half a heart.
 {
   reset();
   const track = world.desertTrack;
-  pitDone = false;
+  Object.assign(chase, { active: false, time: 0, over: false });
   mountAt(track, 40);
   const b0 = minions.stats.spawned.skeleton + minions.stats.spawned.bat + minions.stats.spawned.slime;
   step(secs(60), { ride: {} });
   const before = minions.stats.spawned.skeleton + minions.stats.spawned.bat + minions.stats.spawned.slime - b0;
-  check(before === 0, `desert before the Lazarus Pit: no enemies at all in 60 s of riding (${before})`);
-  pitDone = true;
+  check(before === 0, `desert before the chase (the Lazarus Pit): no enemies at all in 60 s of riding (${before})`);
   minions.clear();
   // From the Lazarus Pit (57.5% of the trail) to the castle, as in the game.
-  mountAt(track, track.length * CONFIG.desert.pit.at + CONFIG.desert.pit.ahead);
+  mountAt(track, track.length * CONFIG.desert.pit.at);
+  Object.assign(chase, { active: true, time: 0, over: false });
   const castle = world.castlePosition;
   const seen = new Set();
-  let maxSk = 0, nearCastle = 0, pairs = [];
-  let t = 0;
+  let maxSk = 0, afterOver = 0, groups = [], firstAt = -1, firstRel = [], t = 0, overAt = -1, aliveAfterSink = -1, fastest = 0;
   while (t < 150 && horse.trackS < track.length - 5) {
-    step(1, { ride: {} });
+    step(1, { ride: {}, each: () => { hero.iframes = 9; } });
     t += dt;
     maxSk = Math.max(maxSk, alive('skeleton').length);
+    for (const m of alive('skeleton')) if (m.state === 'move' && m.prev) fastest = Math.max(fastest, Math.hypot(m.position.x - m.prev.x, m.position.z - m.prev.z) / dt);
+    for (const m of alive('skeleton')) m.prev = m.position.clone();
+    if (chase.over && overAt < 0) overAt = t;
+    if (overAt >= 0 && aliveAfterSink < 0 && t > overAt + SK.sink + 0.2) aliveAfterSink = minions.list.filter((m) => m.type === 'skeleton' && !m.removed && m.state !== 'dying' && m.state !== 'fading').length;
     const fresh = minions.list.filter((m) => m.type === 'skeleton' && !seen.has(m));
     if (fresh.length) {
       fresh.forEach((m) => seen.add(m));
-      pairs.push(fresh.length);
-      if (fresh.some((m) => Math.hypot(m.position.x - castle.x, m.position.z - castle.z) < SK.castleClear)) nearCastle++;
+      groups.push(fresh.length);
+      if (chase.over) afterOver++;
+      if (firstAt < 0) {
+        firstAt = chase.time;
+        const f = new THREE.Vector3(Math.sin(horse.heading), 0, Math.cos(horse.heading));
+        firstRel = fresh.map((m) => m.position.clone().sub(horse.position).dot(f));
+      }
     }
   }
-  check(before === 0 && pairs.length >= 1 && pairs.every((n) => n <= SK.group), `after the pit (the ${(track.length * (1 - CONFIG.desert.pit.at)).toFixed(0)} units to the castle): ${pairs.length} group(s) (${pairs.join(', ')}) rising from the sand ahead, the first ${SK.firstDelay} s after the pit`);
-  check(nearCastle === 0, `none within ${SK.castleClear} of the castle (${nearCastle})`);
-  // The cap, with pairs coming every 2–3 s.
+  check(Math.abs(firstAt - SK.firstDelay) < 0.05 && firstRel.every((a) => a <= SK.firstAlong[1] + 2 && a >= SK.firstAlong[0] - 4), `the first group rises ${firstAt.toFixed(2)} s after the ride resumes, close behind / beside the horse (${firstRel.map((a) => a.toFixed(1)).join(', ')} along)`);
+  check(groups.length >= 3 && groups.every((n) => n <= SK.group) && maxSk <= SK.max, `chase: ${groups.length} groups (${groups.join(', ')}) on the way to the castle, at most ${maxSk} alive (cap ${SK.max})`);
+  check(overAt > 0 && afterOver === 0 && aliveAfterSink === 0, `chase over ${SK.castleClear} from the castle: none rise after it (${afterOver}), the rest sink back into the sand (${aliveAfterSink} left)`);
+  check(fastest > 0 && fastest <= SK.speedFactor * CONFIG.horse.maxSpeed + 0.1, `they run at ${fastest.toFixed(1)} (≤ ${SK.speedFactor} × the horse's normal top speed ${CONFIG.horse.maxSpeed})`);
+  // The cap, with groups coming every 2–3 s.
   const iv = SK.interval;
   SK.interval = [2, 3];
   minions.clear();
   mountAt(track, 100);
+  Object.assign(chase, { active: true, time: 0, over: false });
   maxSk = 0;
   step(secs(25), { ride: { stop: true }, each: () => { hero.iframes = 9; maxSk = Math.max(maxSk, alive('skeleton').length); } });
   SK.interval = iv;
-  check(maxSk === SK.max, `with pairs every 2–3 s: never more than ${SK.max} at once (max ${maxSk})`);
+  check(maxSk === SK.max, `with groups every 2–3 s: never more than ${SK.max} at once (max ${maxSk})`);
+  Object.assign(chase, { active: false, time: 0, over: false });
   // Galloping into one: defeated, knocked aside, no harm.
   minions.clear(); damage.length = 0;
   mountAt(track, 300);
@@ -575,7 +598,6 @@ for (const t of ['bat', 'skeleton', 'slime']) {
   step(secs(4), { ride: { stop: true }, each: () => { hero.iframes = 0; } });
   const hits = damage.filter((d) => d.source === 'skeleton');
   check(hits.length >= 1 && hits.every((h) => h.n === 0.5), `standing still a skeleton hits for half a heart (${hits.length} hits in 4 s)`);
-  pitDone = false;
 }
 
 // 9) A respawn clears every minion (and their smoke effects and combat targets).

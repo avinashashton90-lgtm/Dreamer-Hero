@@ -3,6 +3,7 @@ import { CONFIG } from './config.js';
 import { loadMixamoGirl } from './girlModel.js';
 
 const G = CONFIG.boss.girl;
+const GLB = CONFIG.girlModel.glanceBack;
 const CI = CONFIG.cinematic;
 
 /**
@@ -138,6 +139,7 @@ export class Girl {
     this.walking = false;
     this.smiling = false;
     this.talking = false; // one of her lines is up
+    this.glanceBack = false; // a nervous glance back (the castle gates)
     model.userData.onMount = () => (this.riding = true);
     model.userData.onDismount = () => (this.riding = false);
   }
@@ -152,7 +154,7 @@ export class Girl {
   reset() {
     this.frightened = true;
     this.riding = false;
-    this.lookAtHero = this.pointing = this.kneeling = this.walking = this.smiling = this.talking = false;
+    this.lookAtHero = this.pointing = this.kneeling = this.walking = this.smiling = this.talking = this.glanceBack = false;
     this.hintT = 0;
     this.hints = 0;
     this.shadow.visible = false;
@@ -221,6 +223,10 @@ export class Girl {
       if (this.lookAtHero) {
         head.rotation.set(0.3, 0.45, 0); // leaning round to see his face
         body.rotation.y = 0.2;
+      }
+      if (this.glanceBack) {
+        head.rotation.y = GLB.yaw * 0.6; // a nervous glance back over her shoulder
+        body.rotation.y = GLB.yaw * 0.3;
       }
     } else if (this.kneeling) {
       // Kneeling at the pit, right hand in the water.

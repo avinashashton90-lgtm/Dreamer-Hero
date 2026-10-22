@@ -343,14 +343,14 @@ export class Abilities {
     if (!this.has(name)) return 'locked';
     const hero = this.hero;
     if (name === 'flashMode') {
-      if (this.charging > 0 || this.strike || hero.riding) return 'busy';
+      if (this.charging > 0 || this.strike) return 'busy'; // (usable from the saddle too)
       if (this.lives && !(this.lives.hearts > this.flashHeartCost)) return 'health';
       if (!this.canAfford(name)) return 'gems';
       if (this.energy < 1) return 'reload';
       if (this.combat && !this.#flashTarget()) return 'target';
       return null;
     }
-    if (this.pending || (name === 'batarang' && this.batarang) || (name === 'smokeBomb' && hero.riding)) return 'busy';
+    if (this.pending || (name === 'batarang' && this.batarang)) return 'busy'; // (all three work from the saddle)
     if (!this.canAfford(name)) return 'gems';
     if (this.cooldowns[name] > 0) return 'cooldown';
     return null;
@@ -419,7 +419,7 @@ export class Abilities {
     const dist = (t) => Math.hypot(t.position.x - hero.position.x, t.position.z - hero.position.z) - t.radius;
     const boss = this.combat?.targets.find((t) => t.isBoss && t.alive && dist(t) <= FM.range);
     if (boss) return boss;
-    const lock = this.combat?.lockTarget;
+    const lock = hero.riding ? null : this.combat?.lockTarget; // (riding: simply the nearest enemy)
     if (lock?.alive && dist(lock) <= FM.range) return lock;
     let best = null;
     for (const t of this.combat?.targets ?? []) if (t.alive && dist(t) <= FM.range && (!best || dist(t) < dist(best))) best = t;
@@ -514,7 +514,7 @@ export class Abilities {
 
   #aimPoint(range) {
     const hero = this.hero;
-    const t = this.combat?.lockTarget;
+    const t = hero.riding ? this.mountedTarget() : this.combat?.lockTarget; // (from the saddle: the auto-aim target)
     if (t && t.alive && Math.hypot(t.position.x - hero.position.x, t.position.z - hero.position.z) <= range + t.radius) {
       return new THREE.Vector3(t.position.x, t.position.y + t.height * 0.5, t.position.z);
     }
@@ -524,8 +524,8 @@ export class Abilities {
   }
 
   /**
-   * Mounted auto-aim: the nearest living flying target (a bat) within autoAimRange that is in
-   * front of or beside the horse, or null (then the Batarang flies straight ahead).
+   * Mounted auto-aim (Batarang, Smoke Bomb): the nearest living enemy of any kind within
+   * autoAimRange in any direction, preferring ones in front, or null (then straight ahead).
    */
   mountedTarget() {
     const hero = this.hero;

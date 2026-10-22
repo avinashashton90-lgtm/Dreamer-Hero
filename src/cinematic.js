@@ -13,7 +13,8 @@ const { smoothstep } = THREE.MathUtils;
  * Steps:
  *   { camera: { pos, look, duration?, wait?, fov?, subject?, soften? } }  move the camera
  *       (pos / look: [x,y,z], THREE.Vector3, or a function returning one, evaluated when the
- *       move starts). With `wait: false` the next step starts at once (e.g. a push-in during a
+ *       move starts; with `follow: true` every frame, tracking a moving subject until the next
+ *       camera step). With `wait: false` the next step starts at once (e.g. a push-in during a
  *       line). `fov` eases the field of view; `subject` (a body name): other characters in front
  *       of it fade (shots without one fade nobody for that); `soften` (body names) are drawn
  *       soft while on screen.
@@ -45,6 +46,7 @@ export class Cinematic {
     this.opacity = new Map(); // body name → current opacity
     this.shot = { subject: null, soften: [] };
     this.guardLog = { pushes: 0 }; // (tests)
+    this.shakeT = 0;
   }
 
   /** @returns {Promise<{skipped: boolean}>} */
@@ -101,8 +103,15 @@ export class Cinematic {
     this.#finish();
   }
 
+  /** Screen shake on the cutscene camera: amplitude in units, decaying over `time` s. */
+  shake(amp, time) {
+    this.shakeAmp = amp;
+    this.shakeTime = this.shakeT = time;
+  }
+
   /** Abort without running anything (full game reset). */
   stop() {
+    this.shakeT = 0;
     this.#unfade();
     this.active = false;
     this.current = null;
@@ -117,6 +126,11 @@ export class Cinematic {
     // Camera moves (several may overlap; the latest wins where they overlap).
     const camera = this.cam.camera;
     for (const m of this.moves) {
+      if (m.follow) {
+        // (a tracking shot: its target is re-evaluated every frame)
+        m.toPos = m.follow.resolve(m.follow.pos);
+        m.toLook = m.follow.resolve(m.follow.look);
+      }
       m.t = Math.min(m.duration, m.t + dt);
       const k = smoothstep(m.t / m.duration, 0, 1);
       camera.position.lerpVectors(m.fromPos, m.toPos, k);
@@ -126,8 +140,16 @@ export class Cinematic {
         camera.updateProjectionMatrix();
       }
     }
-    this.moves = this.moves.filter((m) => m.t < m.duration);
+    this.moves = this.moves.filter((m) => m.t < m.duration || m.follow);
     this.#guard(dt);
+    if (this.shakeT > 0) {
+      // (a heavy moment: the gates slamming shut)
+      this.shakeT = Math.max(0, this.shakeT - dt);
+      const a = this.shakeAmp * (this.shakeT / this.shakeTime);
+      camera.position.x += (Math.random() - 0.5) * 2 * a;
+      camera.position.y += (Math.random() - 0.5) * 2 * a;
+      camera.position.z += (Math.random() - 0.5) * 2 * a;
+    }
     camera.lookAt(this.look);
 
     const c = this.current;
@@ -177,7 +199,9 @@ export class Cinematic {
         toFov: C.fov ?? (C.fov === null ? this.baseFov : null), // (fov: null → back to the normal one)
         duration: Math.max(1e-3, C.duration ?? CI.defaultMove),
         t: 0,
+        follow: C.follow ? { pos: C.pos, look: C.look, resolve } : null,
       };
+      this.moves = this.moves.filter((m) => !m.follow); // (a new shot ends a tracking one)
       this.shot = { subject: C.subject ?? null, soften: C.soften ?? [] };
       this.moves.push(move);
       this.log.push('camera');
