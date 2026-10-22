@@ -22,6 +22,7 @@ import { Cinematic } from '../src/cinematic.js';
 import { Story } from '../src/story.js';
 import { Sound } from '../src/audio.js';
 import { LazarusPit } from '../src/pit.js';
+import { characterBodies } from '../src/fade.js';
 
 const world = new World(); await world.init();
 const scene = world.scene;
@@ -46,6 +47,7 @@ const view = { shown: false, lines: [], typed: '', complete: false,
   dialogue(speaker, text, complete) { this.speaker = speaker; this.typed = text; if (complete && !this.complete) this.lines.push(`${speaker}: ${text}`); this.complete = complete; },
   clearDialogue() { this.complete = false; this.typed = ''; } };
 const cinematic = new Cinematic(cam, view);
+cinematic.bodies = characterBodies({ hero, girlModel: boss.girl, horse }); // (as in main.js)
 const pit = new LazarusPit(scene, world, sound); await pit.init();
 const story = new Story({ world, hero, horse, boss, girl, gems, abilities, combat, lives, quests, cinematic, state, cam, pit, sound });
 quests.story = story;
@@ -202,6 +204,15 @@ for (const at of ['second line, mid-typewriter', 'first line']) {
   view.lines = [];
   let readFor = 0, lookedAtHero = false, pointed = false, revealedOnLook = false, stopped = false, kneeled = false, cup = false, pulse = false, smile = false, heartsSeq = [lives.hearts], camSide = false, t2 = 0;
   const amy = boss.girl.userData.animator; // Amy's clips (absent with the placeholder girl)
+  // The camera on every frame: ≥ 1.5 from every character's body (or that character faded),
+  // never in a solid or below the ground; the drink and close-up framings.
+  const GD = CI.guard, SHT = DS.pit.shots;
+  const surf = (b) => { const sh = b.shape(); if (!sh) return Infinity; const p = cam.camera.position; const y = THREE.MathUtils.clamp(p.y, sh.feet.y, sh.feet.y + sh.height); return Math.hypot(p.x - sh.feet.x, p.y - y, p.z - sh.feet.z) - sh.radius; };
+  const onScreen = (v) => { const q = v.clone().project(cam.camera); return q.z < 1 && Math.abs(q.x) <= 1 && Math.abs(q.y) <= 1 ? q : null; };
+  let camFrames = 0, tooClose = 0, closest = Infinity, inSolid = 0, underGround = 0;
+  const drinkShot = { frames: 0, angle: [], up: [], heroIn: 0, pitIn: 0 };
+  const closeShot = { frames: 0, front: [], below: 0, eyesCentred: 0, heroSoft: 0, glow: 0, heroDist: Infinity, fov: Infinity };
+  let readyDrink = false;
   const clipsSeen = new Set(), layers = new Set();
   while (cinematic.active && t2 < 90) {
     await frame();
@@ -220,8 +231,55 @@ for (const at of ['second line, mid-typewriter', 'first line']) {
     if (pit.model.userData.pulse.visible) pulse = true;
     if (girl.smiling) smile = true;
     if (lives.hearts !== heartsSeq.at(-1)) heartsSeq.push(lives.hearts);
+    // Camera rules (after the first move has settled).
+    if (cinematic.active && t2 > 0.2) {
+      camFrames++;
+      const p = cam.camera.position;
+      for (const b of cinematic.bodies) {
+        const d = surf(b);
+        closest = Math.min(closest, d);
+        if (d < GD.minDist - 1e-3 && (cinematic.opacity.get(b.name) ?? 1) > GD.nearOpacity + 0.05) tooClose++;
+      }
+      if (cam.insideSolid(p, 0)) inSolid++;
+      if (p.y < world.heightAt(p.x, p.z)) underGround++;
+      const settled = cinematic.moves.length === 0;
+      // The drink: side-front of AJ at shoulder height, AJ and the pit in frame.
+      if (hero.drink && settled) {
+        drinkShot.frames++;
+        const f = new THREE.Vector3(Math.sin(hero.facing), 0, Math.cos(hero.facing));
+        const c = p.clone().sub(hero.position).setY(0).normalize();
+        drinkShot.angle.push(THREE.MathUtils.radToDeg(Math.acos(THREE.MathUtils.clamp(f.dot(c), -1, 1))));
+        drinkShot.up.push(p.y - hero.position.y);
+        if (onScreen(hero.position.clone().setY(hero.position.y + 1.45)) && onScreen(hero.position.clone().setY(hero.position.y + 0.3))) drinkShot.heroIn++;
+        if (onScreen(pit.position)) drinkShot.pitIn++;
+      }
+      // The close-up: Amy's face from the front, slightly below eye level; AJ out of frame or soft.
+      if (girl.smiling && settled) {
+        closeShot.frames++;
+        const g = boss.girl.position, yaw = boss.girl.rotation.y;
+        const f = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
+        const c = p.clone().sub(g).setY(0).normalize();
+        closeShot.front.push(THREE.MathUtils.radToDeg(Math.acos(THREE.MathUtils.clamp(f.dot(c), -1, 1))));
+        const eye = g.y + SHT.closeUp.eye;
+        if (p.y < eye && p.y > eye - 0.35) closeShot.below++;
+        const q = onScreen(new THREE.Vector3(g.x, eye, g.z));
+        if (q && Math.abs(q.x) < 0.3 && Math.abs(q.y) < 0.35) closeShot.eyesCentred++;
+        const aj = cinematic.bodies.find((b) => b.name === 'hero');
+        const ajIn = [0.4, 1.2, 1.9].some((k) => onScreen(hero.position.clone().setY(hero.position.y + k)));
+        if (!ajIn || (cinematic.opacity.get('hero') ?? 1) <= GD.softOpacity + 0.05) closeShot.heroSoft++;
+        if (girl.eyesGlowing) closeShot.glow++;
+        closeShot.heroDist = Math.min(closeShot.heroDist, surf(aj));
+        closeShot.fov = Math.min(closeShot.fov, cam.camera.fov);
+      }
+    }
     if (view.complete && (readFor += dt) > 0.3) { readFor = 0; cinematic.tap(); }
   }
+  const range = (a) => a.length ? `${Math.min(...a).toFixed(0)}–${Math.max(...a).toFixed(0)}` : 'none';
+  check(camFrames > 300 && tooClose === 0 && inSolid === 0 && underGround === 0, `pit scene camera, every frame (${camFrames}): ≥ ${GD.minDist} from every character's body or that one faded (closest ${closest.toFixed(2)}, ${tooClose} unfaded closer), never in a solid (${inSolid}) or below the ground (${underGround})`);
+  check(drinkShot.frames > 30 && drinkShot.angle.every((a) => a > 20 && a < 65) && drinkShot.up.every((u) => Math.abs(u - SHT.drink.up) < 0.3) && drinkShot.heroIn === drinkShot.frames && drinkShot.pitIn === drinkShot.frames,
+    `the drink: side-front of AJ (${range(drinkShot.angle)}° off his facing) at shoulder height (${range(drinkShot.up.map((u) => u * 100))} cm up), AJ and the pit in frame (${drinkShot.heroIn}/${drinkShot.pitIn} of ${drinkShot.frames} frames)`);
+  check(closeShot.frames > 30 && closeShot.front.every((a) => a < 30) && closeShot.below === closeShot.frames && closeShot.eyesCentred === closeShot.frames && closeShot.heroSoft === closeShot.frames && closeShot.glow > 0 && closeShot.heroDist >= GD.minDist - 1e-3 && closeShot.fov < CONFIG.render.fov,
+    `the close-up: Amy's face from the front (${range(closeShot.front)}° off her facing), just below eye level, her eyes centred (${closeShot.eyesCentred}/${closeShot.frames}) and glowing (${closeShot.glow} frames), AJ out of frame or soft (${closeShot.heroSoft}/${closeShot.frames}), ${closeShot.heroDist.toFixed(2)} from his body, fov ${closeShot.fov.toFixed(0)}`);
   const S = DIALOGUE.speakers;
   const expected = [`${S.girl}: ${PL.stop}`, `${S.hero}: ${PL.fine}`, `${S.girl}: ${PL.look}`, `${S.girl}: ${PL.drink}`, `${S.hero}: ${PL.who}`];
   check(JSON.stringify(view.lines) === JSON.stringify(expected), `pit dialogue in order:\n       ${view.lines.join('\n       ')}`);
@@ -243,17 +301,19 @@ for (const at of ['second line, mid-typewriter', 'first line']) {
   check(horse.speed > vLate + 1, `horse speed back up: ${horse.speed.toFixed(1)} (was ${vLate.toFixed(1)} exhausted, ${vNow.toFixed(1)} just after)`);
 
   // Debug L jumps straight to "Stop."; Skip mid-scene still restores the hearts.
-  for (const when of ['walking to the pit', 'first line']) {
+  for (const when of ['walking to the pit', 'first line', 'close-up']) {
     story.resetAll(); state.current = STATES.PLAY;
     await story.debugPit();
     const started = cinematic.active && story.phase === 'pit' && lives.hearts === 1;
-    if (when === 'first line') await until(() => view.typed.length > 1, 3);
+    if (when === 'close-up') await until(() => { if (view.complete) cinematic.tap(); return girl.smiling; }, 60);
+    else if (when === 'first line') await until(() => view.typed.length > 1, 3);
     else await until(() => { if (view.complete) cinematic.tap(); return !!story.actors.hero; }, 30);
     const midScene = cinematic.active;
     await cinematic.skip();
     await run(0.1);
-    check(started && midScene && lives.hearts === lives.maxHearts && story.pitDone && horse.mode === 'riding' && horse.passenger === boss.girl && state.is(STATES.PLAY) && !hero.drink,
-      `debug L → "Stop."; Skip (${when}) → hearts ${lives.hearts}, back on the horse with her, state ${state.current}`);
+    const opaque = hero.cameraOpacity === 1 && (boss.girl.userData.fadeOpacity ?? 1) === 1 && (horse.model.userData.fadeOpacity ?? 1) === 1;
+    check(started && midScene && lives.hearts === lives.maxHearts && story.pitDone && horse.mode === 'riding' && horse.passenger === boss.girl && state.is(STATES.PLAY) && !hero.drink && opaque,
+      `debug L → "Stop."; Skip (${when}) → hearts ${lives.hearts}, back on the horse with her, state ${state.current}, every character opaque again`);
   }
 }
 

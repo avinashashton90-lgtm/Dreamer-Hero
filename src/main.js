@@ -23,6 +23,7 @@ import { Story } from './story.js';
 import { Minions } from './minions.js';
 import { LazarusPit } from './pit.js';
 import { CornerRescue } from './rescue.js';
+import { characterBodies } from './fade.js';
 
 async function boot() {
   const app = document.getElementById('app');
@@ -145,6 +146,8 @@ async function boot() {
   // Cinematic cutscenes and the end of Part 1 (girl's scene → desert ride → ending).
   let cinematic = null;
   cinematic = new Cinematic(cam, ui.cinematicView(() => cinematic.tap(), () => cinematic.skip()));
+  // (every cutscene camera keeps its distance from AJ, Amy and the horse, and fades them when close)
+  cinematic.bodies = characterBodies({ hero, girlModel: boss.girl, horse });
   const pit = new LazarusPit(world.scene, world, sound);
   await pit.init();
   // Small enemies: forest bats, cave slimes (from the boss's cracks), desert skeletons. Each
@@ -379,10 +382,10 @@ async function boot() {
     if (cinematic.active) cinematic.update(state.paused ? 0 : realDt);
     // (the camera keeps going through hit-stop: real time, so a swipe always turns it)
     else cam.update(realDt, hero.position, { mounted: horse.mounted, speed: horse.speedRatio, gallop: horse.galloping, heading: horse.heading });
-    hero.cameraOpacity = cinematic.active ? 1 : cam.heroOpacity; // (he fades if the camera is squeezed in right behind him)
+    if (!cinematic.active) hero.cameraOpacity = cam.heroOpacity; // (he fades if the camera is squeezed in right behind him; cutscenes fade him themselves)
     minions.fitView(); // (bats stay on screen: once more against this frame's camera)
     world.update(dt, cam.camera.position);
-    world.updateFoliage(dt, cam.camera.position, cam.focus);
+    world.updateFoliage(dt, cam.camera.position, cinematic.active ? cinematic.look : cam.focus); // (rocks / leaves in front of the shot's subject fade)
     renderer.render(world.scene, cam.camera);
   });
 

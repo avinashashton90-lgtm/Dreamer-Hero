@@ -215,6 +215,20 @@ export class FollowCamera {
     return false;
   }
 
+  /** Cutscenes: if `p` is inside (or within `clear` of) a solid, move it toward `toward` until it's clear. */
+  pullOutOfSolids(p, toward) {
+    if (!this.insideSolid(p)) return;
+    const pivot = this.pivot.clone();
+    this.pivot.copy(toward); // (the face test looks from the subject)
+    const from = p.clone();
+    const len = from.distanceTo(toward);
+    for (let t = C.blocked.guardStep; t < len; t += C.blocked.guardStep) {
+      p.lerpVectors(from, toward, t / len);
+      if (!this.insideSolid(p)) break;
+    }
+    this.pivot.copy(pivot);
+  }
+
   /** Safety net (after the ground clamp and the shake): pull the camera toward the hero until it's clear. */
   #clearOfSolids(p) {
     if (!this.insideSolid(p)) return;

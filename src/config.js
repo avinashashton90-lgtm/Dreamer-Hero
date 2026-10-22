@@ -446,7 +446,14 @@ export const CONFIG = {
         behind: { back: 7.5, up: 3.4, ahead: 6, duration: 1.4 },
         reveal: { side: -6, up: 3.2, back: 6, duration: 2.2 },
         sideOn: { dist: 8.5, up: 2.6, duration: 1.6 },
-        closeUp: { dist: 1.6, up: 1.45, duration: 1.0, hold: 2 },
+        // The drink: side-front of AJ (`angle`° off his facing, away from Amy) at shoulder height,
+        // framing him and the pit (the look point `pitWeight` of the way from his chest to it).
+        drink: { angle: 60, dist: 3.1, up: 1.25, chest: 1.1, pitWeight: 0.4, duration: 1.0 }, // (his shoulders are at ~1.25 bent over the cup)
+        // "Who are you?" and her smile: a close-up on Amy's face from the front, slightly below
+        // eye level (`eye` − `below`), `dist` from her body (≥ guard.minDist), `angle`° round from
+        // the line to AJ (so the camera keeps clear of him), her yaw turned `cheat` of the way to
+        // the camera; narrow `fov`; AJ only a soft edge. Her eyes glow faintly for `glow` s.
+        closeUp: { angle: 65, dist: 1.85, eye: 1.5, below: 0.12, cheat: 0.75, fov: 38, glow: 1.6, duration: 1.0 },
         pullBack: { dist: 11, up: 5, duration: 1.6 },
       },
     },
@@ -468,6 +475,19 @@ export const CONFIG = {
     hintTime: 1.5,           // witch hint: eyes flicker purple, the shadow shows a hat and staff
     hintColor: 0xb84dff,
     mountFadeMs: 450,        // short fade while the girl climbs on behind the hero
+    // Every cutscene camera (cinematic.js), with the cave camera's rules: at least `minDist`
+    // from every character's body surface (AJ, Amy, the horse — vertical capsules of `radius`),
+    // pushed out if a move would come closer, and any character still closer fades to
+    // `nearOpacity`; never below the ground (`groundClear`) or inside a solid (pulled toward the
+    // look point); a character between the camera and the shot's `subject` (if it names one) fades to
+    // `occludeOpacity`; one a shot asks to soften (`soften`) is drawn at `softOpacity` while on
+    // screen (a soft shoulder at the edge). Opacities ease at `fadeRate`.
+    guard: {
+      minDist: 1.5,
+      radius: { hero: 0.35, girl: 0.3, horse: 0.9, horseHeight: 2.4 },
+      nearOpacity: 0.12, occludeOpacity: 0.25, softOpacity: 0.45, fadeRate: 10,
+      groundClear: 0.3, pushPasses: 3,
+    },
     // Camera shots in the girl's frame: offset [side, up, forward], look-at height, seconds.
     shots: {
       establish: { offset: [2.6, 2.3, 6.8], look: 1.2, duration: 1.4 },

@@ -271,11 +271,21 @@ export class Story {
       const side = new THREE.Vector3(-spots.toTrail.z, 0, spots.toTrail.x);
       return { pos: mid.clone().addScaledVector(side, SH.sideOn.dist).setY(mid.y + SH.sideOn.up), look: mid.clone().setY(mid.y + 0.9) };
     };
-    const closeUp = () => {
-      const g = this.boss.girl.position;
+    // The drink: side-front of AJ at shoulder height (on the side away from Amy), him and the pit in frame.
+    const drinkShot = () => {
+      const D = SH.drink;
       const h = this.hero.position;
-      const dir = h.clone().sub(g).setY(0).normalize();
-      return { pos: g.clone().addScaledVector(dir, SH.closeUp.dist).setY(g.y + SH.closeUp.up), look: g.clone().setY(g.y + 1.4) };
+      const f = new THREE.Vector3(Math.sin(this.hero.facing), 0, Math.cos(this.hero.facing));
+      let side = new THREE.Vector3(-f.z, 0, f.x);
+      const g = this.boss.girl.position;
+      if (side.dot(g.clone().sub(h)) > 0) side.negate(); // (away from her)
+      const a = THREE.MathUtils.degToRad(D.angle);
+      const dir = f.clone().multiplyScalar(Math.cos(a)).addScaledVector(side, Math.sin(a));
+      const chest = h.clone().setY(h.y + D.chest);
+      return {
+        pos: h.clone().addScaledVector(dir, D.dist).setY(h.y + D.up),
+        look: chest.lerp(pit.position.clone().setY(pit.position.y + 0.3), D.pitWeight),
+      };
     };
     const pullBack = () => {
       const g = this.boss.girl.position;
@@ -297,14 +307,16 @@ export class Story {
       { call: () => this.#walkToPit() },
       { call: () => this.#touchWater() },
       { say: 'girl', text: L.drink },
+      { camera: { pos: () => drinkShot().pos, look: () => drinkShot().look, duration: SH.drink.duration, wait: false, subject: 'hero' } },
       { call: () => this.#drink() },
       { call: () => this.#heal() },
       { call: () => this.#faceEachOther() },
+      { call: () => { this.closeUp = this.#closeUpShot(); } },
+      { camera: { pos: () => this.closeUp.pos, look: () => this.closeUp.look, duration: SH.closeUp.duration, wait: false, fov: SH.closeUp.fov, subject: 'girl', soften: ['hero'] } },
       { say: 'hero', text: L.who },
-      { call: () => { girl.smiling = true; } },
-      { camera: { pos: () => closeUp().pos, look: () => closeUp().look, duration: SH.closeUp.duration } },
+      { call: () => { girl.smiling = true; girl.hint(SH.closeUp.glow); } },
       { wait: PIT.smileHold },
-      { camera: { pos: () => pullBack().pos, look: () => pullBack().look, duration: SH.pullBack.duration } },
+      { camera: { pos: () => pullBack().pos, look: () => pullBack().look, duration: SH.pullBack.duration, fov: null } },
       { call: () => this.finishPit(), essential: true },
     ];
   }
@@ -403,6 +415,29 @@ export class Story {
       }
       return lives.hearts >= lives.maxHearts;
     });
+  }
+
+  /**
+   * The close-up on Amy's face: from her front, slightly below eye level, `angle`° round from
+   * the line to AJ (away from the pit) so the camera keeps clear of him; she turns most of the
+   * way toward it (a cheat), still smiling at him.
+   */
+  #closeUpShot() {
+    const C = PIT.shots.closeUp;
+    const g = this.boss.girl.position.clone();
+    const toHero = this.hero.position.clone().sub(g).setY(0).normalize();
+    const a = THREE.MathUtils.degToRad(C.angle);
+    const turn = (v, ang) => new THREE.Vector3(v.x * Math.cos(ang) + v.z * Math.sin(ang), 0, -v.x * Math.sin(ang) + v.z * Math.cos(ang));
+    const away = (d) => g.clone().addScaledVector(d, C.dist).distanceTo(this.pit.position);
+    const dir = [turn(toHero, a), turn(toHero, -a)].sort((p, q) => away(q) - away(p))[0];
+    const yaw = Math.atan2(dir.x, dir.z);
+    const toHeroYaw = Math.atan2(toHero.x, toHero.z);
+    if (this.actors.girl) this.actors.girl.yaw = toHeroYaw + Math.atan2(Math.sin(yaw - toHeroYaw), Math.cos(yaw - toHeroYaw)) * C.cheat;
+    return {
+      pos: g.clone().addScaledVector(dir, C.dist).setY(g.y + C.eye - C.below),
+      look: g.clone().setY(g.y + C.eye),
+      dir,
+    };
   }
 
   /** She stands; they turn to each other. */
