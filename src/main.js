@@ -27,6 +27,7 @@ import { characterBodies } from './fade.js';
 import { Sandstorm } from './sandstorm.js';
 import { CastleGate } from './gate.js';
 import { TestMenu, testMenuWanted } from './testMenu.js';
+import { Hurdles } from './hurdles.js';
 
 async function boot() {
   const app = document.getElementById('app');
@@ -184,7 +185,15 @@ async function boot() {
   const gate = new CastleGate(world.scene, world);
   await gate.init();
   gate.camera = cam.camera; // (its dust puffs face the camera)
-  const story = new Story({ world, hero, horse, boss, girl, gems, abilities, combat, lives, quests, cinematic, state, cam, pit, gate, storm, minions, sound, ui, guide });
+  // Forest hurdles (giant walls, thorn bushes, stones), never where the bats attack.
+  const hurdles = new Hurdles(world.scene, world, {
+    sound,
+    onHurt: (hearts, x, z) => damageHero(hearts, x, z, { source: 'hurdle', knockback: false }),
+    onHint: (text) => ui.toast(text),
+  });
+  await hurdles.init();
+  minions.scheduleBats(hurdles.batWindows());
+  const story = new Story({ world, hero, horse, boss, girl, gems, abilities, combat, lives, quests, cinematic, state, cam, pit, gate, storm, minions, hurdles, sound, ui, guide });
   quests.story = story;
   const NEUTRAL = { moveX: 0, moveY: 0, jumpPressed: false };
 
@@ -363,6 +372,19 @@ async function boot() {
         quests.goTo('ride');
         behindHorse();
       },
+      hurdles: async () => {
+        // On the horse a little before the first forest hurdle.
+        const t = world.track;
+        const s = Math.max(0, (hurdles.list[0]?.s ?? t.length * 0.2) - TM.hurdleApproach);
+        const p = t.at(s);
+        horse.restartRide(hero);
+        horse.position.set(p.x, world.heightAt(p.x, p.z), p.z);
+        horse.heading = Math.atan2(p.tx, p.tz);
+        horse.trackS = s;
+        horse.mountNow(hero);
+        quests.goTo('ride');
+        behindHorse();
+      },
       cave: async () => {
         // On the horse on the trail just short of the arena (it auto-dismounts there).
         const t = world.track;
@@ -451,6 +473,7 @@ async function boot() {
       hero.lastDt = dt;
       if (!horse.controlsHero) hero.update(dt, inp, cam.yaw);
       horse.update(dt, inp, cam.yaw, hero);
+      hurdles.update(dt, horse);
       combat.update(dt, inp, { mounted: horse.controlsHero });
       if (inp.ability) abilities.use(inp.ability);
       abilities.update(dt);
@@ -499,7 +522,7 @@ async function boot() {
   });
 
   // Exposed for debugging in the browser console (e.g. game.state.set('ending')).
-  window.game = { state, hero, cam, world, quests, horse, input, guide, gems, abilities, sound, combat, lives, boss, girl, pit, story, cinematic, minions, rescue, storm, gate, damageHero, lifeEvents, STATES };
+  window.game = { state, hero, cam, world, quests, horse, input, guide, gems, abilities, sound, combat, lives, boss, girl, pit, story, cinematic, minions, rescue, storm, gate, hurdles, damageHero, lifeEvents, STATES };
 
   state.start();
 }

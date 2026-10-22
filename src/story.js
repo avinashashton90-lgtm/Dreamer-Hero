@@ -28,7 +28,7 @@ const { smoothstep, clamp } = THREE.MathUtils;
  *
  * @param {object} sys  { world, hero, horse, boss, girl, gems, abilities, combat, lives,
  *   quests, cinematic, state, cam, pit (LazarusPit), gate (CastleGate), storm? (Sandstorm),
- *   minions?, sound?, ui? (fadeOut/fadeIn), guide? }
+ *   minions?, hurdles? (the forest obstacle director), sound?, ui? (fadeOut/fadeIn), guide? }
  */
 export class Story {
   constructor(sys) {
@@ -720,6 +720,7 @@ export class Story {
     this.pit?.reset();
     this.gate?.reset();
     this.storm?.reset();
+    this.hurdles?.reset();
     this.lives.newGame();
     this.quests.reset();
     this.guide?.reset();

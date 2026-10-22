@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { planHurdles } from './hurdles.js';
 import { CONFIG } from './config.js';
 import { Track } from './track.js';
 
@@ -1778,6 +1779,8 @@ export class World {
     }
     this.scene.add(await loadObstacleModels(this.obstacles.filter((o) => o.type !== 'brick')));
     this.scene.add(await loadForestWallModels(this.obstacles.filter((o) => o.type === 'brick'), this.gapWalls, this.heightAt));
+    // The forest hurdles' spots (hurdles.js draws and runs them); gems and checkpoints keep clear.
+    this.hurdles = planHurdles(this);
   }
 
   /** 0..1: how far the trail's side walls have closed in toward a high wall's gap at `s`. */

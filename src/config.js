@@ -976,6 +976,7 @@ export const CONFIG = {
     param: 'debug',
     abilityUses: 5,
     caveApproach: 45,        // "Cave entrance": on the horse this far from the arena centre (it auto-dismounts at boss.dismountRange)
+    hurdleApproach: 70,      // "Forest hurdles": on the horse this far before the first hurdle
   },
 
   cutscene: {
@@ -1135,7 +1136,7 @@ export const CONFIG = {
   // direction; groups give a clear line of approach.
   // Obstacles: few and fair — each alone on a straight, with a long clear run-up.
   obstacles: {
-    at: [0.1, 0.27, 0.42, 0.67, 0.78, 0.89], // target positions (fraction of the track)
+    at: [],                  // target positions (fraction of the track) — none now: the forest hurdles (hurdles.js) replaced the logs and the rock wall
     wallIndex: 3,            // which one is the low rock wall (the rest are logs)
     search: 0.04,            // look this far (fraction) either side for a straight spot
     runUp: 40,               // clear (no other obstacle, no water) before...
@@ -1157,6 +1158,45 @@ export const CONFIG = {
     contactReach: 0.35,      // judged when the horse is this close to being over the obstacle
   },
 
+  // Forest hurdles (hurdles.js): an obstacle director places giant walls, sliding thorn bushes
+  // and stones along the forest trail, mixed with the bat attacks (never at the same time).
+  hurdles: {
+    obstacleSpacingMin: 90,  // trail distance between two hurdles...
+    obstacleSpacingMax: 150, // ...at least / at most (plus `search` when a spot isn't fair)
+    edgeClear: 0.1,          // none in the first 10% of the trail or the last 10% before the cave
+    search: 60,              // from each spacing step, look this far on for a fair spot (else skip it)
+    step: 2,
+    straightBefore: 20, straightAfter: 10, maxCurvature: 0.006, // never on a trail bend (straight run-up and run-out)
+    maxSlope: 0.06, slopeSpan: 10,
+    itemClear: 8,            // the run-up / run-out keeps this clear of the high walls' approach, funnel and exit
+    checkpointClear: 25,     // checkpoints keep this far past a hurdle (and its whole run-up before it)
+    pattern: ['stones', 'wall', 'wall', 'thorns', 'stones', 'thorns'], // types in turn (where a fair spot is found)
+    // Bats never start an attack (or come in) within this of a hurdle: scheduleBats windows.
+    batClear: { before: 60, after: 15 },
+    contactReach: 0.6,       // judged when the horse's centre is this close to the hurdle
+    near: 70,                // (only within this distance along the trail: hint, power-jump zone, contact)
+    hintRange: 60,           // the first giant wall ahead: a short hint ("Gallop and jump!")
+    // A jump while galloping in the `zone` before a giant wall is a power jump (~2.5 high).
+    powerJump: { boost: 1.25, zone: 40 },
+    types: {
+      // Five layers of stacked stones across the whole trail. Only a power jump clears it;
+      // hit without one, the horse stops (pushed back `recoil`), half a heart, the wall shakes.
+      wall: {
+        layers: 5, layerHeight: 0.38, depth: 1.2, halfWidth: 7.8, stone: [1.1, 1.7],
+        colors: [0x8d8a83, 0x6f6c66, 0xa49e93], runUp: 40, recoil: 6, damage: 0.5,
+        contact: 1.0, clearMargin: 0.15, shake: { time: 0.45, amp: 0.12, rate: 40 },
+      },
+      // Low thorn bushes sliding slowly left and right across the trail: half a heart and a
+      // short slow-down on touch; a normal jump clears them.
+      thorns: {
+        halfWidth: 2.2, height: 0.7, depth: 1.4, travel: 4.2, period: 4.5, damage: 0.5, slow: 0.55,
+        clearMargin: 0.15, color: 0x2f5a2a, thornColor: 0x9a2a2a,
+      },
+      // Small rocks across the trail: jump them; hit one and the horse stumbles for a second (no damage).
+      stones: { lateral: [-4.6, 0, 4.6], radius: 0.65, height: 0.6, stumble: 1, clearMargin: 0.15, color: 0x8a847a },
+    },
+  },
+
   // Walls on the forest ride (world.js placeObstacles / loadForestWallModels): ~8 sets, each on
   // a straight with at least `runUp` of straight, clear trail before it, none on a curve, none
   // within obstacles.caveClear of the cave. Low brick walls (knee high, light) are jumped like
@@ -1166,14 +1206,11 @@ export const CONFIG = {
   // rails along — never caught) and the path assist / safe line lead into it.
   forestWalls: {
     sets: [
+      // (the four low brick walls were replaced by the forest hurdles, hurdles.js)
       { at: 0.052, kind: 'high', gap: 'centre' },
-      { at: 0.146, kind: 'low' },
-      { at: 0.326, kind: 'low' },
       { at: 0.36, kind: 'high', gap: 'left' },   // (on the hill climb: high walls needn't be level)
       { at: 0.479, kind: 'high', gap: 'right' },
       { at: 0.635, kind: 'high', gap: 'left' },  // (on the descent)
-      { at: 0.709, kind: 'low' },
-      { at: 0.842, kind: 'low' },
     ],
     search: 0.04,            // look this far (fraction of the trail) either side for a fair spot
     runUp: 40,               // straight, clear trail before each set...
@@ -1222,7 +1259,7 @@ export const CONFIG = {
     leadIn: 15,              // ...with this much straight trail before the group
     searchStep: 4,           // ...searching this far at a time for such a spot
     airGemObstacles: 'all',  // a gem arc above every obstacle of these kinds (or a list of indices)...
-    airGemKinds: ['log', 'wall'], // ...(the low brick walls carry none)
+    airGemKinds: ['stones', 'thorns'], // ...(the forest hurdles you jump; a giant wall's power jump carries none)
     // Ground groups: one row on the safe line through each high wall's gap, the rest spread out.
     airOffsets: [-3.5, -1.75, 0, 1.75, 3.5], // along the trail, around the obstacle
     airLift: 0.6,            // above the hop's own arc, so only a jump reaches them
@@ -1286,8 +1323,9 @@ export const DIALOGUE = {
   loading: 'Loading the hero…',
   title: 'Dreamer Hero',
   rotatePhone: 'Please rotate your phone to landscape',
+  hurdles: { wallHint: 'Gallop and jump!' },
   testMenu: {
-    open: 'TEST', close: 'Close',
+    open: 'TEST', close: 'Close', hurdles: 'Forest hurdles',
     forest: 'Forest start', cave: 'Cave entrance', boss: 'Boss fight', afterBoss: 'After boss (Amy rescued)',
     pit: 'Lazarus Pit scene', chase: 'Desert chase', storm: 'Sandstorm', gate: 'Castle gate cinematic', ending: 'Ending screen',
   },

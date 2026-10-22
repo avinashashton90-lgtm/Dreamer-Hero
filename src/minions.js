@@ -220,12 +220,20 @@ export class Minions {
   }
 
   /**
-   * Bats only come in during these windows of riding time (seconds since the ride began);
-   * the default is "anytime". (For an obstacle director to restrict them later.)
-   * @param {{ start: number, end: number }[]} windows
+   * Bats only come in, and only start an attack, inside these windows; the default is
+   * "anytime". A window is riding time (`start`…`end`, seconds since the ride began) and/or a
+   * stretch of the forest trail (`from`…`to`, trail distance) — the obstacle director
+   * (hurdles.js `batWindows()`) passes the stretches away from its hurdles, so the two never clash.
+   * @param {{ start?: number, end?: number, from?: number, to?: number }[]} windows
    */
   scheduleBats(windows = [{ start: 0, end: Infinity }]) {
     this.batWindows = windows;
+  }
+
+  /** Inside one of the scheduleBats windows now (riding time and the horse's trail distance)? */
+  #inBatWindow() {
+    const s = this.deps.horse.trackS ?? 0;
+    return this.batWindows.some((w) => (w.start === undefined || (this.rideTime >= w.start && this.rideTime <= w.end)) && (w.from === undefined || (s >= w.from && s <= w.to)));
   }
 
   onCheckpoint() {
@@ -363,8 +371,7 @@ export class Minions {
   #batsAllowed(ctx) {
     const h = this.deps.horse;
     const [ax, az] = CV.archPosition;
-    const inWindow = this.batWindows.some((w) => this.rideTime >= w.start && this.rideTime <= w.end);
-    return inWindow && this.clock - this.lastCheckpointAt >= BT.checkpointQuiet && Math.hypot(h.position.x - ax, h.position.z - az) >= BT.caveClear && ctx.route === 'forest';
+    return this.#inBatWindow() && this.clock - this.lastCheckpointAt >= BT.checkpointQuiet && Math.hypot(h.position.x - ax, h.position.z - az) >= BT.caveClear && ctx.route === 'forest';
   }
 
   #spawnBats(dt, ctx) {
@@ -560,7 +567,7 @@ export class Minions {
 
   /** Only the nearest waiting bat attacks, never two within attackGap, one at a time. */
   #mayAttack(m, target) {
-    if (this.clock - this.lastBatAttackAt < BT.attackGap) return false;
+    if (this.clock - this.lastBatAttackAt < BT.attackGap || !this.#inBatWindow()) return false;
     if (this.list.some((b) => b.type === 'bat' && b.alive && (b.state === 'telegraph' || b.state === 'dive'))) return false;
     const holding = this.list.filter((b) => b.type === 'bat' && b.alive && b.state === 'hold');
     const nearest = holding.reduce((a, b) => (!a || b.position.distanceTo(target.point) < a.position.distanceTo(target.point) ? b : a), null);

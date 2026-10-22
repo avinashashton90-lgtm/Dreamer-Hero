@@ -9,6 +9,7 @@ const DUST = HC.dust;
 const GAL = HC.gallop;
 const SPL = HC.splash;
 const OBS = CONFIG.obstacles;
+const HU = CONFIG.hurdles;
 const TR = CONFIG.track;
 const W = CONFIG.world;
 const DS = CONFIG.desert;
@@ -228,6 +229,8 @@ export class Horse {
     this.passenger = null; // the girl, riding behind the hero (desert)
     this.hold = false; // ending: brake to a stop and stay put
     this.scripted = false; // a cutscene drives position / heading / speed itself (the castle gate)
+    this.powerJumpZone = false; // just before a giant wall (hurdles.js): a jump while galloping is a power jump
+    this.powerJumps = 0;
     this.prints = []; // hoof prints in the sand
     this.dust = [];
 
@@ -272,7 +275,8 @@ export class Horse {
       const blocked = (s) =>
         world.surfaceAt(track.at(s).x, track.at(s).z) === 'water' ||
         (track === world.track && world.obstacles.some((o) => s > o.s - OBS.runUp && s < o.s + OBS.runOut)) ||
-        (track === world.track && (world.gapWalls ?? []).some((w) => s > w.s - CONFIG.forestWalls.runUp && s < w.s + CONFIG.forestWalls.runOut));
+        (track === world.track && (world.gapWalls ?? []).some((w) => s > w.s - CONFIG.forestWalls.runUp && s < w.s + CONFIG.forestWalls.runOut)) ||
+        (track === world.track && (world.hurdles ?? []).some((h) => s > h.s - (h.type === 'wall' ? HU.types.wall.runUp : HU.straightBefore) && s < h.s + HU.checkpointClear));
       while (blocked(s) && s < track.length) s += CP.dryStep;
       const p = track.at(s);
       return { s, position: new THREE.Vector3(p.x, world.heightAt(p.x, p.z), p.z), heading: track.headingAt(s), reached: false };
@@ -602,7 +606,10 @@ export class Horse {
     this.speed += clamp(target - this.speed, -accel * dt, accel * dt);
 
     if (input.jumpPressed && this.grounded) {
-      this.velocity.y = HC.hopVelocity;
+      // Galloping just before a giant wall (hurdles.js sets powerJumpZone): a power jump.
+      const power = this.galloping && this.powerJumpZone;
+      this.velocity.y = HC.hopVelocity * (power ? CONFIG.hurdles.powerJump.boost : 1);
+      if (power) this.powerJumps++;
       this.grounded = false;
     }
 
@@ -716,14 +723,17 @@ export class Horse {
       if (this.overObstacle === o) continue;
       this.overObstacle = o;
       if (this.position.y >= o.top - OBS.clearMargin) this.obstaclesCleared++;
-      else {
-        this.stumble = OBS.stumbleTime;
-        this.speed *= OBS.stumbleSpeed;
-        this.stumbles++;
-        this.sound?.play('stumble');
-        this.onStumble?.();
-      }
+      else this.stumbleFor(OBS.stumbleTime);
     }
+  }
+
+  /** A stumble (an obstacle hit without a jump): slower for `time` s, no damage. */
+  stumbleFor(time) {
+    this.stumble = time;
+    this.speed *= OBS.stumbleSpeed;
+    this.stumbles++;
+    this.sound?.play('stumble');
+    this.onStumble?.();
   }
 
   /** Surrounded: a short rear-up (nose-up pitch; the riders go with the back bone). See rescue.js. */

@@ -287,12 +287,15 @@ export class Gems {
 }
 
 /**
- * Group layout: air arcs over the chosen obstacles, ground groups (alternating rows and arcs)
- * spread evenly over the rest of the trail and kept clear of every obstacle. Sorted by
+ * Group layout: air arcs over the chosen obstacles (the forest hurdles you jump), ground groups
+ * spread evenly over the rest of the trail and kept clear of every obstacle and hurdle (no gem
+ * is ever under one). Sorted by
  * distance along the trail. Each spot: { s, lateral, position }.
  */
 export function layoutGroups(world) {
-  const { track, obstacles } = world;
+  const { track } = world;
+  // Everything ridden over: the ride's obstacles and the forest hurdles (hurdles.js) alike.
+  const obstacles = [...(world.obstacles ?? []), ...(world.hurdles ?? [])].sort((a, b) => a.s - b.s);
   const span = (G.groupSize - 1) * G.spacing;
   const groundY = (x, z) => Math.max(world.heightAt(x, z), CONFIG.zones.waterY);
   const at = (s, lateral) => {
