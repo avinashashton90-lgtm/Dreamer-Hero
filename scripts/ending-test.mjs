@@ -264,7 +264,7 @@ for (const at of ['second line, mid-typewriter', 'first line']) {
         const f = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
         const c = p.clone().sub(g).setY(0).normalize();
         closeShot.front.push(THREE.MathUtils.radToDeg(Math.acos(THREE.MathUtils.clamp(f.dot(c), -1, 1))));
-        const eye = g.y + SHT.closeUp.eye;
+        const eye = g.y + SHT.closeUp.eye * CONFIG.girlModel.height; // (a fraction of her height)
         if (p.y < eye && p.y > eye - 0.35) closeShot.below++;
         const q = onScreen(new THREE.Vector3(g.x, eye, g.z));
         if (q && Math.abs(q.x) < 0.3 && Math.abs(q.y) < 0.35) closeShot.eyesCentred++;

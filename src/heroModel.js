@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { CONFIG } from './config.js';
-import { fetchBuffers, parseFBX, retargetClip, rootSpeed, mapTime, boneKey } from './mixamo.js';
+import { fetchBuffers, parseFBX, retargetClip, rootSpeed, mapTime, boneKey, rotateBone } from './mixamo.js';
 
 const M = CONFIG.heroModel;
 const O = CONFIG.outfit;
@@ -565,13 +565,4 @@ export class HeroAnimator {
     }
     if (hero.facePitch) rotateBone(this.u.bones.head, axis(1, 0, 0), hero.facePitch);
   }
-}
-
-/** Rotates a bone by `angle` round a world-space axis (on top of the animated pose). */
-function rotateBone(bone, axisWorld, angle) {
-  bone.parent.updateWorldMatrix(true, false);
-  const pq = bone.parent.getWorldQuaternion(new THREE.Quaternion()).invert();
-  const local = axisWorld.clone().applyQuaternion(pq).normalize();
-  bone.quaternion.premultiply(new THREE.Quaternion().setFromAxisAngle(local, angle));
-  bone.updateMatrixWorld(true);
 }

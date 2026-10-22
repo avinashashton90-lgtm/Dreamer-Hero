@@ -341,6 +341,7 @@ export class Boss {
     this.stateTime = 0;
     this.paralyzed = 0;
     this.paralyzeTotal = B.paralysis.duration;
+    this.wakeRoar = 0; // seconds left of the roar as it snaps out of a paralysis
     this.paralysisResist = 0; // seconds it still shrugs off the Smoke Bomb
     this.smokeExposure = 0;
     this.flash = 0;
@@ -702,6 +703,9 @@ export class Boss {
         if (this.paralyzed <= 0) {
           this.paralysisResist = B.paralysis.resist;
           this.#set(S.RECOVER);
+          // It snaps out of it with a short roar (played during its usual recovery).
+          this.wakeRoar = B.paralysis.dazed.wakeRoar;
+          this.events.onWake?.();
         }
         break;
       case S.DYING: {
@@ -719,6 +723,7 @@ export class Boss {
         break;
     }
     if (this.state !== S.PARALYZED) this.paralyzed = 0;
+    this.wakeRoar = Math.max(0, (this.wakeRoar ?? 0) - dt);
     if (this.state !== S.PARALYZED) this.paralysisResist = Math.max(0, this.paralysisResist - dt);
     if (this.state !== S.SMOKED) this.smokeCloud = null;
     this.fireCooldown = Math.max(0, this.fireCooldown - dt);
@@ -744,6 +749,7 @@ export class Boss {
 
   /** @param {number} [recoverFor]  RECOVER only: how long (default B.recover; shorter in phase 2) */
   #set(state, recoverFor) {
+    this.wakeRoar = 0; // (the wake-up roar belongs to the recovery right after a paralysis)
     if (state === S.RECOVER) this.recoverFor = (recoverFor ?? B.recover) * (this.enraged ? B.enrageRecover : 1);
     this.state = state;
     this.stateTime = 0;
@@ -989,7 +995,12 @@ export class Boss {
       case S.RECOVER:
         body.position.y = Math.sin(this.stateTime * 2) * 0.06; // breathing
         arms.forEach((a, i) => (a.shoulder.rotation.z = (i ? -1 : 1) * 0.15));
-        if (this.state === S.RECOVER) {
+        if (this.state === S.RECOVER && this.wakeRoar > 0) {
+          // Snapping out of the paralysis: head thrown back, a short roar.
+          const r = Math.sin(Math.PI * (1 - this.wakeRoar / B.paralysis.dazed.wakeRoar));
+          head.rotation.x = -0.5 * r;
+          jaw.rotation.x = 0.7 * r;
+        } else if (this.state === S.RECOVER) {
           body.rotation.x = 0.15; // panting, head low
           jaw.rotation.x = 0.15 + Math.sin(this.stateTime * 6) * 0.08;
         }
@@ -1094,10 +1105,15 @@ export class Boss {
         body.rotation.x = 0.25 + Math.sin(t * 18) * 0.08; // coughing, doubled over
         jaw.rotation.x = 0.35 + Math.sin(t * 18) * 0.15;
         break;
-      case S.PARALYZED:
-        body.rotation.z = Math.sin(this.paralyzed * 3) * 0.04;
+      case S.PARALYZED: {
+        // Dazed: swaying side to side, head hung low.
+        const D = B.paralysis.dazed;
+        const k = Math.min(1, t / 0.4);
+        body.rotation.z = Math.sin(t * Math.PI * D.swayRate) * D.sway * k;
+        head.rotation.x = D.headDown * k;
         jaw.rotation.x = 0.2;
         break;
+      }
       case S.DYING: {
         const D = B.dying;
         jaw.rotation.x = 0.5;
@@ -1151,7 +1167,10 @@ export class Boss {
       const head = this.model.userData.head.getWorldPosition(new THREE.Vector3());
       this.dizzy.position.copy(this.model.worldToLocal(head)).add(new THREE.Vector3(0, B.model.dizzyAbove, 0));
     } else this.dizzy.position.set(0, B.height + 0.4, 0.6);
-    if (this.dizzy.visible) this.dizzy.rotation.y += dt * 4;
+    if (this.dizzy.visible) {
+      this.dizzy.rotation.y += dt * 4; // circling over its head, bobbing a little
+      this.dizzy.position.y += Math.sin(this.clock * 5) * B.paralysis.dazed.starsBob;
+    }
 
     // The girl steps out at the cave mouth after the victory (until she leaves with the hero).
     this.placeGirl();

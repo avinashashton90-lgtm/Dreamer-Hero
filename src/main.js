@@ -90,6 +90,7 @@ async function boot() {
   const boss = new Boss(world.scene, world, {
     onHitHero: (hearts, x, z, opts) => damageHero(hearts, x, z, opts),
     onSlam: () => cam.shake(CONFIG.boss.slam.shake, CONFIG.combat.shake.time * 1.6),
+    onWake: () => sound.play('bossRoar'), // (snapping out of a Smoke Bomb paralysis)
     onDefeat: () => {
       ui.banner(DIALOGUE.victory);
       minions.despawnSlimes(); // (its slimes melt away)

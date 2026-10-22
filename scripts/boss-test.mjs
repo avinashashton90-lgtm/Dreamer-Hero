@@ -295,7 +295,20 @@ const runUntil = (pred, maxS, opts) => { let t = 0; while (t < maxS) { step(1, {
   const pos = boss.position.clone();
   const hearts = lives.hearts;
   placeHero(cx - 2.5, cz, Math.PI / 2); // right in front of it
-  step(secs(2));
+  // Dazed: idle at half speed, the body swaying, the head hung low, stars circling over it.
+  const DZ = P.dazed, u = boss.model.userData;
+  const swayPart = u.bones?.hips ?? u.body;
+  const q0 = swayPart.getWorldQuaternion(new THREE.Quaternion());
+  let swayMax = 0, starsAlways = true;
+  step(secs(2), {}, { each: () => {
+    swayMax = Math.max(swayMax, swayPart.getWorldQuaternion(new THREE.Quaternion()).angleTo(q0));
+    starsAlways &&= boss.dizzy.visible;
+  } });
+  const an = u.animator;
+  check(swayMax > DZ.sway * 0.5 && starsAlways && (!an || (an.clip === 'idle' && an.actions.idle.timeScale === DZ.idleRate)),
+    `paralyzed it looks dazed: ${an ? `idle at ${an.actions.idle?.timeScale}× speed, ` : ''}swaying (±${swayMax.toFixed(2)} rad), head hung low, stars circling over it`);
+  let woke = 0;
+  boss.events.onWake = () => woke++;
   const frozen = boss.state === S.PARALYZED && boss.position.distanceTo(pos) < 0.01 && lives.hearts === hearts;
   const hp = boss.hp;
   const dealt = combat.hitTarget(boss, { amount: 10 });
@@ -307,6 +320,8 @@ const runUntil = (pred, maxS, opts) => { let t = 0; while (t < maxS) { step(1, {
   check(Math.abs(dealt - base * P.bonus) < 1e-6 && Math.abs(boss.hp - (hp - dealt)) < 1e-6, `paralyzed: a ${base} hit does ${dealt} (+${Math.round((P.bonus - 1) * 100)}%)`);
   check(tEnd > 0 && Math.abs(2 + tEnd - P.duration) < 0.1 && boss.state === S.RECOVER && Math.abs(ringFrac - (1 - 2 / P.duration)) < 0.03, `boss paralysis lasts ${(2 + tEnd).toFixed(1)}s (${P.duration} s; timer ring counts down from ${P.duration} s; other monsters ${CONFIG.abilities.smokeBomb.paralyze} s) → ${boss.state}`);
   // Resistant for 20 s: a second bomb straight away does nothing.
+  check(woke === 1 && boss.wakeRoar > 0 && (!an || an.clip === 'roar'), `it snaps out of it with a short roar (${an ? an.clip : 'placeholder'}, ${DZ.wakeRoar} s, onWake)`);
+  delete boss.events.onWake;
   check(boss.resistsParalysis() && Math.abs(boss.paralysisResist - P.resist) < 0.1, `resists paralysis for ${P.resist} s afterwards`);
   step(secs(CONFIG.abilities.smokeBomb.cooldown) - 2, {}, { each: () => { boss.position.set(cx, 0, cz); boss.state = S.RECOVER; boss.stateTime = 0; } });
   throwSmoke();
@@ -634,9 +649,9 @@ const runUntil = (pred, maxS, opts) => { let t = 0; while (t < maxS) { step(1, {
   check(boss.defeated && boss.state === S.DEAD, 'a defeated boss stays defeated after a respawn');
 }
 
-// Warrok: each state plays its clip.
+// Warrok: each state plays its clip (recover: roar right after a paralysis).
 if (boss.model.userData.animator) {
-  const want = { meleeWindup: 'swipe/punch', melee: 'swipe/punch', chase: 'walk', recover: 'idle', slamWindup: 'jumpattack', slam: 'jumpattack', fireWindup: 'roar', fire: 'roar', chargeWindup: 'roar', charge: 'run', stunned: 'hit', paralyzed: 'hit', dying: 'death' };
+  const want = { meleeWindup: 'swipe/punch', melee: 'swipe/punch', chase: 'walk', recover: 'idle/roar', slamWindup: 'jumpattack', slam: 'jumpattack', fireWindup: 'roar', fire: 'roar', chargeWindup: 'roar', charge: 'run', stunned: 'hit', paralyzed: 'idle', dying: 'death' };
   const wrong = Object.entries(want).filter(([st, c]) => { const ok = c.split('/'); const seen = [...(clipsByState[st] ?? [])]; return !seen.length || seen.some((x) => !ok.includes(x)); });
   check(wrong.length === 0, `Warrok's clips by state: ${Object.entries(want).map(([st]) => `${st}=${[...(clipsByState[st] ?? [])].join('/')}`).join(', ')}${wrong.length ? ' — WRONG: ' + wrong.map(([st]) => st).join(', ') : ''}`);
 }

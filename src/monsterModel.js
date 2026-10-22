@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { CONFIG } from './config.js';
-import { fetchBuffers, parseFBX, retargetClip, mapTime, boneKey } from './mixamo.js';
+import { fetchBuffers, parseFBX, retargetClip, mapTime, boneKey, rotateBone } from './mixamo.js';
 
 const B = CONFIG.boss;
 const M = B.model;
@@ -119,7 +119,8 @@ function makeMouthGlow(warrok, jaw) {
  * punch (scrubbed so the blow lands at the hit); slam wind-up + slam → jumpattack,
  * scrubbed so the fists land at the start of the slam (the damage frame); fire wind-up →
  * roar rearing back, fire → roar thrusting forward; charge wind-up → roar, charge → run;
- * stunned → hit (doubles over, holds, recovers); paralyzed → hit frozen; dying → death.
+ * stunned → hit (doubles over, holds, recovers); paralyzed → dazed (idle at half speed, swaying,
+ * head hung low), then a short roar as it snaps out of it (the start of its recovery); dying → death.
  * Procedural on top: the jaw opens (smoke inhale, fire), the chest heaves while inhaling.
  */
 export class MonsterAnimator {
@@ -211,8 +212,9 @@ export class MonsterAnimator {
         this.#scrub(clip, mapTime(t / B.charge.stun, M.stunned.xs, M.stunned.ts));
         break;
       case S.PARALYZED:
-        clip = 'hit';
-        this.#scrub(clip, M.paralyzedAt);
+        // Dazed: the idle at half speed (the sway and the hung head go on top, below).
+        clip = 'idle';
+        this.#loop('idle', B.paralysis.dazed.idleRate);
         break;
       case S.STAGGERED:
         clip = 'hit';
@@ -232,7 +234,13 @@ export class MonsterAnimator {
         break;
       }
       default:
-        this.#loop('idle', 1); // guard, recover
+        if (boss.state === S.RECOVER && boss.wakeRoar > 0) {
+          // Snapping out of the paralysis: a short roar.
+          clip = 'roar';
+          const W = B.paralysis.dazed.wakeRoar;
+          this.#scrub(clip, mapTime(1 - boss.wakeRoar / W, [0, 1], M.wakeRoar));
+          jaw = Math.max(jaw, M.jawOpen.fire * Math.sin(Math.PI * (1 - boss.wakeRoar / W)));
+        } else this.#loop('idle', 1); // guard, recover
     }
     this.clip = clip;
     const step = dt / M.crossfade;
@@ -250,5 +258,14 @@ export class MonsterAnimator {
     if (jaw > 0) jawBone.rotateX(jaw);
     const heave = 1 + CONFIG.abilities.smokeBomb.heave * fx.inhale * (0.5 + 0.5 * Math.sin((boss.clock ?? 0) * 13));
     bones.chest.scale.set(heave, 1 + (heave - 1) * 0.5, heave);
+    if (boss.state === S.PARALYZED && boss.model) {
+      // Dazed: the body sways gently side to side, the head hangs low (eased in).
+      const D = B.paralysis.dazed;
+      const q = boss.model.getWorldQuaternion(new THREE.Quaternion());
+      const axis = (x, y, z) => new THREE.Vector3(x, y, z).applyQuaternion(q);
+      const k = Math.min(1, t / 0.4);
+      rotateBone(bones.hips, axis(0, 0, 1), Math.sin(t * Math.PI * 2 * D.swayRate / 2) * D.sway * k);
+      rotateBone(bones.head, axis(1, 0, 0), D.headDown * k);
+    }
   }
 }

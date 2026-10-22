@@ -496,8 +496,8 @@ export class Story {
     const toHeroYaw = Math.atan2(toHero.x, toHero.z);
     if (this.actors.girl) this.actors.girl.yaw = toHeroYaw + Math.atan2(Math.sin(yaw - toHeroYaw), Math.cos(yaw - toHeroYaw)) * C.cheat;
     return {
-      pos: g.clone().addScaledVector(dir, C.dist).setY(g.y + C.eye - C.below),
-      look: g.clone().setY(g.y + C.eye),
+      pos: g.clone().addScaledVector(dir, C.dist).setY(g.y + C.eye * CONFIG.girlModel.height - C.below),
+      look: g.clone().setY(g.y + C.eye * CONFIG.girlModel.height),
       dir,
     };
   }

@@ -5,7 +5,7 @@
 // Names in use: 'splashStep' (hoof in water), 'splashEnter', 'splashExit' (horse steps
 // into / out of the river), 'stumble' (horse hits an obstacle), 'gallopStart', 'eerie' (witch
 // hint), 'paralyze' (Smoke Bomb), 'hum' (the Lazarus Pit wakes), 'heal' (the hero drinks),
-// 'gateSlam' (the castle gates slam shut).
+// 'gateSlam' (the castle gates slam shut), 'bossRoar' (the boss snaps out of a paralysis).
 
 export class Sound {
   constructor() {

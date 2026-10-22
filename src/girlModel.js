@@ -83,7 +83,9 @@ export async function loadMixamoGirl(opts = {}) {
  * witch hint). The face's front comes from the head-skinned vertices in the bind pose.
  */
 function makeEyeGlow(amy, head) {
-  const E = GM.eyes;
+  const f = GM.height / GM.eyes.refHeight; // (the offsets were measured at refHeight)
+  const E = { ...GM.eyes, up: GM.eyes.up * f, apart: GM.eyes.apart * f, back: GM.eyes.back * f, size: GM.eyes.size * f };
+  const win = 0.03 * f;
   amy.updateMatrixWorld(true);
   const hp = head.getWorldPosition(new THREE.Vector3());
   let front = -Infinity;
@@ -100,10 +102,10 @@ function makeEyeGlow(amy, head) {
       for (let k = 0; k < 4; k++) if (sw.getComponent(i, k) > best) (best = sw.getComponent(i, k)), (bi = si.getComponent(i, k));
       if (bi !== headIndex) continue;
       o.getVertexPosition(i, v).applyMatrix4(o.matrixWorld); // (skinned + dequantized)
-      if (Math.abs(v.x - hp.x) < 0.03 && v.y > hp.y + E.up - 0.03 && v.y < hp.y + E.up + 0.03) front = Math.max(front, v.z);
+      if (Math.abs(v.x - hp.x) < win && v.y > hp.y + E.up - win && v.y < hp.y + E.up + win) front = Math.max(front, v.z);
     }
   });
-  if (!Number.isFinite(front)) front = hp.z + 0.09;
+  if (!Number.isFinite(front)) front = hp.z + 0.09 * f;
   const mat = new THREE.MeshBasicMaterial({ color: E.color, transparent: true, opacity: E.opacity, depthWrite: false, blending: THREE.AdditiveBlending, fog: false });
   // On the head bone: positions from world (metres) into its frame, sizes by its scale.
   const group = new THREE.Group();

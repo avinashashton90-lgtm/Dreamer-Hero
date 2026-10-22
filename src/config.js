@@ -459,9 +459,9 @@ export const CONFIG = {
         drink: { dist: 4, angle: 25, up: 1.3, look: 0.4, duration: 1.0 },
         // "Who are you?" and her smile: a close-up on Amy's face from the front, slightly below
         // eye level (`eye` − `below`), `dist` from her body (≥ guard.minDist), `angle`° round from
-        // the line to AJ (so the camera keeps clear of him), her yaw turned `cheat` of the way to
+        // the line to AJ (so the camera keeps clear of him), `eye` a fraction of her height, her yaw turned `cheat` of the way to
         // the camera; narrow `fov`; AJ only a soft edge. Her eyes glow faintly for `glow` s.
-        closeUp: { angle: 65, dist: 1.85, eye: 1.5, below: 0.12, cheat: 0.75, fov: 38, glow: 1.6, duration: 1.0 },
+        closeUp: { angle: 65, dist: 1.85, eye: 0.926, below: 0.12, cheat: 0.75, fov: 38, glow: 1.6, duration: 1.0 },
         pullBack: { dist: 11, up: 5, duration: 1.6 },
       },
     },
@@ -724,7 +724,13 @@ export const CONFIG = {
     crack: { arms: 7, length: [2.4, 4.2], width: 0.22, color: 0x140a06, glow: 0xff5a14, glowOpacity: 0.55, life: 9, fade: 1.5, max: 6 },
     // Smoke Bomb on the boss: paralyzed only 4 s (other monsters: smokeBomb.paralyze), taking
     // +20% damage meanwhile, then it resists paralysis for 20 s.
-    paralysis: { duration: 4, bonus: 1.2, resist: 20 },
+    paralysis: {
+      duration: 4, bonus: 1.2, resist: 20,
+      // Dazed while paralyzed: idle at half speed, the body swaying side to side, the head hung
+      // low, stars circling over it; then it snaps out of it with a short roar (`wakeRoar` s,
+      // inside its usual recovery — the duration and damage are unchanged).
+      dazed: { idleRate: 0.5, sway: 0.12, swayRate: 1.6, headDown: 0.45, starsBob: 0.12, wakeRoar: 0.6 },
+    },
     // The moment its body touches a Smoke Bomb cloud it is interrupted (chase, recovery, any
     // wind-up cancelled) and coughs, staggering; inside it moves at 15% and can't leave the cloud
     // until smokeExposureSeconds have passed, then paralysis. Never during a slam landing or a
@@ -759,7 +765,7 @@ export const CONFIG = {
       punch: { windup: [0, 0.22], strike: [0.22, 0.6] },     // fist drawn back … the punch (peaks ~0.3)
       chargeWindup: [0.6, 1.9],     // roar: rears back, then head down ready to rush
       stunned: { xs: [0, 0.2, 0.75, 1], ts: [0, 0.55, 0.6, 1.33] }, // hit: doubles over, holds, recovers
-      paralyzedAt: 0.55,            // hit, frozen doubled over (Smoke Bomb)
+      wakeRoar: [1.75, 2.45],       // roar: a short roar as it snaps out of the paralysis
       smokedAt: 0.35,               // hit, flinching while it coughs in the smoke
       dying: [0, 3.1],              // death: staggers, falls on its back (over stumble + fall)
       dizzyAbove: 1.0,              // dizzy stars this far above the head bone
@@ -768,7 +774,7 @@ export const CONFIG = {
     girl: {
       position: [116.5, -16.5], // at the cave mouth, by the left wall of the arch
       facing: -0.65,         // looking out toward the arena centre (radians, 0 = +Z)
-      color: 0x8a4fd0, hair: 0x1c1026, skin: 0xf3d2b0, height: 1.6, radius: 0.32, appearTime: 1.2,
+      color: 0x8a4fd0, hair: 0x1c1026, skin: 0xf3d2b0, get height() { return CONFIG.girlModel.height; }, radius: 0.32, appearTime: 1.2,
       shadow: { x: 120.8, z: -23, width: 3.6, height: 5.2, opacity: 0.5 }, // on the cave wall behind her
       seatBack: 0.62,        // riding: sits this far behind the hero's seat
     },
@@ -990,7 +996,9 @@ export const CONFIG = {
   girlModel: {
     path: 'models/girl/',
     file: 'girl.glb',        // meshopt-compressed; its embedded clip is the idle
-    height: 1.62,            // a little shorter than AJ (1.8)
+    // Drawn at girlHeightRatio × AJ's drawn height (heroModel.height): riding, at the cave, the
+    // Lazarus Pit and the castle gate alike.
+    get height() { return CONFIG.heroModel.height * CONFIG.girlHeightRatio; },
     textureMax: 1024,
     crossfade: 0.25,
     // Animation-only FBX files in the same folder (all loaded; the last ones are unused for now).
@@ -1015,8 +1023,9 @@ export const CONFIG = {
     lookAtHero: { yaw: 0.5, pitch: 0.12 }, // riding, turning to look at him (head + upper spine)
     glanceBack: { yaw: -1.7, rate: 7 },    // a nervous glance back over her shoulder (the castle gates)
     // Witch hint: a faint purple glow over each eye (on the head bone), flickering.
-    eyes: { up: 0.072, apart: 0.032, back: 0.018, size: 0.028, color: 0xb04dff, opacity: 0.75 },
+    eyes: { up: 0.072, apart: 0.032, back: 0.018, size: 0.028, color: 0xb04dff, opacity: 0.75, refHeight: 1.62 }, // (offsets measured with her 1.62 tall; scaled to her height)
   },
+  girlHeightRatio: 0.9,      // Amy is 90% of AJ's height (girlModel.height, the placeholder girl too)
   girlWitchForm: false,      // hook for her later transformation: eyes glow and the wall shadow keeps the hat and staff
 
   // The horse model (public/models/horse/horse.gltf: horseModel.js), animated by speed.
@@ -1028,7 +1037,7 @@ export const CONFIG = {
     crossfade: 0.25,         // seconds to blend between gaits
     seatBone: 'Torso2',      // the saddle rides on this back bone (follows the gallop's rocking)
     saddleOffset: [0, 0.02, 0.05],     // AJ's hips relative to the top of the back over seatBone (x, y, z; +z forward)
-    passengerOffset: [0, 0.04, -0.5],  // the girl's hips, same frame, behind him
+    passengerOffset: [0, 0.04, -0.56], // the girl's hips, same frame, behind him (a little further back: she is 90% of AJ's height)
     // Clip roles → clip names, first one found wins (a missing gait falls back to the nearest).
     roles: {
       idle: ['Idle', 'Idle_2', 'Idle_Headlow'],     // standing, ridden

@@ -174,3 +174,12 @@ export function mapTime(x, xs, ts) {
   }
   return ts[ts.length - 1];
 }
+
+/** Rotates a bone by `angle` round a world-space axis (on top of the animated pose). */
+export function rotateBone(bone, axisWorld, angle) {
+  bone.parent.updateWorldMatrix(true, false);
+  const pq = bone.parent.getWorldQuaternion(new THREE.Quaternion()).invert();
+  const local = axisWorld.clone().applyQuaternion(pq).normalize();
+  bone.quaternion.premultiply(new THREE.Quaternion().setFromAxisAngle(local, angle));
+  bone.updateMatrixWorld(true);
+}
