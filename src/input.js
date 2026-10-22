@@ -1,4 +1,4 @@
-import { CONFIG, DIALOGUE, abilityGemCost } from './config.js';
+import { CONFIG, DIALOGUE } from './config.js';
 
 const I = CONFIG.input;
 
@@ -326,9 +326,9 @@ export class Input {
       const b = button('ability-btn locked', DIALOGUE.abilityShort[name]);
       b.title = DIALOGUE.abilityNames[name];
       b.insertAdjacentHTML('beforeend', '<i class="cooldown"></i>' + (name === 'flashMode' ? '<span class="energy"><i></i></span>' : ''));
-      // Gem cost badge, in the colour it spends.
+      // Uses-left badge, in the colour it spends (updated live in setCombatButtons).
       const color = Object.keys(CONFIG.gems.abilities).find((c) => CONFIG.gems.abilities[c] === name);
-      b.insertAdjacentHTML('beforeend', `<b class="cost">${abilityGemCost(name)}</b>`);
+      b.insertAdjacentHTML('beforeend', '<b class="uses" style="display:none"></b>');
       b.style.setProperty('--gem', `#${CONFIG.gems.colors[color].toString(16).padStart(6, '0')}`);
       this.abilityBtns[name] = b;
     });
@@ -492,14 +492,22 @@ export class Input {
       show(b, !!L[name] && !exhausted);
       const unlocked = ab.has(name);
       b.classList.toggle('locked', !unlocked);
+      // Uses left (live after every use and pickup), capped on screen; no badge at 0 or locked.
+      const uses = unlocked ? ab.usesLeft?.(name) : 0;
+      const badge = b.querySelector('.uses');
+      const text = uses > 0 ? String(Math.min(I.usesBadgeMax, uses)) : '';
+      if (badge.textContent !== text) badge.textContent = text;
+      const bd = text ? '' : 'none';
+      if (badge.style.display !== bd) badge.style.display = bd;
       if (!unlocked) continue;
       const cd = ab.cooldownFraction(name);
       b.style.setProperty('--cd', cd.toFixed(3));
       b.classList.toggle('cooling', cd > 0);
-      b.classList.toggle('blocked', !ab.canAfford(name)); // greyed: can't pay (gems, or Flash's hearts)
+      // Greyed: can't pay (no uses left, or Flash's hearts) — and Flash while its bar reloads.
+      const why = name === 'flashMode' ? ab.flashBlockReason() : null;
+      b.classList.toggle('blocked', !ab.canAfford(name) || uses === 0 || why === 'reload' || why === 'health');
       if (name === 'flashMode') {
         b.querySelector('.energy i').style.transform = `scaleX(${ab.energy.toFixed(3)})`;
-        const why = ab.flashBlockReason();
         b.classList.toggle('ready', !why);
         b.classList.toggle('reloading', why === 'reload');
         b.classList.toggle('active', ab.charging > 0 || !!ab.strike);

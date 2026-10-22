@@ -75,10 +75,8 @@ async function boot() {
   combat.abilities = abilities;
   abilities.onEvent = (name, e) => {
     if (name === 'abilityBlocked') {
-      // Can't use it: the button shakes and a small corner toast says why (nothing mid-screen).
+      // Can't use it: the button only shakes (no toast in the middle of the action).
       input.shakeAbility(e.name);
-      const text = { gems: DIALOGUE.needGems(e.n, DIALOGUE.gemNames[e.color].toLowerCase()), health: DIALOGUE.notEnoughHealth, reload: DIALOGUE.flashReloading, target: DIALOGUE.noTarget }[e.why];
-      if (text) ui.toast(text);
     }
     if (name === 'flashStrike') ui.screenFlash();
     if (name === 'paralyzed') sound.play('paralyze');

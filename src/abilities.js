@@ -317,6 +317,16 @@ export class Abilities {
     return { color: COST_COLOR[name], n: abilityGemCost(name) };
   }
 
+  /**
+   * Uses the gems on hand pay for — floor(count / cost) — shown as the button's badge (the cost
+   * itself is never shown). null with no gem store attached.
+   */
+  usesLeft(name) {
+    if (!this.gems) return null;
+    const { color, n } = this.gemCost(name);
+    return Math.floor((this.gems.counts[color] ?? 0) / n);
+  }
+
   /** Enough gems (and, for Flash, hearts) to pay for one use? (No gem store attached = free.) */
   canAfford(name) {
     if (name === 'flashMode' && this.lives && !(this.lives.hearts > this.flashHeartCost)) return false;
@@ -373,12 +383,12 @@ export class Abilities {
 
   /**
    * Use an ability (button / key). Returns true if it fired. Each use spends its gems; a
-   * blocked use reports why through onEvent('abilityBlocked', { name, why, color, n }).
+   * blocked use reports why through onEvent('abilityBlocked', { name, why }) (the button shakes).
    */
   use(name) {
     const why = this.blockReason(name);
     if (why) {
-      if (why !== 'locked' && why !== 'busy' && why !== 'cooldown') this.onEvent?.('abilityBlocked', { name, why, ...this.gemCost(name) });
+      if (why !== 'locked' && why !== 'busy' && why !== 'cooldown') this.onEvent?.('abilityBlocked', { name, why });
       return false;
     }
     const { color, n } = this.gemCost(name);

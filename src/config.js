@@ -861,6 +861,9 @@ export const CONFIG = {
       },
       minGap: 12,                // px of clear space kept between the corner buttons
     },
+    // Ability buttons: a badge with the uses left (gems on hand ÷ cost, rounded down), capped
+    // at this on screen. No badge at 0 uses (greyed) or while locked; the costs are never shown.
+    usesBadgeMax: 99,
     // Dismount: a small plain button (no glow, pulse or highlight) just below the Pink gem
     // counter at the top right — not in the corner cluster. It works only while the horse is
     // slower than `maxSpeed` (greyed out while it moves) and after a `holdSeconds` press-and-hold,
@@ -1198,12 +1201,8 @@ export const DIALOGUE = {
   gemNames: { yellow: 'Yellow', blue: 'Blue', pink: 'Pink' },
   abilityNames: { batarang: 'Batarang', smokeBomb: 'Smoke Bomb', flashMode: 'Flash Mode' },
   unlocked: (ability) => `${ability} Unlocked!`,
-  notEnoughHealth: 'Not enough health',
-  needGems: (n, color) => `Need ${n} ${color} gem${n === 1 ? '' : 's'}`,
-  noTarget: 'No target in range',
   smokeResisted: 'It shrugs off the smoke!',
   arenaGems: 'Gems at the arena edge!',
-  flashReloading: 'Flash is recharging',
   gallop: 'Gallop',
   objectiveComplete: 'Objective complete!',
   distanceUnit: 'm',

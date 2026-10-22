@@ -182,9 +182,8 @@ html, body {
 .ability-btn .energy { position: absolute; left: 18%; right: 18%; bottom: 7px; height: 5px; border-radius: 3px; background: rgba(0,0,0,.5); overflow: hidden; z-index: 2; }
 .ability-btn .energy i { display: block; height: 100%; background: #ff5fc8; transform-origin: left; transform: scaleX(0); }
 .ability-btn.blocked { filter: grayscale(0.9); opacity: 0.55; }
-.ability-btn .cost { position: absolute; top: 4px; left: 50%; transform: translateX(-50%); min-width: 17px; height: 17px; padding: 0 3px; box-sizing: border-box; border-radius: 9px; font: 700 11px/17px system-ui, sans-serif; color: #1a1430; background: var(--gem); box-shadow: 0 0 0 2px rgba(20, 16, 50, 0.85); z-index: 3; pointer-events: none; }
-.ability-btn.blocked .cost { background: #9a98a8; }
-.ability-btn.locked .cost { display: none; }
+.ability-btn .uses { position: absolute; top: 4px; left: 50%; transform: translateX(-50%); min-width: 17px; height: 17px; padding: 0 3px; box-sizing: border-box; border-radius: 9px; font: 700 11px/17px system-ui, sans-serif; color: #1a1430; background: var(--gem); box-shadow: 0 0 0 2px rgba(20, 16, 50, 0.85); z-index: 3; pointer-events: none; }
+.ability-btn.locked .uses { display: none; }
 .ability-btn.shake { animation: ability-shake 0.35s ease-in-out 1; }
 @keyframes ability-shake { 20% { transform: translateX(-6px); } 40% { transform: translateX(6px); } 60% { transform: translateX(-4px); } 80% { transform: translateX(3px); } }
 .ability-btn.reloading .energy i { background: #c58aff; }

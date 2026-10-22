@@ -236,7 +236,7 @@ const faceDummy = (d = 1.5, angle = 0) => {
   const cost = lives.maxHearts * FM.flashHeartCostPct;
   for (const h of [1, 1.5]) {
     lives.setHearts(h);
-    check(!abilities.use('flashMode') && blocked.at(-1) === 'health' && lives.hearts === h && abilities.flashBlockReason() === 'health' && !abilities.canAfford('flashMode'), `blocked at ${h} hearts (cost ${cost}): "Not enough health", hearts unchanged`);
+    check(!abilities.use('flashMode') && blocked.at(-1) === 'health' && lives.hearts === h && abilities.flashBlockReason() === 'health' && !abilities.canAfford('flashMode'), `blocked at ${h} hearts (cost ${cost}) (greyed, a shake), hearts unchanged`);
   }
   lives.setHearts(5);
   // No target in range: blocked (nothing spent).
@@ -319,16 +319,17 @@ const faceDummy = (d = 1.5, angle = 0) => {
   // Yellow: 2 gems → two throws (2 → 1 → 0), then blocked.
   gems.counts.yellow = 2;
   const counts = [gems.counts.yellow];
+  const uses = [abilities.usesLeft('batarang')];
   for (let i = 0; i < 3; i++) {
     abilities.cooldowns.batarang = 0;
     const ok = abilities.use('batarang');
     counts.push(ok ? gems.counts.yellow : 'blocked');
+    uses.push(abilities.usesLeft('batarang'));
     let t = 0; while (abilities.batarangOut && t < AB.batarang.maxTime + 1) { step(1); t += dt; }
   }
   const last = blocked.at(-1);
-  const toast = DIALOGUE.needGems(last?.n, DIALOGUE.gemNames[last?.color ?? 'yellow'].toLowerCase());
-  check(counts.join(' → ') === '2 → 1 → 0 → blocked' && last?.why === 'gems' && last.name === 'batarang' && last.color === 'yellow' && last.n === 1 && !abilities.canAfford('batarang') && toast === 'Need 1 yellow gem',
-    `batarang spends ${abilityGemCost('batarang')} yellow per throw: ${counts.join(' → ')} ("${toast}")`);
+  check(counts.join(' → ') === '2 → 1 → 0 → blocked' && uses.join(' → ') === '2 → 1 → 0 → 0' && last?.why === 'gems' && last.name === 'batarang' && last.color === undefined && last.n === undefined && !abilities.canAfford('batarang'),
+    `batarang spends ${abilityGemCost('batarang')} yellow per throw: ${counts.join(' → ')}; uses left (the badge) ${uses.join(' → ')}; at 0 a tap is just blocked (the button shakes; no cost or count in the event)`);
   check(abilities.has('batarang'), 'still unlocked with no yellow gems (just not affordable)');
   gems.counts.yellow += 1;
   abilities.cooldowns.batarang = 0;
@@ -337,14 +338,21 @@ const faceDummy = (d = 1.5, angle = 0) => {
   // Blue: one bomb costs 5.
   gems.counts.blue = 6;
   abilities.cooldowns.smokeBomb = 0;
-  check(abilities.use('smokeBomb') && gems.counts.blue === 1, 'smoke bomb spends 5 blue (6 → 1)');
+  const blueUses = abilities.usesLeft('smokeBomb');
+  check(abilities.use('smokeBomb') && gems.counts.blue === 1 && blueUses === 1 && abilities.usesLeft('smokeBomb') === 0, 'smoke bomb spends 5 blue (6 → 1): uses left 1 → 0 (floor(blue / 5))');
+  const pinkBack = gems.counts.pink;
+  gems.counts.pink = 14;
+  const pinkUses = abilities.usesLeft('flashMode');
+  gems.counts.pink = 4;
+  check(pinkUses === 2 && abilities.usesLeft('flashMode') === 0, `flash uses left = floor(pink / 5): 14 → ${pinkUses}, 4 → ${abilities.usesLeft('flashMode')}`);
+  gems.counts.pink = pinkBack;
   step(secs(AB.throw.duration) + 1);
   abilities.cooldowns.smokeBomb = 0;
-  check(!abilities.use('smokeBomb') && blocked.at(-1).why === 'gems' && blocked.at(-1).color === 'blue', 'smoke bomb blocked with 1 blue ("Need 5 blue gems")');
-  // On cooldown but affordable: no toast (just the cooldown sweep).
+  check(!abilities.use('smokeBomb') && blocked.at(-1).why === 'gems' && blocked.at(-1).name === 'smokeBomb', 'smoke bomb blocked with 1 blue (0 uses left)');
+  // On cooldown but affordable: no blocked event (no shake; just the cooldown sweep).
   gems.counts.yellow = 10; abilities.cooldowns.batarang = 1;
   const nb = blocked.length;
-  check(!abilities.use('batarang') && blocked.length === nb, 'on cooldown: blocked quietly (no gem toast)');
+  check(!abilities.use('batarang') && blocked.length === nb, 'on cooldown: blocked quietly (no shake)');
   abilities.gems = null; abilities.onEvent = null;
   for (let i = 0; i < 40; i++) step(1);
 }
