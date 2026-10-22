@@ -161,6 +161,14 @@ export class UI {
     el.style.opacity = '0';
   }
 
+  /** A gem counter's screen rect (the Dismount button sits below the Pink one), or null if hidden. */
+  gemPillRect(color) {
+    const pill = this.gemPills[color];
+    if (!pill || this.gemsEl.style.display === 'none') return null;
+    const r = pill.getBoundingClientRect();
+    return r.width ? r : null;
+  }
+
   showGems(on) {
     const display = on ? '' : 'none';
     if (this.gemsEl.style.display !== display) this.gemsEl.style.display = display;

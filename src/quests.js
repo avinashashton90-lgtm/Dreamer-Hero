@@ -15,40 +15,10 @@ export const STAGES = Object.freeze([
   'toBeContinued',
 ]);
 
-/** Placeholder objective arrow (points along +Z). Swap for a glTF later. */
-export async function loadArrowModel() {
-  const mat = new THREE.MeshBasicMaterial({ color: Q.arrowColor });
-  const group = new THREE.Group();
-  const head = new THREE.Mesh(new THREE.ConeGeometry(0.28, 0.6, 12), mat);
-  head.rotation.x = Math.PI / 2;
-  head.position.z = 0.55;
-  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.6, 8), mat);
-  shaft.rotation.x = Math.PI / 2;
-  shaft.position.z = 0.05;
-  group.add(head, shaft);
-  return group;
-}
-
-/** Placeholder light pillar marking the objective. */
-export async function loadBeaconModel() {
-  const geo = new THREE.CylinderGeometry(Q.beaconRadius, Q.beaconRadius * 1.6, Q.beaconHeight, 16, 1, true);
-  geo.translate(0, Q.beaconHeight / 2, 0);
-  return new THREE.Mesh(
-    geo,
-    new THREE.MeshBasicMaterial({
-      color: Q.beaconColor,
-      transparent: true,
-      opacity: 0.35,
-      depthWrite: false,
-      side: THREE.DoubleSide,
-      fog: false,
-    }),
-  );
-}
-
 /**
  * Objectives with a target position and a completion test. The current objective is shown
- * in the HUD with its distance, an arrow above the hero points at it and a beacon marks it.
+ * in the HUD quest panel (top left) with its distance. There is no 3D marker or pointer in
+ * the world: no arrow over the hero, no beacon at the target.
  */
 export class Quests {
   /**
@@ -65,14 +35,10 @@ export class Quests {
     this.boss = null; // set by main (the cave monster)
     this.story = null; // set by main (the girl's scene, the desert ride)
     this.index = 0;
-    this.time = 0;
     this.objectives = this.#buildObjectives();
   }
 
   async init() {
-    this.arrow = await loadArrowModel();
-    this.beacon = await loadBeaconModel();
-    this.scene.add(this.arrow, this.beacon);
     this.reset();
   }
 
@@ -89,13 +55,6 @@ export class Quests {
     this.#show();
   }
 
-  /** Hide the arrow and beacon (cutscenes); they come back with the next update. */
-  setVisible(on) {
-    this.hidden = !on;
-    if (!on) this.arrow.visible = this.beacon.visible = false;
-    else this.#show();
-  }
-
   /** Jump to an objective by id (debug keys). */
   goTo(id) {
     const i = this.objectives.findIndex((o) => o.id === id);
@@ -107,7 +66,6 @@ export class Quests {
 
   /** @param {import('./hero.js').Hero} hero */
   update(dt, hero) {
-    this.time += dt;
     const obj = this.current;
     if (!obj) return;
 
@@ -119,33 +77,13 @@ export class Quests {
     }
 
     const target = this.#target(obj);
-    this.beacon.position.copy(target);
-    const dx = target.x - hero.position.x;
-    const dz = target.z - hero.position.z;
-    const dist = Math.hypot(dx, dz);
+    const dist = Math.hypot(target.x - hero.position.x, target.z - hero.position.z);
     this.ui.setQuest(obj.text, Math.round(obj.distance ? obj.distance(hero) : dist));
-
-    this.arrow.position.set(
-      hero.position.x,
-      hero.position.y + Q.arrowHeight + Math.sin(this.time * 3) * 0.08,
-      hero.position.z,
-    );
-    // Along a route (the ride) the arrow points a little way ahead on it, not straight at the goal.
-    const aim = obj.arrowTarget ? obj.arrowTarget(hero) : target;
-    this.arrow.rotation.y = Math.atan2(aim.x - hero.position.x, aim.z - hero.position.z);
-    this.arrow.visible = dist > 3;
-    this.beacon.material.opacity = 0.25 + 0.1 * Math.sin(this.time * 2.5);
   }
 
   #show() {
     const obj = this.current;
-    this.arrow.visible = this.beacon.visible = !!obj;
-    if (!obj) {
-      this.ui.setQuest(null);
-      return;
-    }
-    this.beacon.position.copy(this.#target(obj));
-    this.ui.setQuest(obj.text, null);
+    this.ui.setQuest(obj ? obj.text : null, null);
   }
 
   /** Objective targets are points, or functions for moving targets (the horse). */
@@ -195,11 +133,6 @@ export class Quests {
           const end = track.at(track.length);
           return track.length - this.#trackS(h) + Math.hypot(caveArch.x - end.x, caveArch.z - end.z);
         },
-        arrowTarget: (h) => {
-          const { track } = this.world;
-          const s = this.#trackS(h) + Q.arrowLookahead;
-          return s >= track.length ? this.world.caveArch : track.at(s);
-        },
         // Done when the horse lets the hero off at the arena (or the hero reaches the mouth).
         isDone: (h) =>
           this.horse.arrivedAtCave || Math.hypot(h.position.x - this.world.caveArch.x, h.position.z - this.world.caveArch.z) < CONFIG.cave.reach,
@@ -229,11 +162,6 @@ export class Quests {
           const end = t.at(t.length);
           const s = (t.nearest(h.position.x, h.position.z, Q.trackSearch) ?? t.nearestGlobal(h.position.x, h.position.z)).s;
           return t.length - s + Math.hypot(c.x - end.x, c.z - end.z);
-        },
-        arrowTarget: (h) => {
-          const t = this.world.desertTrack;
-          const s = (t.nearest(h.position.x, h.position.z, Q.trackSearch) ?? t.nearestGlobal(h.position.x, h.position.z)).s + Q.arrowLookahead;
-          return s >= t.length ? this.world.castlePosition : t.at(s);
         },
         isDone: () => this.story?.phase === 'ending' || this.story?.phase === 'done',
       },

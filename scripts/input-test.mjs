@@ -1,7 +1,7 @@
 // Headless touch-routing test (TouchRouter): joystick + camera drag + buttons at the same
 // time, each touch tracked by its identifier; lost/cancelled touches; enlarged hit areas.
 // Usage: npm run test:input   (exits non-zero on failure)
-import { TouchRouter, buttonLayout } from '../src/input.js';
+import { TouchRouter, HoldTimer, buttonLayout } from '../src/input.js';
 import { CONFIG } from '../src/config.js';
 
 const W = 900;
@@ -79,21 +79,48 @@ check(R.owners.size === 0 && R.held.size === 0, 'endAll clears everything');
       for (const safe of [{ right: 0, bottom: 0 }, { right: 44, bottom: 21 }]) {
         const circles = buttonLayout(mode, w, h, safe);
         const small = circles.filter((c) => c.r * 2 < LY.minButton).map((c) => c.name);
+        // (the Dismount button while riding: small, top right under the gem counters — its fallback spot)
+        const D = CONFIG.input.dismount;
+        const dismount = mode === 'ride' ? { name: 'dismount', x: w - safe.right - D.fallback.right - D.size / 2, y: D.fallback.top + D.size / 2, r: D.size / 2 } : null;
         const overlaps = [];
-        for (let i = 0; i < circles.length; i++) for (let j = i + 1; j < circles.length; j++) {
-          const a = circles[i], b = circles[j];
-          if (Math.hypot(a.x - b.x, a.y - b.y) < a.r + b.r) overlaps.push(`${a.name}/${b.name}`);
+        let minGap = Infinity;
+        const all = dismount ? [...circles, dismount] : circles;
+        for (let i = 0; i < all.length; i++) for (let j = i + 1; j < all.length; j++) {
+          const a = all[i], b = all[j];
+          const gap = Math.hypot(a.x - b.x, a.y - b.y) - a.r - b.r;
+          if (gap < LY.minGap) overlaps.push(`${a.name}/${b.name} (${gap.toFixed(0)}px)`);
+          minGap = Math.min(minGap, gap);
         }
         const off = circles.filter((c) => c.x - c.r < w / 2 || c.x + c.r > w - safe.right || c.y - c.r < h * 0.15 || c.y + c.r > h - safe.bottom).map((c) => c.name);
         const R2 = new TouchRouter(() => circles.map((c) => ({ ...c })), () => w);
         const routed = circles.filter((c, i) => R2.start(100 + i, c.x, c.y) === `button:${c.name}`).length;
         const corner = circles.find((c) => c.name === (mode === 'foot' ? 'attack' : 'gallop'));
         const nearest = Math.max(...circles.map((c) => c.x + c.y)) === corner.x + corner.y;
-        check(!small.length && !overlaps.length && !off.length && routed === circles.length && nearest,
-          `${mode} ${w}x${h}${safe.right ? ' (insets)' : ''}: ${circles.length} buttons ≥ ${LY.minButton}px${small.length ? ' SMALL ' + small : ''}, overlaps ${overlaps.join(' ') || 'none'}, off-corner ${off.join(' ') || 'none'}, taps routed ${routed}/${circles.length}, ${corner.name} in the corner`);
+        check(!small.length && !overlaps.length && !off.length && routed === circles.length && nearest && !circles.some((c) => c.name === 'mount' && mode === 'ride'),
+          `${mode} ${w}x${h}${safe.right ? ' (insets)' : ''}: ${circles.length} corner buttons ≥ ${LY.minButton}px${small.length ? ' SMALL ' + small : ''}, clear space ≥ ${LY.minGap}px between them${dismount ? ' and the Dismount button' : ''} (min ${minGap.toFixed(0)}px)${overlaps.length ? ' TOO CLOSE ' + overlaps.join(' ') : ''}, off-corner ${off.join(' ') || 'none'}, taps routed ${routed}/${circles.length}, ${corner.name} in the corner`);
       }
     }
   }
+}
+
+// Dismount: not in the corner cluster; small (≈44 px), under the gem counters at the top right;
+// a hold (0.4 s), never a tap; only while the horse is slow enough; once per press.
+{
+  const D = CONFIG.input.dismount;
+  check(!CONFIG.input.layout.ride.dismount && !CONFIG.input.layout.ride.mount && D.size === 44 && D.maxSpeed === 2 && D.holdSeconds === 0.4, `Dismount: ${D.size}px, top right (not in the corner cluster), hold ${D.holdSeconds} s, only below speed ${D.maxSpeed}`);
+  const dt = 1 / 60;
+  const run = (secs, down, allowed, h) => { let fired = 0; for (let t = 0; t < secs - 1e-9; t += dt) if (h.update(dt, down, allowed)) fired++; return fired; };
+  const h = new HoldTimer(D.holdSeconds);
+  const tap = run(0.15, true, true, h) + run(0.1, false, true, h);
+  const moving = run(1, true, false, h) + run(0.05, false, true, h);
+  const half = run(0.3, true, true, h);
+  const prog = h.progress;
+  const done = run(0.15, true, true, h);
+  const keep = run(1, true, true, h); // still holding after it fired: no repeat
+  const again = run(0.05, false, true, h) + run(0.45, true, true, h);
+  const stopMid = run(0.3, false, true, h) + run(0.25, true, true, h) + run(0.2, true, false, h) + run(0.25, true, true, h); // the horse starts moving mid-hold: starts over
+  check(tap === 0 && moving === 0 && prog > 0.7 && prog < 0.8 && done === 1 && keep === 0 && again === 1 && stopMid === 0 && h.progress > 0.6,
+    `hold to dismount: a tap does nothing, nothing while the horse moves, the ring fills (${prog.toFixed(2)} at 0.3 s), fires once at ${D.holdSeconds} s, no repeat while still held, again on a new press; the horse moving mid-hold restarts it`);
 }
 
 console.log(failed ? 'INPUT TEST FAILED' : 'input test passed');

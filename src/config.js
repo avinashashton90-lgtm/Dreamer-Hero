@@ -857,10 +857,16 @@ export const CONFIG = {
       ride: {
         gallop: [66, 66, 80],
         jump: [166, 60, 62],
-        mount: [118, 152, 62],     // Dismount, above Gallop and Jump
-        batarang: [118, 230, 58],
+        batarang: [118, 230, 58],  // (Dismount is not in the corner: see `dismount`)
       },
+      minGap: 12,                // px of clear space kept between the corner buttons
     },
+    // Dismount: a small plain button (no glow, pulse or highlight) just below the Pink gem
+    // counter at the top right — not in the corner cluster. It works only while the horse is
+    // slower than `maxSpeed` (greyed out while it moves) and after a `holdSeconds` press-and-hold,
+    // a ring filling as you hold. `fallback`: its top / right edge (px from the safe-area corner)
+    // when the gem counter can't be measured. Keyboard E dismounts under the same speed limit.
+    dismount: { size: 44, gap: 6, holdSeconds: 0.4, maxSpeed: 2, fallback: { top: 42, right: 26 } },
     // Landscape phone viewports (CSS px) the layout is checked on: 20:9, 18:9, 16:9.
     checkSizes: [[915, 412], [760, 360], [640, 360]],
     debugKeys: { grantGems: 'KeyG', damageHero: 'KeyH', teleportArena: 'KeyT', killBoss: 'KeyX', spawnBat: 'KeyB', cutscene: 'KeyP', desert: 'KeyO', ending: 'KeyU', pit: 'KeyL' },
@@ -1156,13 +1162,8 @@ export const CONFIG = {
     highlightPulse: 3,       // pulses per ~2 seconds
   },
 
+  // Quests: text panel only (top left) — no 3D arrow, beacon or other pointer in the world.
   quests: {
-    arrowHeight: 2.7,      // objective arrow height above the hero's feet
-    arrowColor: 0xffd23f,
-    beaconColor: 0xffe680,
-    beaconHeight: 30,
-    beaconRadius: 0.8,
-    arrowLookahead: 25,    // riding: the arrow points this far ahead along the trail
     trackSearch: 30,       // how far off the trail the ride progress is still measured locally
   },
 };

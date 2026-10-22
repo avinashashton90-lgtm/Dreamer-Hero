@@ -264,15 +264,12 @@ async function boot() {
     minions.clear(); // never in a cutscene
     ui.showHud(false);
     input.setEnabled(false);
-    quests.setVisible(false); // no quest arrow or beacon in the shot
   });
-  state.onExit(STATES.CUTSCENE, () => quests.setVisible(true));
 
   // Ending: title, then the summary. Play Again = a full reset, then the intro.
   state.onEnter(STATES.ENDING, () => {
     ui.showHud(false);
     input.setEnabled(false);
-    quests.setVisible(false);
     ui.showEnding(true, story.stats(), () => {
       story.resetAll();
       rescue.reset();
@@ -343,7 +340,8 @@ async function boot() {
         cam.yaw = -Math.PI / 2;
         cam.snapTo(hero.position);
       }
-      if (inp.mountPressed) horse.toggle(hero);
+      // (dismounting only below dismount.maxSpeed: the hold button and keyboard E alike)
+      if (inp.mountPressed && (horse.mode !== 'riding' || horse.speed < CONFIG.input.dismount.maxSpeed)) horse.toggle(hero);
       hero.lastDt = dt;
       if (!horse.controlsHero) hero.update(dt, inp, cam.yaw);
       horse.update(dt, inp, cam.yaw, hero);
@@ -365,8 +363,10 @@ async function boot() {
       gems.update(dt, horse.controlsHero ? horse.collectPoint : hero.position.clone().setY(hero.position.y + 0.9));
       quests.update(dt, hero);
       guide.update(dt, hero);
-      const canMount = horse.canMount(hero);
-      input.setMountButton(canMount || horse.mode === 'riding', canMount ? DIALOGUE.mount : DIALOGUE.dismount);
+      // Mount: on foot near the horse (with its pulse). Dismount: small, under the Pink counter,
+      // press-and-hold, only while the horse is (nearly) stopped.
+      input.setMountButton(!horse.controlsHero && horse.mode !== 'riding' && horse.canMount(hero));
+      input.setDismountButton(horse.mode === 'riding', Math.abs(horse.speed) < CONFIG.input.dismount.maxSpeed, realDt, ui.gemPillRect('pink'));
       input.setGallopButton(horse.mode === 'riding', DIALOGUE.gallop, horse.stamina, horse.galloping);
       ui.showGems(quests.index >= 2); // from "Mount the horse" on
     } else if (!state.paused && state.is(STATES.CUTSCENE)) {

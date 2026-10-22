@@ -24,6 +24,43 @@ export function buttonLayout(mode, w, h, safe = { right: 0, bottom: 0 }) {
   }));
 }
 
+/**
+ * Press-and-hold timing (the Dismount button; unit-tested in scripts/input-test.mjs): while
+ * `down` and `allowed` it counts up; at `seconds` it fires once, then not again until released.
+ * Not allowed (or released) → back to 0.
+ */
+export class HoldTimer {
+  constructor(seconds) {
+    this.seconds = seconds;
+    this.t = 0;
+    this.fired = false;
+  }
+
+  /** @returns {boolean} true on the frame the hold completes */
+  update(dt, down, allowed) {
+    if (!down) this.fired = false; // (released: the next press may fire again)
+    if (!down || !allowed || this.fired) {
+      this.t = 0;
+      return false;
+    }
+    this.t += dt;
+    if (this.t < this.seconds) return false;
+    this.t = 0;
+    this.fired = true;
+    return true;
+  }
+
+  /** 0..1, for the ring. */
+  get progress() {
+    return Math.min(1, this.t / this.seconds);
+  }
+
+  reset() {
+    this.t = 0;
+    this.fired = false;
+  }
+}
+
 export class TouchRouter {
   /**
    * @param {() => Array<{name:string, x:number, y:number, r:number, hold?:boolean}>} getButtons
@@ -168,7 +205,8 @@ export class Input {
     this.keys = new Set();
     // Touch: every finger is tracked by its Touch.identifier (see TouchRouter).
     this.touch = new TouchRouter(() => this.#buttonCircles(), () => window.innerWidth);
-    this.touch.onButton = (name, down) => this.#buttonEl(name)?.classList.toggle('pressed', down);
+    // (Dismount has no pressed highlight: its ring is the feedback)
+    this.touch.onButton = (name, down) => name !== 'dismount' && this.#buttonEl(name)?.classList.toggle('pressed', down);
     this.mouseLook = null; // { lx, ly } while the mouse drags to look
     this.lookDX = 0;
     this.lookDY = 0;
@@ -176,6 +214,7 @@ export class Input {
     this.jumpQueued = false;
     this.mountQueued = false;
     this.mouseGallop = false;
+    this.mouseDismount = false; // (the mouse holding the Dismount button)
     this.attackQueued = false;
     this.dodgeQueued = false;
     this.abilityQueued = null; // 'batarang' | 'smokeBomb' | 'flashMode'
@@ -294,10 +333,23 @@ export class Input {
       this.abilityBtns[name] = b;
     });
 
-    // Mount / Dismount: only shown when it applies (see setMountButton).
+    // Mount: on foot near the horse only (see setMountButton); keeps its "ready" pulse.
     this.mountBtn = document.createElement('button');
     this.mountBtn.className = 'mount-btn';
     this.mountBtn.style.display = 'none';
+    this.mountBtn.textContent = DIALOGUE.mount;
+
+    // Dismount: small, top right under the Pink gem counter; press-and-hold with a filling ring
+    // (see setDismountButton). Plain: no glow, pulse or pressed highlight.
+    const D = I.dismount;
+    this.dismountBtn = document.createElement('button');
+    this.dismountBtn.className = 'dismount-btn disabled';
+    this.dismountBtn.style.display = 'none';
+    this.dismountBtn.style.width = this.dismountBtn.style.height = `${D.size}px`;
+    this.dismountBtn.innerHTML = `<i class="hold-ring"></i><span>${DIALOGUE.dismount}</span>`;
+    this.dismountHold = new HoldTimer(D.holdSeconds);
+    this.dismountAnchor = null;
+    this.#placeDismount(null);
 
     // Gallop (hold): in the corner while riding, with a small stamina bar.
     this.gallopBtn = document.createElement('button');
@@ -306,7 +358,7 @@ export class Input {
     this.gallopBtn.innerHTML = `<span class="gallop-label"></span><span class="stamina"><i></i></span>`;
     this.staminaFill = this.gallopBtn.querySelector('.stamina i');
 
-    this.controls.append(this.joyBase, this.attackBtn, this.jumpBtn, this.dodgeBtn, ...Object.values(this.abilityBtns), this.mountBtn, this.gallopBtn);
+    this.controls.append(this.joyBase, this.attackBtn, this.jumpBtn, this.dodgeBtn, ...Object.values(this.abilityBtns), this.mountBtn, this.dismountBtn, this.gallopBtn);
     this.layoutMode = null;
     this.#applyLayout('foot');
     root.appendChild(this.controls);
@@ -353,6 +405,7 @@ export class Input {
       if (e.pointerType !== 'mouse') return;
       this.mouseLook = null;
       this.mouseGallop = false;
+      this.mouseDismount = false;
       this.gallopBtn.classList.remove('pressed');
     };
     window.addEventListener('pointerup', mouseUp);
@@ -364,7 +417,8 @@ export class Input {
         if (e.pointerType !== 'mouse' || !this.enabled) return; // touches go through TouchRouter
         e.preventDefault();
         this.#press(name);
-        if (name === 'gallop') {
+        if (name === 'dismount') this.mouseDismount = true; // (held: see setDismountButton)
+        else if (name === 'gallop') {
           this.mouseGallop = true;
           el.classList.add('pressed');
         } else {
@@ -487,11 +541,44 @@ export class Input {
     b.classList.add('pulse');
   }
 
-  /** Shows/hides the Mount button and sets its label (Mount / Dismount). */
-  setMountButton(visible, label) {
+  /** Shows/hides the Mount button (on foot, near the horse). */
+  setMountButton(visible) {
     const display = visible ? '' : 'none';
     if (this.mountBtn.style.display !== display) this.mountBtn.style.display = display;
-    if (visible && this.mountBtn.textContent !== label) this.mountBtn.textContent = label;
+  }
+
+  /**
+   * The Dismount button (while riding): greyed and inert unless `allowed` (horse slower than
+   * dismount.maxSpeed); held for dismount.holdSeconds it dismounts (once per press), the ring
+   * filling meanwhile. `anchor`: the Pink gem counter's screen rect (it sits just below it).
+   */
+  setDismountButton(visible, allowed, dt, anchor = null) {
+    const b = this.dismountBtn;
+    const display = visible ? '' : 'none';
+    if (b.style.display !== display) b.style.display = display;
+    b.classList.toggle('disabled', !allowed);
+    const down = visible && this.enabled && (this.touch.held.has('dismount') || this.mouseDismount);
+    if (this.dismountHold.update(dt, down, allowed)) this.mountQueued = true;
+    b.style.setProperty('--hold', this.dismountHold.progress.toFixed(3));
+    if (visible) this.#placeDismount(anchor);
+  }
+
+  /** Just below the anchor (the Pink gem counter), centred on it; else the config fallback spot. */
+  #placeDismount(anchor) {
+    const D = I.dismount;
+    const key = anchor ? `${Math.round(anchor.left + anchor.width / 2)},${Math.round(anchor.bottom)}` : 'fallback';
+    if (key === this.dismountAnchor) return;
+    this.dismountAnchor = key;
+    const s = this.dismountBtn.style;
+    if (anchor) {
+      s.right = s.top = '';
+      s.left = `${anchor.left + anchor.width / 2 - D.size / 2}px`;
+      s.top = `${anchor.bottom + D.gap}px`;
+    } else {
+      s.left = '';
+      s.top = `calc(env(safe-area-inset-top, 0px) + ${D.fallback.top}px)`;
+      s.right = `calc(env(safe-area-inset-right, 0px) + ${D.fallback.right}px)`;
+    }
   }
 
   /** All on-screen buttons by name. */
@@ -501,6 +588,7 @@ export class Input {
       jump: this.jumpBtn,
       dodge: this.dodgeBtn,
       mount: this.mountBtn,
+      dismount: this.dismountBtn,
       gallop: this.gallopBtn,
       ...this.abilityBtns,
     };
@@ -517,7 +605,7 @@ export class Input {
       if (el.style.display === 'none' || !el.isConnected) continue;
       const r = el.getBoundingClientRect();
       if (!r.width) continue;
-      out.push({ name, x: r.left + r.width / 2, y: r.top + r.height / 2, r: Math.max(r.width, r.height) / 2, hold: name === 'gallop' });
+      out.push({ name, x: r.left + r.width / 2, y: r.top + r.height / 2, r: Math.max(r.width, r.height) / 2, hold: name === 'gallop' || name === 'dismount' });
     }
     return out;
   }
@@ -542,6 +630,8 @@ export class Input {
     this.touch?.endAll();
     this.mouseLook = null;
     this.mouseGallop = false;
+    this.mouseDismount = false;
+    this.dismountHold?.reset();
     this.lookDX = this.lookDY = 0;
     this.jumpQueued = false;
     this.mountQueued = false;

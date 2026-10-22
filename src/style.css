@@ -209,6 +209,33 @@ html, body {
   animation: mount-pulse 1.4s ease-in-out infinite;
 }
 @keyframes mount-pulse { 50% { transform: scale(1.06); } }
+/* Dismount: small and plain (no glow, pulse or pressed highlight), top right under the Pink
+   counter; a ring fills while it is held; greyed while the horse moves. */
+.dismount-btn {
+  position: absolute;
+  padding: 0;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  border: 2px solid rgba(255, 255, 255, 0.7);
+  background: rgba(20, 16, 50, 0.6);
+  color: #fff;
+  font: 700 8px/1 system-ui, sans-serif;
+  letter-spacing: -0.3px;
+  white-space: nowrap;
+  overflow: hidden;
+  pointer-events: auto;
+  touch-action: none;
+  animation: none;
+  box-shadow: none;
+}
+.dismount-btn span { position: relative; z-index: 2; }
+.dismount-btn .hold-ring {
+  position: absolute; inset: -2px; border-radius: 50%; z-index: 1;
+  background: conic-gradient(#fff calc(var(--hold, 0) * 360deg), transparent 0);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3px));
+}
+.dismount-btn.disabled { filter: grayscale(1); opacity: 0.4; }
 .gallop-btn {
   position: absolute;
   border-radius: 50%;
