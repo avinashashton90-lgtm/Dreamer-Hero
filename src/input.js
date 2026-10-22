@@ -1,4 +1,4 @@
-import { CONFIG, DIALOGUE } from './config.js';
+import { CONFIG, DIALOGUE, abilityGemCost } from './config.js';
 
 const I = CONFIG.input;
 
@@ -64,7 +64,9 @@ export class TouchRouter {
         role = 'joy';
         Object.assign(this.joy, { id, ox: x, oy: y, x: 0, y: 0 });
       }
-    } else if (this.look.id === null) {
+    } else {
+      // Camera drag: the newest finger on the right half always takes it (a stale one never blocks it).
+      if (this.look.id !== null) this.owners.delete(this.look.id);
       role = 'look';
       Object.assign(this.look, { id, lx: x, ly: y });
     }
@@ -73,6 +75,14 @@ export class TouchRouter {
   }
 
   move(id, x, y) {
+    // A finger nobody owns (its start was lost, or it was down while the controls were off)
+    // dragging on the right half: it becomes the camera drag from here on.
+    if (!this.owners.has(id) && x >= this.getWidth() / 2 && !this.#onButton(x, y)) {
+      if (this.look.id !== null) this.owners.delete(this.look.id);
+      this.owners.set(id, 'look');
+      Object.assign(this.look, { id, lx: x, ly: y });
+      return;
+    }
     const role = this.owners.get(id);
     if (role === 'joy') {
       let dx = x - this.joy.ox;
@@ -115,6 +125,20 @@ export class TouchRouter {
   /** Drop touches that are no longer on the screen (their end event never arrived). */
   sync(activeIds) {
     for (const id of [...this.owners.keys()]) if (!activeIds.has(id)) this.end(id);
+  }
+
+  /**
+   * Clears stuck state (every hit on the hero calls it): touches no longer down are dropped, and
+   * a drag slot pointing at a finger we don't own is freed. Live drags carry on untouched.
+   */
+  unstick(activeIds) {
+    if (activeIds) this.sync(activeIds);
+    if (this.look.id !== null && this.owners.get(this.look.id) !== 'look') this.look.id = null;
+    if (this.joy.id !== null && this.owners.get(this.joy.id) !== 'joy') Object.assign(this.joy, { id: null, x: 0, y: 0 });
+  }
+
+  #onButton(x, y) {
+    return this.getButtons().some((b) => Math.hypot(x - b.x, y - b.y) <= b.r * I.buttonHitScale);
   }
 
   endAll() {
@@ -165,6 +189,15 @@ export class Input {
     this.enabled = on;
     this.controls.style.display = on ? '' : 'none';
     if (!on) this.#releaseAll();
+  }
+
+  /**
+   * Resets stuck drag / input state (called on every hit on the hero): lost touches are dropped,
+   * stale drag slots freed; a live swipe keeps turning the camera.
+   */
+  unstick() {
+    this.touch.unstick(this.liveTouches);
+    this.#syncJoystickVisual();
   }
 
   /** Per-frame snapshot. Consumes one-shot events (jump press, look delta). */
@@ -256,7 +289,7 @@ export class Input {
       b.insertAdjacentHTML('beforeend', '<i class="cooldown"></i>' + (name === 'flashMode' ? '<span class="energy"><i></i></span>' : ''));
       // Gem cost badge, in the colour it spends.
       const color = Object.keys(CONFIG.gems.abilities).find((c) => CONFIG.gems.abilities[c] === name);
-      b.insertAdjacentHTML('beforeend', `<b class="cost">${CONFIG.abilities[name].gemCost}</b>`);
+      b.insertAdjacentHTML('beforeend', `<b class="cost">${abilityGemCost(name)}</b>`);
       b.style.setProperty('--gem', `#${CONFIG.gems.colors[color].toString(16).padStart(6, '0')}`);
       this.abilityBtns[name] = b;
     });
@@ -285,11 +318,12 @@ export class Input {
     // Touch: one handler for every finger, keyed by Touch.identifier.
     const opts = { passive: false };
     const touches = (e, fn) => {
+      // Anything we track that is no longer on the screen lost its end event: drop it first, so
+      // a stale touch never blocks this one.
+      this.liveTouches = new Set([...e.touches].map((t) => t.identifier));
       if (!this.enabled) return;
+      this.touch.sync(this.liveTouches);
       for (const t of e.changedTouches) fn(t);
-      // Anything we track that is no longer on the screen lost its end event: drop it.
-      const active = new Set([...e.touches].map((t) => t.identifier));
-      this.touch.sync(active);
       if (e.cancelable) e.preventDefault();
       this.#syncJoystickVisual();
     };
@@ -306,6 +340,10 @@ export class Input {
     });
     window.addEventListener('pointermove', (e) => {
       if (e.pointerType !== 'mouse' || !this.mouseLook) return;
+      if (e.buttons === 0) {
+        this.mouseLook = null; // (its pointerup was lost: not dragging any more)
+        return;
+      }
       this.lookDX += e.clientX - this.mouseLook.lx;
       this.lookDY += e.clientY - this.mouseLook.ly;
       this.mouseLook.lx = e.clientX;

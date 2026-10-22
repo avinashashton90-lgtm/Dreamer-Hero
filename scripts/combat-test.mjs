@@ -4,7 +4,7 @@
 // Usage: npm run test:combat   (exits non-zero on failure)
 import { heroAssets } from './node-assets.mjs'; // the real Mixamo hero, read from public/
 import * as THREE from 'three';
-import { CONFIG, DIALOGUE } from '../src/config.js';
+import { CONFIG, DIALOGUE, abilityGemCost } from '../src/config.js';
 import { World } from '../src/world.js';
 import { Hero } from '../src/hero.js';
 import { Horse } from '../src/horse.js';
@@ -315,9 +315,9 @@ const faceDummy = (d = 1.5, angle = 0) => {
   const blocked = [];
   abilities.onEvent = (name, e) => { if (name === 'abilityBlocked') blocked.push(e); };
   const costs = ['batarang', 'smokeBomb', 'flashMode'].map((n) => `${n} ${abilities.gemCost(n).n} ${abilities.gemCost(n).color}`).join(', ');
-  check(['batarang', 'smokeBomb', 'flashMode'].every((n) => abilities.gemCost(n).n === AB[n].gemCost && AB[n].gemCost === 5), `costs: ${costs}`);
-  // Yellow: 12 gems → two throws (12 → 7 → 2), then blocked.
-  gems.counts.yellow = 12;
+  check(abilities.gemCost('batarang').n === AB.batarangGemCost && AB.batarangGemCost === 1 && ['smokeBomb', 'flashMode'].every((n) => abilities.gemCost(n).n === AB[n].gemCost && AB[n].gemCost === 5), `costs: ${costs}`);
+  // Yellow: 2 gems → two throws (2 → 1 → 0), then blocked.
+  gems.counts.yellow = 2;
   const counts = [gems.counts.yellow];
   for (let i = 0; i < 3; i++) {
     abilities.cooldowns.batarang = 0;
@@ -326,12 +326,13 @@ const faceDummy = (d = 1.5, angle = 0) => {
     let t = 0; while (abilities.batarangOut && t < AB.batarang.maxTime + 1) { step(1); t += dt; }
   }
   const last = blocked.at(-1);
-  check(counts.join(' → ') === '12 → 7 → 2 → blocked' && last?.why === 'gems' && last.name === 'batarang' && last.color === 'yellow' && last.n === 5 && !abilities.canAfford('batarang'),
-    `batarang spends 5 yellow per throw: ${counts.join(' → ')} ("${DIALOGUE.needGems(last?.n, DIALOGUE.gemNames[last?.color ?? 'yellow'].toLowerCase())}")`);
-  check(abilities.has('batarang'), 'still unlocked with fewer than 5 (just not affordable)');
-  gems.counts.yellow += 5;
+  const toast = DIALOGUE.needGems(last?.n, DIALOGUE.gemNames[last?.color ?? 'yellow'].toLowerCase());
+  check(counts.join(' → ') === '2 → 1 → 0 → blocked' && last?.why === 'gems' && last.name === 'batarang' && last.color === 'yellow' && last.n === 1 && !abilities.canAfford('batarang') && toast === 'Need 1 yellow gem',
+    `batarang spends ${abilityGemCost('batarang')} yellow per throw: ${counts.join(' → ')} ("${toast}")`);
+  check(abilities.has('batarang'), 'still unlocked with no yellow gems (just not affordable)');
+  gems.counts.yellow += 1;
   abilities.cooldowns.batarang = 0;
-  check(abilities.canAfford('batarang') && abilities.use('batarang') && gems.counts.yellow === 2, 'collect 5 more → usable again');
+  check(abilities.canAfford('batarang') && abilities.use('batarang') && gems.counts.yellow === 0, 'collect 1 more → usable again');
   let t = 0; while (abilities.batarangOut && t < AB.batarang.maxTime + 1) { step(1); t += dt; }
   // Blue: one bomb costs 5.
   gems.counts.blue = 6;

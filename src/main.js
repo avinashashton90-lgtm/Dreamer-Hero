@@ -22,6 +22,7 @@ import { Cinematic } from './cinematic.js';
 import { Story } from './story.js';
 import { Minions } from './minions.js';
 import { LazarusPit } from './pit.js';
+import { CornerRescue } from './rescue.js';
 
 async function boot() {
   const app = document.getElementById('app');
@@ -159,6 +160,15 @@ async function boot() {
     },
   });
   abilities.camera = cam.camera; // (billboards the mounted Batarang's target bracket)
+  // Cornered (pinned against a rock with enemies close for 1.5 s): a pulse pushes them back.
+  const rescue = new CornerRescue(world.scene, world, {
+    hero, boss, minions,
+    onPulse: () => {
+      cam.shake(CONFIG.combat.shake.heavy, CONFIG.combat.shake.time);
+      sound.play('rescuePulse');
+    },
+  });
+  await rescue.init();
   const story = new Story({ world, hero, horse, boss, girl, gems, abilities, combat, lives, quests, cinematic, state, cam, pit, sound, ui, guide });
   quests.story = story;
   const NEUTRAL = { moveX: 0, moveY: 0, jumpPressed: false };
@@ -173,6 +183,7 @@ async function boot() {
     // go with the boss reset.
     onRespawn: () => {
       minions.clear(); // every minion removed
+      rescue.reset();
       boss.onHeroRespawn();
       if (!boss.defeated) gems.resetArena();
       gems.restock(horse.checkpoints[horse.lastCheckpoint].s);
@@ -183,6 +194,7 @@ async function boot() {
     if (dying || hero.invincible || !state.is(STATES.PLAY)) return false;
     // (fire ticks every 0.8 s: no post-hit invincibility from a burn, so every tick counts)
     hero.hurt(fromX, fromZ, opts.knockback !== false, opts.source !== 'fire');
+    input.unstick(); // (a hit never leaves a drag or a touch stuck: a live swipe keeps turning the camera)
     cam.shake(CONFIG.combat.shake.heavy, CONFIG.combat.shake.time);
     if (lives.damage(n)) {
       // Out of hearts: fade out, then use a respawn (on the horse at the last checkpoint) or Game Over.
@@ -218,6 +230,7 @@ async function boot() {
     if (prev === STATES.INTRO) {
       // New game: everything back to the start.
       story.resetAll();
+      rescue.reset();
       minions.clear();
       ui.setGems(gems.counts);
     } else if (prev === STATES.GAMEOVER) {
@@ -229,6 +242,7 @@ async function boot() {
       horse.restartRide(hero);
       boss.onHeroRespawn();
       minions.clear();
+      rescue.reset();
       gems.reset();
       ui.setGems(gems.counts);
       ui.fadeIn(CONFIG.lives.deathFadeMs);
@@ -261,6 +275,7 @@ async function boot() {
     quests.setVisible(false);
     ui.showEnding(true, story.stats(), () => {
       story.resetAll();
+      rescue.reset();
       minions.clear();
       ui.setGems(gems.counts);
       state.set(STATES.INTRO);
@@ -295,6 +310,7 @@ async function boot() {
     }
     const playing = !state.paused && state.is(STATES.PLAY);
     if (playing) {
+      if (!input.enabled && !dying) input.setEnabled(true); // (never left locked in play)
       const inp = input.read();
       if (story.fatigue > 0) {
         // Exhausted (last heart, until the Lazarus Pit): no attacks, dodges or abilities.
@@ -342,6 +358,7 @@ async function boot() {
         pitDone: story.pitDone,
         galloping: horse.galloping,
       });
+      rescue.update(dt, { onFoot: !horse.controlsHero });
       ui.setBossBar(boss.active, boss.hp / boss.maxHp, DIALOGUE.bossName);
       input.setCombatButtons(horse.controlsHero, abilities, story.fatigue > 0);
       // Collect from the body centre: horse + rider when riding, the hero's chest on foot.
@@ -362,7 +379,9 @@ async function boot() {
     girl.update(dt, world.heightAt(CONFIG.boss.girl.shadow.x - 4, CONFIG.boss.girl.shadow.z));
     story.update(dt, !state.paused && (state.is(STATES.PLAY) || state.is(STATES.CUTSCENE)));
     if (cinematic.active) cinematic.update(state.paused ? 0 : realDt);
-    else cam.update(dt, hero.position, { mounted: horse.mounted, speed: horse.speedRatio, gallop: horse.galloping, heading: horse.heading });
+    // (the camera keeps going through hit-stop: real time, so a swipe always turns it)
+    else cam.update(realDt, hero.position, { mounted: horse.mounted, speed: horse.speedRatio, gallop: horse.galloping, heading: horse.heading });
+    hero.cameraOpacity = cinematic.active ? 1 : cam.heroOpacity; // (he fades if the camera is squeezed in right behind him)
     minions.fitView(); // (bats stay on screen: once more against this frame's camera)
     world.update(dt, cam.camera.position);
     world.updateFoliage(dt, cam.camera.position, cam.focus);
@@ -370,7 +389,7 @@ async function boot() {
   });
 
   // Exposed for debugging in the browser console (e.g. game.state.set('ending')).
-  window.game = { state, hero, cam, world, quests, horse, input, guide, gems, abilities, sound, combat, lives, boss, girl, pit, story, cinematic, minions, damageHero, lifeEvents, STATES };
+  window.game = { state, hero, cam, world, quests, horse, input, guide, gems, abilities, sound, combat, lives, boss, girl, pit, story, cinematic, minions, rescue, damageHero, lifeEvents, STATES };
 
   state.start();
 }

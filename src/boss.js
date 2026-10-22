@@ -455,6 +455,34 @@ export class Boss {
     this.events.onCough?.();
   }
 
+  /**
+   * Corner rescue (rescue.js): pushed `dist` back from (fromX, fromZ), staying in the arena, and
+   * into its usual recovery — anything it was winding up or doing is cancelled. Already
+   * helpless (stunned, paralyzed, coughing, staggered) it is only pushed. HP, damage and timings
+   * are untouched.
+   */
+  rescueRecover(fromX, fromZ, dist) {
+    if (!this.alive || this.state === S.GUARD) return false;
+    const dx = this.position.x - fromX;
+    const dz = this.position.z - fromZ;
+    const l = Math.hypot(dx, dz) || 1;
+    let x = this.position.x + (dx / l) * dist;
+    let z = this.position.z + (dz / l) * dist;
+    const max = CV.radius - this.radius - 1;
+    const cx = x - this.center.x;
+    const cz = z - this.center.z;
+    const r = Math.hypot(cx, cz);
+    if (r > max) {
+      x = this.center.x + (cx / r) * max;
+      z = this.center.z + (cz / r) * max;
+    }
+    this.position.x = x;
+    this.position.z = z;
+    if (![S.STUNNED, S.PARALYZED, S.SMOKED, S.STAGGERED].includes(this.state)) this.#set(S.RECOVER);
+    this.stats.rescued = (this.stats.rescued ?? 0) + 1;
+    return true;
+  }
+
   /** For a while after a paralysis wears off it shrugs off the Smoke Bomb. */
   resistsParalysis() {
     return this.paralysisResist > 0;
@@ -697,12 +725,16 @@ export class Boss {
     this.#updateCracks(dt);
     this.position.y = this.world.heightAt(this.position.x, this.position.z);
 
-    // Solid body: the hero is pushed out of it (not while dying).
-    if (onFoot && this.state !== S.DYING && this.state !== S.DEAD) {
+    // Solid body: the hero is pushed out of it (not while dying), but never into a rock or wall
+    // (resolved against the world again: pinned between them, he stays clear of the rock).
+    // A dodge roll passes through it (a way out of any corner).
+    if (onFoot && hero.dodgeT <= 0 && this.state !== S.DYING && this.state !== S.DEAD) {
       const min = this.radius + CONFIG.hero.radius;
       if (dist < min && dist > 1e-4) {
         hero.position.x = this.position.x + (dx / dist) * min;
         hero.position.z = this.position.z + (dz / dist) * min;
+        const H = CONFIG.hero;
+        this.world.collide(hero.position, hero.velocity, H.radius, H.height, H.stepUp);
       }
     }
 

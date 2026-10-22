@@ -8,7 +8,7 @@
 // Usage: npm run test:minions   (exits non-zero on failure)
 import { heroAssets } from './node-assets.mjs'; // the real models, read from public/
 import * as THREE from 'three';
-import { CONFIG } from '../src/config.js';
+import { CONFIG, abilityGemCost } from '../src/config.js';
 import { World } from '../src/world.js';
 import { Hero } from '../src/hero.js';
 import { Horse } from '../src/horse.js';
@@ -263,7 +263,7 @@ for (const t of ['bat', 'skeleton', 'slime']) {
   const bat = alive('bat')[0];
   const hp0 = bat.hp;
   const y0 = gems.counts.yellow;
-  check(bracketOn && abilities.aimTarget === bat && abilities.use('batarang') && gems.counts.yellow === y0 - CONFIG.abilities.batarang.gemCost, `a bracket marks the nearest bat while the Batarang is ready; a tap throws it (5 yellow)`);
+  check(bracketOn && abilities.aimTarget === bat && abilities.use('batarang') && gems.counts.yellow === y0 - abilityGemCost('batarang'), `a bracket marks the nearest bat while the Batarang is ready; a tap throws it (${abilityGemCost('batarang')} yellow)`);
   let killedAt = -1, back = -1, tt = 0, maxD = 0;
   const trailSeen = { n: 0 };
   while (tt < 4) {

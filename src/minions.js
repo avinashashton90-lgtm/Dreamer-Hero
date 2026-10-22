@@ -295,6 +295,7 @@ export class Minions {
       m.pose(dt);
     }
     this.#separate();
+    if (!target.riding) this.#clearOfHero(dt, target);
     for (const m of this.list) {
       if (m.type !== 'slime' || m.removed) continue;
       const p = this.#inArena(m.position.x, m.position.z, m.radius); // (still inside after the separation)
@@ -772,6 +773,36 @@ export class Minions {
           b.position.z += (dz / d) * push;
         }
       }
+    }
+  }
+
+  /**
+   * Slimes never wall the hero in: inside `exclusion` of him they are pushed out softly (shoved
+   * hard by a dodge roll, which passes through them), and none stays inside longer than
+   * `maxInside` — then it is put outside at once.
+   */
+  #clearOfHero(dt, target) {
+    const X = CONFIG.corner.slimes;
+    const hero = this.deps.hero;
+    for (const m of this.list) {
+      if (m.type !== 'slime' || !m.alive || m.removed || m.state === 'spawn') continue;
+      let dx = m.position.x - target.feet.x;
+      let dz = m.position.z - target.feet.z;
+      let d = Math.hypot(dx, dz);
+      if (d >= X.exclusion) {
+        m.extra.inside = 0;
+        continue;
+      }
+      if (d < 1e-3) {
+        dx = Math.sin(m.facing + Math.PI);
+        dz = Math.cos(m.facing + Math.PI);
+        d = 1;
+      }
+      m.extra.inside = (m.extra.inside ?? 0) + dt;
+      const shove = hero?.dodgeT > 0 ? X.dodgeShove : X.push;
+      const step = m.extra.inside > X.maxInside ? X.exclusion - d + 0.01 : Math.min(X.exclusion - d, shove * dt);
+      m.position.x += (dx / d) * step;
+      m.position.z += (dz / d) * step;
     }
   }
 

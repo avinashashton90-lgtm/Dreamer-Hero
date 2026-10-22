@@ -824,17 +824,35 @@ export async function loadForestWallModels(low, high, heightAt) {
 export async function loadCaveModel(parts, mouth) {
   const group = new THREE.Group();
   const m = new THREE.Matrix4();
-  const rocks = await loadRockModel(parts.length);
+  const solid = parts.filter((pt) => !pt.fade);
+  const fading = parts.filter((pt) => pt.fade);
+  const rocks = await loadRockModel(solid.length);
   rocks.material.color.set(CV.cliff.color);
+  // The rocks the hero can be pinned against: same look, per-instance fade (World.updateFoliage).
+  const fadeRocks = new THREE.InstancedMesh(rocks.geometry.clone(), makeFadeMaterial({ color: CV.cliff.color, flatShading: true }), Math.max(1, fading.length));
+  addFadeAttribute(fadeRocks.geometry, Math.max(1, fading.length));
   const col = new THREE.Color();
-  parts.forEach((pt, i) => {
+  const shade = (i) => col.setScalar(0.85 + ((i * 0.618) % 1) * 0.3);
+  solid.forEach((pt, i) => {
     rocks.setMatrixAt(i, m.compose(pt.p, pt.q, pt.s));
-    rocks.setColorAt(i, col.setScalar(0.85 + ((i * 0.618) % 1) * 0.3));
+    rocks.setColorAt(i, shade(i));
   });
-  rocks.count = parts.length;
+  fading.forEach((pt, i) => {
+    fadeRocks.setMatrixAt(i, m.compose(pt.p, pt.q, pt.s));
+    fadeRocks.setColorAt(i, shade(i + solid.length));
+  });
+  rocks.count = solid.length;
+  fadeRocks.count = fading.length;
   const arch = await loadCaveArchModel();
   arch.position.copy(mouth);
-  group.add(rocks, arch);
+  group.add(rocks, fadeRocks, arch);
+  group.userData.fadeRocks = {
+    mesh: fadeRocks,
+    items: fading.map((pt) => ({ x: pt.p.x, y: pt.p.y, z: pt.p.z, r: Math.max(pt.s.x, pt.s.z) * CV.fade.radiusScale, h: pt.s.y * CV.fade.heightScale })),
+    near: false, // (only when it's between the camera and the hero)
+    opacity: CV.fade.opacity,
+    blockScale: CV.fade.blockScale,
+  };
   return group;
 }
 
@@ -1081,6 +1099,10 @@ export class World {
     this.trees = []; // forest trees {x, z, reach} (for checks)
     // Fadeable foliage: [{ mesh (InstancedMesh with instanceFade), items: [{x,y,z,r}] }].
     this.foliageSets = [];
+    // Other fadeable instanced sets (not leaves, no camera collision): [{ mesh, items, near: false, opacity, blockScale }].
+    this.fadeSets = [];
+    // Meshes the camera raycasts against (besides the colliders): the boulders you can be pinned against.
+    this.cameraMeshes = [];
     this.time = 0;
   }
 
@@ -1154,9 +1176,10 @@ export class World {
    */
   updateFoliage(dt, cameraPos, focus) {
     for (const set of this.foliageSets) this.#fadeSet(set, dt, cameraPos, focus);
+    for (const set of this.fadeSets) this.#fadeSet(set, dt, cameraPos, focus); // (rocks between the camera and the hero)
   }
 
-  #fadeSet({ mesh, items, bounds }, dt, cameraPos, focus) {
+  #fadeSet({ mesh, items, bounds, near = true, opacity = FOL.fadeOpacity, blockScale = FOL.blockScale }, dt, cameraPos, focus) {
     const attr = mesh.geometry.attributes.instanceFade;
     // Whole chunk far away (and nothing in it faded): nothing to do.
     if (bounds && !mesh.userData.anyFaded && bounds.center.distanceTo(focus) > bounds.radius + FOL.activeRange) return;
@@ -1177,14 +1200,14 @@ export class World {
       const d2 = dx * dx + dy * dy + dz * dz;
       let target = 1;
       if (d2 < range2) {
-        if (d2 < near2) target = FOL.fadeOpacity;
+        if (near && d2 < near2) target = opacity;
         else {
           const t = clamp((dx * sx + dy * sy + dz * sz) / segLen2, 0, 1);
           const ex = dx - sx * t;
-          const ey = dy - sy * t;
+          const ey = it.h ? Math.max(0, Math.abs(dy - sy * t) - it.h) : dy - sy * t; // (tall items: a vertical capsule)
           const ez = dz - sz * t;
-          const rr = it.r * FOL.blockScale;
-          if (ex * ex + ey * ey + ez * ez < rr * rr) target = FOL.fadeOpacity;
+          const rr = it.r * blockScale;
+          if (ex * ex + ey * ey + ez * ez < rr * rr) target = opacity;
         }
       }
       // A cluster the camera is inside is invisible anyway, so drop it at once (no pop seen).
@@ -1259,6 +1282,34 @@ export class World {
       }
     }
     return { y, platform };
+  }
+
+  /**
+   * Solids (rocks, trunks, cliff bases, buildings) whose surface is within `reach` of a body of
+   * `radius` at `pos` (feet; `height` tall): [{ nx, nz, gap }] — the outward normal and the gap.
+   * Used to roll away from walls and to tell when the hero is pinned against one.
+   */
+  solidsNear(pos, radius, reach, height) {
+    const out = [];
+    const feet = pos.y;
+    const head = pos.y + height;
+    for (const c of this.cylinders) {
+      if (c.top <= feet + 0.3 || c.bottom >= head) continue;
+      const dx = pos.x - c.x;
+      const dz = pos.z - c.z;
+      const lim = c.r + radius + reach;
+      if (Math.abs(dx) > lim || Math.abs(dz) > lim) continue;
+      const d = Math.hypot(dx, dz);
+      if (d < lim && d > 1e-4) out.push({ nx: dx / d, nz: dz / d, gap: d - c.r - radius });
+    }
+    for (const b of this.boxes) {
+      if (b.top <= feet + 0.3 || b.bottom >= head) continue;
+      const dx = pos.x - clamp(pos.x, b.minX, b.maxX);
+      const dz = pos.z - clamp(pos.z, b.minZ, b.maxZ);
+      const d = Math.hypot(dx, dz);
+      if (d < radius + reach && d > 1e-4) out.push({ nx: dx / d, nz: dz / d, gap: d - radius });
+    }
+    return out;
   }
 
   /**
@@ -1759,8 +1810,9 @@ export class World {
     const m = new THREE.Matrix4();
     const e = new THREE.Euler();
     const parts = []; // {p, q, s} transforms for one instanced rock mesh
+    // (rocks with a collider — the ones the hero can be pinned against — fade out of the camera's way)
     const addRock = (x, y, z, sx, sy, sz, collider) => {
-      parts.push({ p: new THREE.Vector3(x, y, z), q: new THREE.Quaternion().setFromEuler(e.set(rnd() * 0.5, rnd() * Math.PI * 2, rnd() * 0.5)), s: new THREE.Vector3(sx, sy, sz) });
+      parts.push({ p: new THREE.Vector3(x, y, z), q: new THREE.Quaternion().setFromEuler(e.set(rnd() * 0.5, rnd() * Math.PI * 2, rnd() * 0.5)), s: new THREE.Vector3(sx, sy, sz), fade: !!collider });
       if (collider) this.cylinders.push(collider);
     };
 
@@ -1842,6 +1894,14 @@ export class World {
     // The giant cave: cliffs, arena boulders and the cave mouth (one swappable model).
     this.cave = await loadCaveModel(parts, new THREE.Vector3(ax, ay, az));
     this.scene.add(this.cave);
+    if (this.cave.userData.fadeRocks) {
+      this.fadeSets.push(this.cave.userData.fadeRocks);
+      // The camera keeps out of the boulders' real shape too (they stick out past their colliders).
+      const mesh = this.cave.userData.fadeRocks.mesh;
+      this.cave.updateMatrixWorld(true);
+      mesh.computeBoundingSphere();
+      this.cameraMeshes.push(mesh);
+    }
     this.caveArch = new THREE.Vector3(ax, ay, az);
     for (const side of [-1, 1]) {
       this.cylinders.push({ x: ax, z: az + side * R, r: CV.archTube, top: ay + R + CV.archTube, bottom: ay - 1 });

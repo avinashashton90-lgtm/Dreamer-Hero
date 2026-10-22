@@ -4,7 +4,7 @@
 // Usage: npm run test:boss   (exits non-zero on failure)
 import { heroAssets } from './node-assets.mjs'; // the real Mixamo hero, read from public/
 import * as THREE from 'three';
-import { CONFIG, DIALOGUE } from '../src/config.js';
+import { CONFIG, DIALOGUE, abilityGemCost } from '../src/config.js';
 import { World } from '../src/world.js';
 import { Hero } from '../src/hero.js';
 import { Horse } from '../src/horse.js';
@@ -598,14 +598,14 @@ const runUntil = (pred, maxS, opts) => { let t = 0; while (t < maxS) { step(1, {
   // One fight's supply: arriving with the ride's gems plus the three arena rings.
   const arena = CONFIG.boss.hpMarks.length * G.arena.perColor;
   const supply = Object.fromEntries(Object.entries(per).map(([c, n]) => [c, n + arena]));
-  const uses = { batarang: Math.floor(supply.yellow / AB.batarang.gemCost), smokeBomb: Math.floor(supply.blue / AB.smokeBomb.gemCost), flashMode: Math.floor(supply.pink / AB.flashMode.gemCost) };
+  const uses = { batarang: Math.floor(supply.yellow / abilityGemCost('batarang')), smokeBomb: Math.floor(supply.blue / abilityGemCost('smokeBomb')), flashMode: Math.floor(supply.pink / abilityGemCost('flashMode')) };
   check(uses.flashMode >= 2 && uses.smokeBomb >= 3 && uses.batarang >= 6, `one fight's supply ${JSON.stringify(supply)} (ride + ${arena} per colour in the arena): Flash ${uses.flashMode}x, Smoke ${uses.smokeBomb}x, Batarang ${uses.batarang}x (needs 2 / 3 / 6)`);
   // After a respawn at the last checkpoint: the top-up, the trail gems from there, the rings.
   const last = horse.checkpoints.length - 1;
   const ahead = {};
   for (const g of forest) if (g.s >= horse.checkpoints[last].s) ahead[g.color] = (ahead[g.color] ?? 0) + 1;
   const retry = Object.fromEntries(Object.keys(per).map((c) => [c, G.respawnMinGems + (ahead[c] ?? 0) + arena]));
-  console.log(`     (after a respawn at the last checkpoint: at least ${JSON.stringify(retry)} for the fight — Flash ${Math.floor(retry.pink / 5)}x, Smoke ${Math.floor(retry.blue / 5)}x, Batarang ${Math.floor(retry.yellow / 5)}x)`);
+  console.log(`     (after a respawn at the last checkpoint: at least ${JSON.stringify(retry)} for the fight — Flash ${Math.floor(retry.pink / 5)}x, Smoke ${Math.floor(retry.blue / 5)}x, Batarang ${Math.floor(retry.yellow / abilityGemCost('batarang'))}x)`);
   check(Math.floor(retry.pink / 5) >= 2 && Math.floor(retry.blue / 5) >= 3, 'even after a respawn at the last checkpoint: at least 2 Flash and 3 Smoke');
   boss.events.onHpMark = undefined;
   boss.reset();

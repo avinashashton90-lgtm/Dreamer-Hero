@@ -284,12 +284,12 @@ export const CONFIG = {
     // Throw pose (Batarang, Smoke Bomb): the arm winds back, swings forward and the item leaves
     // the hand at `release`; a short catch pose when the Batarang comes back.
     throw: { windup: 0.14, release: 0.24, duration: 0.42, catchTime: 0.32 },
+    batarangGemCost: 1,      // yellow gems spent per Batarang throw (Smoke Bomb / Flash: their own gemCost)
     batarang: {
       damage: 8, range: 14, speed: 20, returnSpeed: 24, arc: 3, // sideways bulge of the flight
       radius: 0.5, catchRadius: 1.2, maxTime: 3, cooldown: 1.5, chaseFactor: 2, // returns faster than the hero (even galloping)
       size: 0.35, spin: 22, height: 1.2,
       color: 0xffd23f,
-      gemCost: 5,            // yellow gems spent per throw
       // Mounted: a tap throws it at the nearest bat (flying target) within autoAimRange in front of
       // or beside the horse (a bracket marks it while the Batarang is ready), homing in at
       // turnRate°/s; with none it flies straight ahead `forwardRange`. It never goes beyond
@@ -577,6 +577,28 @@ export const CONFIG = {
     },
   },
 
+  // A cornered hero always has a way out (rescue.js, hero.dodge, minions).
+  corner: {
+    // Pinned: within `pinGap` of a rock / wall surface with an enemy's body within `enemyRange`
+    // for `pinTime` s → a rescue pulse: enemies within `pushRadius` pushed back (minions
+    // `minionPush`, the boss `bossPush` and into its recovery), then `cornerRescueCooldown` s.
+    pinGap: 0.35,
+    enemyRange: 3,
+    pinTime: 1.5,
+    cornerRescueCooldown: 15,
+    pushRadius: 6,
+    minionPush: 3.5,
+    bossPush: 2.5,
+    // The pulse: a ring expanding to `radius` on the ground and a bright shell round him ([w0, wGrow, h0, hGrow]).
+    pulse: { time: 0.7, radius: 6, ringStart: 0.5, lift: 0.08, shell: [0.9, 1.4, 1.2, 1.2], shellOpacity: 0.6, color: 0x9fe8ff, glow: 0xffffff, opacity: 0.9 },
+    // The dodge roll: never into a rock / wall within `wallReach`; it bends away (`wallPush`) and
+    // gets a short push (`pushSpeed` for `pushTime` s). It passes through slimes.
+    dodge: { wallReach: 0.9, wallPush: 0.8, pushSpeed: 6, pushTime: 0.15 },
+    // Slimes stay out of `exclusion` round the hero: pushed out at `push` (a dodge shoves them at
+    // `dodgeShove`), never inside longer than `maxInside` s.
+    slimes: { exclusion: 1.5, maxInside: 0.5, push: 5, dodgeShove: 12 },
+  },
+
   // The cave monster (boss.js). Arena = CONFIG.cave.center / radius.
   boss: {
     hp: 100,
@@ -678,6 +700,8 @@ export const CONFIG = {
     rockSizeMax: 5.6,
     openingHalfAngle: 0.45,  // radians; opening faces west toward the forest
     colliderScale: 0.8,
+    // Rocks with a collider (arena boulders, pillars, cliff bases) fade while between the camera and the hero.
+    fade: { opacity: 0.3, radiusScale: 0.8, heightScale: 0.8, blockScale: 0.95 }, // (a vertical capsule ≈ the collider)
     // Giant cave mouth in a towering cliff at the far (east) side of the arena, facing west.
     // ~10x the horse's height (2.6) → 26 tall.
     archPosition: [126, 0],
@@ -799,6 +823,14 @@ export const CONFIG = {
     rideBlend: 3,             // how quickly ride/speed effects follow
     rideFollow: 2.2,          // riding: camera swings back behind the horse (1/s)...
     rideFollowDelay: 1.2,     // ...this long after the player last dragged to look
+    // A wall, rock or cliff right behind the hero: the camera slides in along the hero's line;
+    // with less than `minFree` of room it also rises (up to `maxRaise` radians of extra pitch,
+    // searched in `steps`) to look over it, easing back down when there is room again. It is
+    // never inside a solid (`clear` from every collider) and never closer than `floor`.
+    // Still boxed in at the full raise (a tall rock right behind him) and not being dragged for
+    // `swingDelay` s: it swings round (up to `maxSwing` rad, searched in `swingSteps` each way)
+    // to where there is room, at `swingRate` — a swipe always overrides it.
+    blocked: { minFree: 2.2, maxRaise: 0.7, steps: 7, maxPitch: 1.35, raiseLerp: 5, clear: 0.15, floor: 0.25, guardStep: 0.08, heroFade: { near: 0.5, far: 1.1, min: 0.2 }, swingBelow: 1.6, swingDelay: 0.6, maxSwing: 2.2, swingSteps: 11, swingRate: 3 },
   },
 
   input: {
@@ -1136,6 +1168,9 @@ export const CONFIG = {
 };
 
 // All story text / dialogue lives here.
+/** Gems one use of an ability costs (the Batarang's is `abilities.batarangGemCost`). */
+export const abilityGemCost = (name) => (name === 'batarang' ? CONFIG.abilities.batarangGemCost : CONFIG.abilities[name].gemCost);
+
 export const DIALOGUE = {
   loading: 'Loading the hero…',
   title: 'Dreamer Hero',
@@ -1163,7 +1198,7 @@ export const DIALOGUE = {
   abilityNames: { batarang: 'Batarang', smokeBomb: 'Smoke Bomb', flashMode: 'Flash Mode' },
   unlocked: (ability) => `${ability} Unlocked!`,
   notEnoughHealth: 'Not enough health',
-  needGems: (n, color) => `Need ${n} ${color} gems`,
+  needGems: (n, color) => `Need ${n} ${color} gem${n === 1 ? '' : 's'}`,
   noTarget: 'No target in range',
   smokeResisted: 'It shrugs off the smoke!',
   arenaGems: 'Gems at the arena edge!',

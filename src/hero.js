@@ -314,7 +314,33 @@ export class Hero {
       dirZ = -Math.cos(this.facing);
       len = 1;
     }
-    this.dodgeDir.set(dirX / len, dirZ / len);
+    dirX /= len;
+    dirZ /= len;
+    // Against a rock or wall: never roll into it, and get a short push away from it.
+    const K = CONFIG.corner.dodge;
+    const walls = this.world.solidsNear?.(this.position, H.radius, K.wallReach, H.height) ?? [];
+    this.dodgePush = null;
+    if (walls.length) {
+      let ax = 0;
+      let az = 0;
+      for (const w of walls) {
+        const into = dirX * w.nx + dirZ * w.nz;
+        if (into < 0) {
+          dirX -= w.nx * into;
+          dirZ -= w.nz * into;
+        }
+        ax += w.nx;
+        az += w.nz;
+      }
+      const al = Math.hypot(ax, az) || 1;
+      dirX += (ax / al) * K.wallPush;
+      dirZ += (az / al) * K.wallPush;
+      const l = Math.hypot(dirX, dirZ) || 1;
+      dirX /= l;
+      dirZ /= l;
+      this.dodgePush = { x: ax / al, z: az / al, t: K.pushTime };
+    }
+    this.dodgeDir.set(dirX, dirZ);
     this.dodgeT = D.duration;
     this.dodgeCooldown = D.cooldown;
     this.iframes = Math.max(this.iframes, D.invincible);
@@ -437,6 +463,13 @@ export class Hero {
       const v = CB.dodge.distance / CB.dodge.duration;
       this.velocity.x = this.dodgeDir.x * v;
       this.velocity.z = this.dodgeDir.y * v;
+      const P = this.dodgePush;
+      if (P && P.t > 0) {
+        // (a short push away from the rock / wall it started against)
+        P.t -= dt;
+        this.velocity.x += P.x * CONFIG.corner.dodge.pushSpeed;
+        this.velocity.z += P.z * CONFIG.corner.dodge.pushSpeed;
+      }
     } else if (this.hurtT > CB.hurtInvincible - 0.25 && !this.grounded) {
       // Knocked back: keep the knockback for a moment.
     } else {
@@ -579,8 +612,10 @@ export class Hero {
     const flicker = this.redFlicker > 0 && Math.sin(this.redFlicker * 40) > 0;
     const hitRed = this.hurtRed > 0 ? this.hurtRed / CB.hurtRed.time : 0;
     const g = this.glow;
-    const blinking = this.hurtT > 0 && this.deathT < 0;
-    const opacity = blinking ? 1 - CB.hurtBlink.depth * (0.5 - 0.5 * Math.cos(this.hurtT * CB.hurtBlink.rate * Math.PI * 2)) : 1;
+    // (cameraOpacity: the camera squeezed in right behind him by a rock — see FollowCamera.heroOpacity)
+    const camFade = Math.min(1, this.cameraOpacity ?? 1);
+    const blinking = (this.hurtT > 0 && this.deathT < 0) || camFade < 1;
+    const opacity = (this.hurtT > 0 && this.deathT < 0 ? 1 - CB.hurtBlink.depth * (0.5 - 0.5 * Math.cos(this.hurtT * CB.hurtBlink.rate * Math.PI * 2)) : 1) * camFade;
     for (const m of mats) {
       const red = flicker || hitRed > 0;
       m.emissive.setHex(red ? CB.hurtRed.color : CONFIG.abilities.flashMode.glowColor);

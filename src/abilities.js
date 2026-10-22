@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CONFIG } from './config.js';
+import { CONFIG, abilityGemCost } from './config.js';
 import { makeFadeMaterial, addFadeAttribute } from './world.js';
 
 const AB = CONFIG.abilities;
@@ -314,7 +314,7 @@ export class Abilities {
 
   /** Gems one use of an ability costs: { color, n }. */
   gemCost(name) {
-    return { color: COST_COLOR[name], n: AB[name].gemCost };
+    return { color: COST_COLOR[name], n: abilityGemCost(name) };
   }
 
   /** Enough gems (and, for Flash, hearts) to pay for one use? (No gem store attached = free.) */

@@ -27,10 +27,30 @@ export class FollowCamera {
     this.shakeT = 0;
     this.shakeTime = 1;
     this.shakeAmp = 0;
+    this.raise = 0; // extra pitch (radians) while a solid right behind the hero blocks the view
     this.#dir = new THREE.Vector3();
+    this.#ray = new THREE.Raycaster();
+    this.#hits = [];
   }
 
   #dir;
+  #ray;
+  #hits;
+
+  /** Distance along `dir` from `o` to the first front face of a camera mesh (a boulder), or Infinity. */
+  #meshHit(o, dir, far) {
+    let best = Infinity;
+    for (const mesh of this.world.cameraMeshes ?? []) {
+      const bs = mesh.boundingSphere;
+      if (bs && bs.center.distanceTo(o) > bs.radius + far) continue;
+      this.#ray.set(o, dir);
+      this.#ray.far = far;
+      this.#hits.length = 0;
+      mesh.raycast(this.#ray, this.#hits);
+      for (const h of this.#hits) best = Math.min(best, h.distance);
+    }
+    return best;
+  }
 
   reset() {
     this.yaw = C.startYaw;
@@ -83,6 +103,7 @@ export class FollowCamera {
       this.camera.position.x += (Math.random() - 0.5) * 2 * a;
       this.camera.position.y += (Math.random() - 0.5) * 2 * a;
       this.camera.position.z += (Math.random() - 0.5) * 2 * a;
+      this.#clearOfSolids(this.camera.position); // (a shake never puts it inside a rock)
     }
   }
 
@@ -114,13 +135,42 @@ export class FollowCamera {
     // On foot: normal (or tree-zone) distance. Riding: close over-the-shoulder view.
     const footDist = C.camOnFootDistance * (1 + zone * (C.treeZoneDistanceScale - 1));
     const maxDist = lerp(footDist, C.camRideDistance, this.ride) * (1 + this.speed * C.speedDistanceScale);
-    const cp = Math.cos(pitch);
-    const dir = this.#dir.set(Math.sin(this.yaw) * cp, Math.sin(pitch), Math.cos(this.yaw) * cp);
     // Shift the look-at point to the right so the camera sits over the rider's shoulder.
     const shoulder = C.rideShoulder * this.ride;
     this.pivot.set(this.focus.x + Math.cos(this.yaw) * shoulder, this.focus.y, this.focus.z - Math.sin(this.yaw) * shoulder);
 
-    const free = Math.max(C.minDistance, this.#freeDistance(dir, maxDist));
+    // Blocked close behind (a wall, rock or cliff): slide in along the line, and with too little
+    // room raise the camera to look over it (the least raise that gives `minFree`).
+    const B = C.blocked;
+    const want = Math.min(maxDist, B.minFree);
+    let target = 0;
+    if (this.#freeDistance(this.#dirAt(pitch), maxDist) < want) {
+      target = B.maxRaise;
+      for (let k = 1; k <= B.steps; k++) {
+        const r = (k / B.steps) * B.maxRaise;
+        if (this.#freeDistance(this.#dirAt(pitch + r), maxDist) >= want) {
+          target = r;
+          break;
+        }
+      }
+    }
+    this.raise = dt === 0 ? target : this.raise + (target - this.raise) * (1 - Math.exp(-B.raiseLerp * dt));
+    // Still boxed in on foot (a tall rock right behind him) and not being dragged: swing round
+    // to the nearest side with room. A swipe always wins (sinceLook resets).
+    if (this.ride < 0.5 && dt > 0 && this.sinceLook > B.swingDelay && this.#freeDistance(this.#dirAt(pitch + this.raise), maxDist) < B.swingBelow) {
+      const step = B.maxSwing / B.swingSteps;
+      search: for (let k = 1; k <= B.swingSteps; k++) {
+        for (const sign of [1, -1]) {
+          if (this.#freeDistance(this.#dirAt(pitch + this.raise, this.yaw + sign * k * step), maxDist) >= want) {
+            this.yaw += sign * k * step * (1 - Math.exp(-B.swingRate * dt));
+            break search;
+          }
+        }
+      }
+    }
+    const dir = this.#dirAt(pitch + this.raise);
+
+    const free = Math.max(Math.min(C.minDistance, B.floor), this.#freeDistance(dir, maxDist));
     // Snap in front of anything in the way (never render from inside a trunk), ease back out.
     if (dt === 0 || free < this.distance) this.distance = free;
     else this.distance += (free - this.distance) * (1 - Math.exp(-C.releaseLerp * dt));
@@ -128,7 +178,53 @@ export class FollowCamera {
     const p = this.camera.position.copy(this.pivot).addScaledVector(dir, this.distance);
     const minY = this.world.heightAt(p.x, p.z) + C.groundClearance;
     if (p.y < minY) p.y = minY;
+    this.#clearOfSolids(p);
     this.camera.lookAt(this.pivot);
+  }
+
+  /** How opaque the hero should be: he fades when the camera is squeezed in right behind him. */
+  get heroOpacity() {
+    const F = C.blocked.heroFade;
+    return F.min + (1 - F.min) * smoothstep(this.distance, F.near, F.far);
+  }
+
+  /** The camera's direction from the look-at point at this pitch (current yaw). */
+  #dirAt(pitch, yaw = this.yaw) {
+    const p = Math.min(pitch, C.blocked.maxPitch);
+    const cp = Math.cos(p);
+    return this.#dir.set(Math.sin(yaw) * cp, Math.sin(p), Math.cos(yaw) * cp);
+  }
+
+  /** Is `p` inside (or within `clear` of) a solid collider: trunk, rock, cliff, building? */
+  insideSolid(p, clear = C.blocked.clear) {
+    for (const c of this.world.cylinders) {
+      const dx = p.x - c.x;
+      const dz = p.z - c.z;
+      const r = c.r + clear;
+      if (dx * dx + dz * dz < r * r && p.y >= c.bottom && p.y <= c.top + clear) return true;
+    }
+    for (const b of this.world.boxes) {
+      if (p.x > b.minX - clear && p.x < b.maxX + clear && p.z > b.minZ - clear && p.z < b.maxZ + clear && p.y > b.bottom - clear && p.y < b.top + clear) return true;
+    }
+    // Behind a boulder's face as seen from the hero (inside its real shape, or within `clear` of it).
+    const d = p.distanceTo(this.pivot);
+    if (d > 1e-4) {
+      const dir = p.clone().sub(this.pivot).divideScalar(d);
+      if (this.#meshHit(this.pivot, dir, d + clear) < d + clear) return true;
+    }
+    return false;
+  }
+
+  /** Safety net (after the ground clamp and the shake): pull the camera toward the hero until it's clear. */
+  #clearOfSolids(p) {
+    if (!this.insideSolid(p)) return;
+    const from = p.clone();
+    const len = from.distanceTo(this.pivot);
+    for (let t = C.blocked.guardStep; t < len; t += C.blocked.guardStep) {
+      p.lerpVectors(from, this.pivot, t / len);
+      if (!this.insideSolid(p)) return;
+    }
+    p.copy(this.pivot);
   }
 
   /** Distance along `dir` from the focus before hitting a solid or a leaf cluster. */
@@ -159,6 +255,10 @@ export class FollowCamera {
         if (y >= c.bottom && y <= c.top + pad) hit = t;
       }
     }
+
+    // The boulders' real shape (they stick out past their colliders): stop `pad` in front of a face.
+    const m = this.#meshHit(o, dir, hit + pad);
+    if (m < Infinity) hit = Math.min(hit, Math.max(0, m - pad));
 
     // Buildings: slab test against the padded box.
     for (const bx of this.world.boxes) {
