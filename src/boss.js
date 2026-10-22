@@ -554,7 +554,7 @@ export class Boss {
           this.#set(S.SLAM);
           this.stats.slams++;
           this.events.onSlam?.(this.slamAt);
-          if (this.enraged) this.#crack(this.slamAt);
+          this.#crack(this.slamAt); // (slimes emerge from it: Minions.slimesFromCrack)
           if (onFoot && Math.hypot(hero.position.x - this.slamAt.x, hero.position.z - this.slamAt.z) < B.slam.radius) {
             this.stats.slamHits++;
             this.events.onHitHero?.(B.slam.damage, this.slamAt.x, this.slamAt.z);
@@ -744,7 +744,7 @@ export class Boss {
     return angle <= F.halfAngle + Math.atan(pad / d);
   }
 
-  /** A phase-2 slam cracks the ground open (slimes will come out of the cracks later). */
+  /** Every slam cracks the ground open (slimes emerge from the crack: Minions.slimesFromCrack). */
   #crack(at) {
     const c = this.cracks?.reduce((a, b) => (b.age > a.age ? b : a)); // a free one, or the oldest
     this.stats.cracks = (this.stats.cracks ?? 0) + 1;

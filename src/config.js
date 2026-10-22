@@ -462,6 +462,86 @@ export const CONFIG = {
     titleMs: 3200,           // ..."To be continued... Part 2" for this long, then the summary
   },
 
+  // Small enemies (minions.js / minionModels.js): Quaternius Animated Monster Pack FBX files
+  // (public/models/monsters/, CC0), each type loaded lazily the first time one spawns. Clips are
+  // mapped by role (first name found wins; a missing role falls back to the next list).
+  minions: {
+    path: 'models/monsters/',
+    textureMax: 1024,
+    crossfade: 0.18,
+    touchDamageHearts: 0.5,  // every hit on the hero: half a heart...
+    hitCooldown: 1,          // ...at most once a second per enemy
+    damage: { melee: 4, batarang: 6 }, // the hero's hits on a minion (Flash kills it)
+    flashKillRadius: 6,      // Flash kills every minion this close to its bolt
+    flinch: 0.3,             // hit reaction
+    fade: 0.8,               // after the death clip it fades out this long, then drops its gem
+    hitFlash: 0.12,
+    separation: 0.9,         // minions keep a little apart from each other
+    cough: { rate: 3.2, bob: 0.08 },       // smoked / paralyzed: coughing...
+    sway: { rate: 1.6, angle: 0.22 },      // ...and swaying (not frozen); dizzy stars above
+    types: {
+      bat: {
+        file: 'bat.fbx', hp: 8, fit: ['x', 1.5], radius: 0.55, height: 0.7, flying: true,
+        roles: { idle: ['Bat_Flying'], move: ['Bat_Flying'], attack: ['Bat_Attack', 'Bat_Attack2'], hit: ['Bat_Hit'], death: ['Bat_Death'], spawn: [] },
+        fallback: { idle: 'move', hit: 'idle', spawn: 'move' },
+        color: 0x3a2f4a,
+      },
+      skeleton: {
+        file: 'skeleton.fbx', hp: 14, fit: ['y', 1.85], radius: 0.45, height: 1.85,
+        roles: { idle: ['Skeleton_Idle'], move: ['Skeleton_Running'], attack: ['Skeleton_Attack'], hit: [], death: ['Skeleton_Death'], spawn: ['Skeleton_Spawn'] },
+        fallback: { hit: 'idle', spawn: 'idle', move: 'idle' },
+        color: 0xe9e2cf,
+      },
+      slime: {
+        file: 'slime.fbx', hp: 10, fit: ['y', 0.95], radius: 0.6, height: 0.95,
+        roles: { idle: ['Slime_Idle'], move: ['Slime_Walk'], attack: ['Slime_Attack'], hit: [], death: ['Slime_Death'], spawn: [] },
+        fallback: { hit: 'idle', spawn: 'idle', move: 'idle' },
+        color: 0x5fd06a,
+      },
+    },
+    // Forest: bats swoop in from the tree line while riding (scheduleBats(windows) limits when).
+    bats: {
+      interval: [20, 30],    // seconds of riding between swarms...
+      group: [1, 3],         // ...of this many...
+      max: 3,                // ...with at most this many at once
+      caveClear: 120,        // never within this of the cave
+      checkpointQuiet: 5,    // never in the first seconds after a checkpoint
+      spawnAhead: [16, 28], spawnSide: 13, spawnHeight: [4, 7], // from the tree line ahead
+      speed: 21,             // < galloping (35): Gallop outruns them
+      turn: 4.5,             // steering toward the rider (1/s)
+      arc: 6,                // sideways swing of the swoop
+      biteReach: 1.5,        // from the rider's body
+      retreatChance: 0.5,    // after the bite: retreat, or circle the rider first
+      circleTime: 3, circleRadius: 4.5, circleHeight: 2.2,
+      retreatTime: 5,
+      despawnFar: 45,        // gone once this far from the rider (outrun or retreated)
+      horseEnergy: 5,        // a bite costs the horse this much energy (if it has an energy system)
+    },
+    // Cave: every boss slam opens a crack and slimes emerge from it, hopping at the hero.
+    slimes: {
+      perSlam: 2, perSlamEnraged: 3, max: 3,
+      spread: 1.4,           // emerge round the crack
+      emerge: 0.7,           // seconds rising out of it
+      speed: 3.4, hop: 0.35, hopRate: 2.2, // hopping along
+      attackReach: 1.0, windup: 0.35,
+      hopAway: { time: 0.6, speed: 7 }, // after every hit on it: hops away (never blocks the way)
+      edge: 1,               // stays this far inside the arena radius
+    },
+    // Desert: skeletons rise from the sand ahead (only after the Lazarus Pit scene).
+    skeletons: {
+      firstDelay: 5,         // the first pair this long after the Lazarus Pit (only ~20 s of trail are left)...
+      interval: [25, 35], group: 2, max: 4, // ...then every 25–35 s
+      castleClear: 120,
+      ahead: [34, 44], lateral: [1, 3.5],
+      rise: 1.6,             // seconds rising from the sand
+      speed: 7.5,            // running at the horse
+      attackReach: 1.4, windup: 0.45,
+      gallopKnock: 1.2,      // galloping into one (this close to the horse) knocks it aside: defeated
+      knockSpeed: 9,
+      despawnBehind: 40,
+    },
+  },
+
   // The cave monster (boss.js). Arena = CONFIG.cave.center / radius.
   boss: {
     hp: 100,

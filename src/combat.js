@@ -15,6 +15,11 @@ export async function loadLockRingModel() {
 
 /** Placeholder "dizzy" marker: little stars circling above a paralyzed head. */
 export async function loadDizzyModel() {
+  return makeDizzyModel();
+}
+
+/** (The same, built synchronously.) */
+export function makeDizzyModel() {
   const group = new THREE.Group();
   const mat = new THREE.MeshBasicMaterial({ color: 0xffe14d });
   const geo = new THREE.OctahedronGeometry(0.12, 0);

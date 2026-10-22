@@ -257,6 +257,17 @@ export class Abilities {
     if (this.batModel) this.batModel.visible = false;
   }
 
+  /** A target is gone for good (a minion removed): drop its smoke glow and ring. */
+  forget(t) {
+    const fx = this.fx.get(t);
+    if (!fx) return;
+    this.scene?.remove(fx.glow, fx.ring);
+    fx.glow.geometry.dispose();
+    fx.ring.geometry.dispose();
+    this.fx.delete(t);
+    if (this.flashTarget === t) this.flashTarget = null;
+  }
+
   /** Hearts Flash costs (30% of max). */
   get flashHeartCost() {
     return (this.lives?.maxHearts ?? CONFIG.lives.hearts) * FM.flashHeartCostPct;
@@ -817,14 +828,18 @@ export class Abilities {
       ground = this.world?.heightAt?.(at.x, at.z) ?? hero.position.y;
       at.y = ground;
     }
-    // The shockwave pushes minions back from the impact.
-    for (const m of this.combat?.targets ?? []) {
+    // Minions close to the bolt die; the shockwave pushes the rest back from the impact.
+    for (const m of [...(this.combat?.targets ?? [])]) {
       if (!m.minion || !m.alive) continue;
       const mx = m.position.x - at.x;
       const mz = m.position.z - at.z;
       const d = Math.hypot(mx, mz);
+      if (d <= CONFIG.minions.flashKillRadius) {
+        this.combat.hitTarget(m, { amount: m.hp, dirX: d > 1e-3 ? mx / d : 1, dirZ: d > 1e-3 ? mz / d : 0, heavy: true, source: 'flash' });
+        continue;
+      }
       if (d > FM.shockwave.radius) continue;
-      const push = FM.minionPush * (1 - d / FM.shockwave.radius);
+      const push = FM.minionPush * (0.5 + 0.5 * (1 - d / FM.shockwave.radius)); // (at least half, even at the edge)
       const ux = d > 1e-3 ? mx / d : 1;
       const uz = d > 1e-3 ? mz / d : 0;
       if (m.knockback) m.knockback(ux, uz, push);

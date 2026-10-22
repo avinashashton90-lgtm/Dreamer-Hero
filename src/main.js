@@ -20,6 +20,7 @@ import { Boss } from './boss.js';
 import { Girl } from './girl.js';
 import { Cinematic } from './cinematic.js';
 import { Story } from './story.js';
+import { Minions } from './minions.js';
 import { LazarusPit } from './pit.js';
 
 async function boot() {
@@ -65,9 +66,7 @@ async function boot() {
       cam.shake(e.shake, CONFIG.combat.shake.time);
       hitStop = Math.max(hitStop, e.hitStop);
     },
-    onDefeat: (t) => {
-      if (t.minion) gems.drop(t.position); // a defeated minion drops one gem of a random colour
-    },
+    // (a defeated minion drops its gem itself, after its death clip and fade: minions.js)
   });
   await combat.init();
   const abilities = new Abilities(hero, world.scene, world, combat);
@@ -88,7 +87,12 @@ async function boot() {
   const boss = new Boss(world.scene, world, {
     onHitHero: (hearts, x, z, opts) => damageHero(hearts, x, z, opts),
     onSlam: () => cam.shake(CONFIG.boss.slam.shake, CONFIG.combat.shake.time * 1.6),
-    onDefeat: () => ui.banner(DIALOGUE.victory),
+    onDefeat: () => {
+      ui.banner(DIALOGUE.victory);
+      minions.despawnSlimes(); // (its slimes melt away)
+    },
+    // Every slam cracks the ground: slimes emerge (2, or 3 below 50% HP).
+    onCrack: (at) => minions.slimesFromCrack(at, boss.enraged),
     onHpMark: (i) => {
       gems.revealRing(i); // below 75 / 50 / 25%: a ring of gems at the arena's edge
       ui.toast(DIALOGUE.arenaGems);
@@ -127,7 +131,10 @@ async function boot() {
     cam.snapTo(p);
   };
   horse.onRespawn = hero.onRespawn;
-  horse.onCheckpoint = () => ui.toast(DIALOGUE.checkpoint);
+  horse.onCheckpoint = () => {
+    ui.toast(DIALOGUE.checkpoint);
+    minions.onCheckpoint(); // (no bats in the first seconds after a checkpoint)
+  };
   // Once the hero has ridden, falls/deaths put him back on the horse at the last checkpoint.
   hero.onFall = () => {
     if (!horse.everMounted) return false;
@@ -141,6 +148,12 @@ async function boot() {
   cinematic = new Cinematic(cam, ui.cinematicView(() => cinematic.tap(), () => cinematic.skip()));
   const pit = new LazarusPit(world.scene, world, sound);
   await pit.init();
+  // Small enemies: forest bats, cave slimes (from the boss's cracks), desert skeletons. Each
+  // type's model loads the first time one spawns.
+  const minions = new Minions(world.scene, world, {
+    hero, horse, combat, abilities, gems,
+    onHitHero: (hearts, x, z, opts) => damageHero(hearts, x, z, opts),
+  });
   const story = new Story({ world, hero, horse, boss, girl, gems, abilities, combat, lives, quests, cinematic, state, cam, pit, sound, ui, guide });
   quests.story = story;
   const NEUTRAL = { moveX: 0, moveY: 0, jumpPressed: false };
@@ -154,6 +167,7 @@ async function boot() {
     // gems from the checkpoint to the cave come back and the stock is topped up; the arena rings
     // go with the boss reset.
     onRespawn: () => {
+      minions.clear(); // every minion removed
       boss.onHeroRespawn();
       if (!boss.defeated) gems.resetArena();
       gems.restock(horse.checkpoints[horse.lastCheckpoint].s);
@@ -199,6 +213,7 @@ async function boot() {
     if (prev === STATES.INTRO) {
       // New game: everything back to the start.
       story.resetAll();
+      minions.clear();
       ui.setGems(gems.counts);
     } else if (prev === STATES.GAMEOVER) {
       // Retry: full hearts and respawns, back on the horse at the start of the ride, with the
@@ -208,6 +223,7 @@ async function boot() {
       combat.reset();
       horse.restartRide(hero);
       boss.onHeroRespawn();
+      minions.clear();
       gems.reset();
       ui.setGems(gems.counts);
       ui.fadeIn(CONFIG.lives.deathFadeMs);
@@ -226,6 +242,7 @@ async function boot() {
 
   // Cutscenes: no controls and no HUD buttons.
   state.onEnter(STATES.CUTSCENE, () => {
+    minions.clear(); // never in a cutscene
     ui.showHud(false);
     input.setEnabled(false);
     quests.setVisible(false); // no quest arrow or beacon in the shot
@@ -239,6 +256,7 @@ async function boot() {
     quests.setVisible(false);
     ui.showEnding(true, story.stats(), () => {
       story.resetAll();
+      minions.clear();
       ui.setGems(gems.counts);
       state.set(STATES.INTRO);
     });
@@ -311,6 +329,13 @@ async function boot() {
       if (inp.ability) abilities.use(inp.ability);
       abilities.update(dt);
       boss.update(dt, hero);
+      minions.update(dt, {
+        playing: true,
+        riding: horse.controlsHero,
+        route: horse.route === world.desertTrack ? 'desert' : 'forest',
+        pitDone: story.pitDone,
+        galloping: horse.galloping,
+      });
       ui.setBossBar(boss.active, boss.hp / boss.maxHp, DIALOGUE.bossName);
       input.setCombatButtons(horse.controlsHero, abilities, story.fatigue > 0);
       // Collect from the body centre: horse + rider when riding, the hero's chest on foot.
@@ -338,7 +363,7 @@ async function boot() {
   });
 
   // Exposed for debugging in the browser console (e.g. game.state.set('ending')).
-  window.game = { state, hero, cam, world, quests, horse, input, guide, gems, abilities, sound, combat, lives, boss, girl, pit, story, cinematic, damageHero, lifeEvents, STATES };
+  window.game = { state, hero, cam, world, quests, horse, input, guide, gems, abilities, sound, combat, lives, boss, girl, pit, story, cinematic, minions, damageHero, lifeEvents, STATES };
 
   state.start();
 }

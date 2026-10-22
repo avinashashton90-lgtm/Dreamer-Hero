@@ -20,6 +20,10 @@ The cave monster is **Warrok** (`public/models/boss/boss.glb`) with his animatio
 
 The horse (`public/models/horse/horse.gltf`) is from the **Ultimate Animated Animal Pack** (July 2021) by [Quaternius](https://quaternius.com), licensed [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) (public domain). It is used as it comes: flat material colours, no textures, with its own clips (Idle, Idle_2, Idle_Headlow, Eating, Walk, Gallop, Gallop_Jump, Jump_toIdle, Attack_Headbutt, Attack_Kick, Idle_HitReact1/2, Death).
 
+## Small enemies — Quaternius
+
+The bat, skeleton and slime (`public/models/monsters/bat.fbx`, `skeleton.fbx`, `slime.fbx`) are from the **Animated Monster Pack** by [Quaternius](https://quaternius.com), licensed [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) (public domain). They are used as they come (flat material colours, no textures), with their own clips: Bat_Flying / Attack / Attack2 / Hit / Death, Skeleton_Idle / Running / Attack / Spawn / Death, Slime_Idle / Walk / Attack / Death. (`dragon.fbx` from the same pack is in the folder but not used yet.)
+
 ## Engine
 
 - [three.js](https://threejs.org) (MIT), including `FBXLoader` and `GLTFLoader`.

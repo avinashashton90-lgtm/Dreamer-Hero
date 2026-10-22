@@ -394,8 +394,12 @@ const runUntil = (pred, maxS, opts) => { let t = 0; while (t < maxS) { step(1, {
   freshBoss(cx, cz, -Math.PI / 2, S.RECOVER);
   placeHero(cx - boss.radius - 1, cz, Math.PI / 2);
   step(1, {}, { each: () => { boss.state = S.RECOVER; boss.stateTime = 0; } });
-  const minion = { minion: true, position: new THREE.Vector3(cx + 2, world.heightAt(cx + 2, cz + 3), cz + 3), radius: 0.5, height: 1.5, hp: 50, maxHp: 50, alive: true, takeHit: () => 0 };
-  combat.addTarget(minion);
+  // Stand-in minions: one within minions.flashKillRadius (dies), one just beyond it (pushed back).
+  const mk = (x, z) => ({ minion: true, position: new THREE.Vector3(x, world.heightAt(x, z), z), radius: 0.5, height: 1.5, hp: 50, maxHp: 50, alive: true,
+    takeHit({ amount }) { const d = Math.min(this.hp, amount); this.hp -= d; if (this.hp <= 0) this.alive = false; return d; } });
+  const minion = mk(cx + 2, cz + 6.5);
+  const doomed = mk(cx + 2, cz + 2);
+  combat.addTarget(minion); combat.addTarget(doomed);
   const hits0 = heroHits, hp0 = boss.hp;
   boss.meleeKind = 'swipe'; boss.facing = Math.atan2(hero.position.x - cx, hero.position.z - cz);
   check(abilities.use('flashMode'), 'Flash used up close');
@@ -417,8 +421,8 @@ const runUntil = (pred, maxS, opts) => { let t = 0; while (t < maxS) { step(1, {
   check(heroHits === hits0 && lives.hearts === hearts && hero.position.distanceTo(pos0) < 0.05 && hero.hurtT === 0, `super-armor: the swipe and the slam during the charge did nothing (hits ${heroHits - hits0}, hearts ${hearts} → ${lives.hearts}, knocked back ${hero.position.distanceTo(pos0).toFixed(2)})`);
   check(armorAll && shield && abilities.stats.flashStrikes >= 1 && FMc.chargeTime === 0.6, `armour held through the ${FMc.chargeTime} s charge and the strike (not interrupted), gold-white lightning shield shown`);
   check(Math.abs(hp0 - boss.hp - boss.maxHp * BC.hitPct.flash) < 1e-6 && boss.state === S.STAGGERED, `the bolt took ${hp0 - boss.hp} and staggered it (${boss.state})`);
-  check(minion.position.distanceTo(boss.position) > minionD0 + 1, `the shockwave pushed the minion back (${minionD0.toFixed(1)} → ${minion.position.distanceTo(boss.position).toFixed(1)} from the impact)`);
-  combat.removeTarget(minion);
+  check(minion.alive && minion.position.distanceTo(boss.position) > minionD0 + 1 && !doomed.alive, `the minion ${Math.hypot(2, 2).toFixed(1)} from the bolt died (kill radius ${CONFIG.minions.flashKillRadius}); the shockwave pushed the one ${minionD0.toFixed(1)} away back (→ ${minion.position.distanceTo(boss.position).toFixed(1)})`);
+  combat.removeTarget(minion); combat.removeTarget(doomed);
   const tSt = runUntil(() => boss.state !== S.STAGGERED, 3) + (tt - FMc.chargeTime); // (+ the strike time already run)
   check(Math.abs(tSt - BC.flashStagger) < 0.15 && boss.state === S.RECOVER, `staggered ~${tSt.toFixed(2)} s (flashStagger ${BC.flashStagger}) → ${boss.state}`);
   check(!hero.superArmor && !hero.invincible, 'super-armor ends with the strike');
