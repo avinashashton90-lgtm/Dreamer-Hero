@@ -152,9 +152,27 @@ const track = world.track;
   check(palmsOut, 'the palms stand beside the trail (outside its side walls, on the pond side)');
   const o = os[0];
   mountAt(dt2, o.s - 20, o.lateral, CONFIG.horse.maxSpeed * 0.6); horse.energy = 10;
-  const s0 = sound.counts.oasisSplash ?? 0;
-  ride(3, { lat: o.lateral });
-  check(horse.energy > 10 + O.refill * MAX - 3 && (sound.counts.oasisSplash ?? 0) === s0 + 1 && energy.stats.oases === 1, `riding through the pond: ${horse.energy.toFixed(0)} (+${O.refill * 100}%, once), a splash sound`);
+  const s0 = sound.counts.oasisSplash ?? 0, sip0 = sound.counts.horse_sip ?? 0;
+  // Riding in: it drinks — a slow walk (still steering), head down, sipping, the energy back gradually.
+  let drinkT = 0, maxV = 0, half = null, after = 0;
+  ride(6, { lat: o.lateral, each: () => {
+    if (horse.drinking) {
+      drinkT += dt;
+      maxV = Math.max(maxV, horse.speed);
+      if (half === null && drinkT >= EN.oasisDrinkTime / 2) half = horse.energy;
+    } else if (drinkT > 0) after = Math.max(after, horse.speed);
+  } });
+  const gained = horse.energy - 10;
+  check(Math.abs(drinkT - EN.oasisDrinkTime) < 0.1 && maxV <= EN.oasisDrinkSpeed + 0.01 && after > EN.oasisDrinkSpeed * 2,
+    `riding into the pond it drinks ${drinkT.toFixed(2)} s (oasisDrinkTime ${EN.oasisDrinkTime}) at a walk (≤ ${maxV.toFixed(2)}), head down, then speeds up again (${after.toFixed(1)})`);
+  check(half > 10 + O.refill * MAX * 0.3 && half < 10 + O.refill * MAX * 0.7 && gained >= O.refill * MAX - 1 && gained <= O.refill * MAX + EN.regenRate * 6 && // (+ the walk's own slow recovery) (sound.counts.oasisSplash ?? 0) === s0 + 1 && (sound.counts.horse_sip ?? 0) >= sip0 + 2 && energy.stats.oases === 1,
+    `the energy refills gradually (half way ${half?.toFixed(0)}, then ${horse.energy.toFixed(0)}: +${O.refill * 100}%), once, a splash and ${(sound.counts.horse_sip ?? 0) - sip0} sips`);
+  // A gallop leaves early.
+  mountAt(dt2, os[1].s - 20, os[1].lateral, CONFIG.horse.maxSpeed * 0.6); horse.energy = 60;
+  let started = false, left = false;
+  ride(4, { lat: os[1].lateral, gallop: true, each: () => { if (horse.drinking) started = true; } });
+  left = !horse.drinking;
+  check(left && !energy.drinking, `a gallop through the pond doesn't stop to drink (drank: ${started})`);
   horse.setRoute(world.track, CONFIG.checkpoints.fractions);
 }
 

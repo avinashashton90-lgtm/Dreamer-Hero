@@ -180,9 +180,14 @@ export class Girl {
     return 'idle';
   }
 
-  /** The witch's eye glow: flickering during the hint, steady in her witch form. */
-  get eyesGlowing() {
+  /** The witch hint's flicker: during the hint, steady in her witch form (the wall shadow). */
+  get #flicker() {
     return CONFIG.girlWitchForm || (this.hinting && Math.sin(this.time * 47) > -0.3);
+  }
+
+  /** The witch's eye glow — only with CONFIG.girlEyeGlow (off: no glow on her anywhere). */
+  get eyesGlowing() {
+    return CONFIG.girlEyeGlow && this.#flicker;
   }
 
   update(dt, groundY = 0) {
@@ -192,7 +197,7 @@ export class Girl {
     if (u.animator) u.animator.update(dt, this);
     else this.#posePlaceholder();
     // Witch hint on the cave wall: her shadow flickers to the hat-and-staff shape.
-    const flick = this.eyesGlowing;
+    const flick = this.#flicker;
     if (this.shadow) {
       // (her shadow on the cave wall only exists while she stands at the cave mouth)
       const atCave = Math.hypot(this.model.position.x - G.shadow.x, this.model.position.z - G.shadow.z) < 15;

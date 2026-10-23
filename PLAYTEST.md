@@ -13,7 +13,7 @@ chase | hurdles | energy | arena`). All of them pass.
 | 1. Forest | Browser: "Forest start" and "Forest hurdles" (riding, HUD, console). Tests: route (full rides at normal speed and galloping with the hurdles running, every gem, every gap, no stuck points, side-wall pushes), hurdles (giant walls / thorns / stones, a full ride with bats), minions (bat swarms, fair attacks, the ride still reaches the cave), energy (potions, grass, never tired on a normal ride). | OK |
 | 2. Cave and sealed arena | Browser: "Cave entrance", "Boss fight" (sealed, barrier shut, boss leashed, HUD). Tests: arena (barrier closes 2 s after the boss notices, solid; leash on every frame through chases, charges, pushes, teleports, 60 s of random fighting; revive always inside with full hearts and refilled gems; regen; Amy out of reach; the horse; barrier opens on the boss's death), boss, corner, ending (Amy's rescue cutscene). | OK |
 | 3. Lazarus Pit | Browser: "Lazarus Pit scene" (dialogue box shows "Girl: Stop.", Skip ends it into the desert ride with full hearts). Test: ending (the camera never within 1.5 of any character or inside a solid on any frame, dialogue order, Skip on the first line, mid-scene and in the close-up). | OK |
-| 4. Desert | Browser: "Desert chase", "Sandstorm" (skeletons up, storm at full strength, clear corridor: no sand in it, fog 30–150). Tests: chase (first group 2 s after the ride resumes, Batarang 2 hits = a kill, Smoke paralyses, Flash kills nearby ones, fog ≤ 40% at 60 along the trail), saddle. | OK |
+| 4. Desert | Browser: "Desert chase", "Sandstorm" (skeletons up, storm at full strength, clear corridor: no sand in it, fog 30–150). Tests: chase (first group 2 s after the ride resumes, every group 30–45 ahead and always in view while charging, one lunge each for a quarter heart, one Batarang hit = a kill that breaks the skeleton apart, Smoke paralyses, Flash kills nearby ones, whirlwinds and debris off the corridor, fog ≤ 40% at 60 along the trail), saddle, ending (the new pit dialogue, the horse walking up to the pit, AJ kneeling at the water's edge, no glow on Amy). | OK |
 | 5. Castle gate and ending | Browser: "Castle gate cinematic" plays through into the ending; "Ending screen" shows "To be continued... Part 2" with the summary and Play Again. Tests: chase, ending. | OK |
 | 6. HUD on phone landscape | Browser: every visible HUD element against every other one at 915×412, 760×360, 640×360, with and without the TEST button; every action button ≥ 56 px, in the bottom-right; uses-left badges equal `abilities.usesLeft`; the Dismount button 44 px, 6 px under the Pink counter, centred on it. Test: input (corner layout, gaps, touch routing). | 1 bug, fixed |
 | 7. Performance | Browser: draw calls and triangles per section; which objects reach the GPU. | Lightened |
@@ -55,6 +55,12 @@ chase | hurdles | energy | arena`). All of them pass.
 
 The absolute frame times are from software rendering, which is far slower than a phone GPU;
 only the before/after ratio matters.
+
+Whirlwinds and flying debris (added later): at the same spot in the sandstorm (Pixel 7 landscape,
+pixel ratio 2), 402 ms per frame with them and 382 ms with them hidden (+17 draw calls, about +1k
+triangles): about 5% of the frame in software rendering. The counts were kept (5 × 34 spiral
+quads, 14 + 10 debris pieces); on a phone the adaptive pixel ratio still steps down if a frame
+rate drop lasts.
 
 ## Not changed / notes
 

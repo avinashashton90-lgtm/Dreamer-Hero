@@ -234,6 +234,7 @@ export class Horse {
     this.energy = CONFIG.energy.horseEnergyMax; // (energy.js drains / refills it; separate from AJ's hearts)
     this.energyTired = false; // out of energy: no gallop, a tired walk until it recovers
     this.eating = false; // on a grass patch, (nearly) stopped: it grazes
+    this.drinking = false; // at an oasis: a slow walk, head down (energy.js)
     this.powerJumps = 0;
     this.prints = []; // hoof prints in the sand
     this.dust = [];
@@ -492,6 +493,7 @@ export class Horse {
     this.energy = CONFIG.energy.horseEnergyMax;
     this.energyTired = false;
     this.eating = false;
+    this.drinking = false;
   }
 
   respawnAtCheckpoint(hero) {
@@ -622,7 +624,8 @@ export class Horse {
     }
     this.nearCave = atCave;
     if (this.hold) this.galloping = false;
-    const capped = this.energyTired ? Math.min(top, CONFIG.energy.tiredSpeed) : top; // (out of energy: a tired walk)
+    let capped = this.energyTired ? Math.min(top, CONFIG.energy.tiredSpeed) : top; // (out of energy: a tired walk)
+    if (this.drinking) capped = Math.min(capped, CONFIG.energy.oasisDrinkSpeed); // (drinking at an oasis: a slow walk, still steerable)
     const target = braking || mag < 0.05 || this.autoStop || this.hold || this.stumbleStop > 0 ? 0 : capped * mag * (1 - HC.turnSlowdown * Math.abs(this.steer));
     const accel =
       target > this.speed
@@ -810,7 +813,7 @@ export class Horse {
     const RU = CONFIG.corner.mounted.rear;
     body.rotation.x = Math.sin(ph) * 0.05 * s + (this.stumble > 0 ? Math.sin((this.stumble / (this.stumbleTotal || OBS.stumbleTime)) * Math.PI) * 0.3 : 0)
       - (this.rearT > 0 ? Math.sin((this.rearT / RU.time) * Math.PI) * RU.pitch : 0); // (rearing up: nose up)
-    const graze = this.mode === MODES.IDLE || this.eating ? Math.max(0, Math.sin(this.time * 0.8)) : 0;
+    const graze = this.drinking ? 1 : this.mode === MODES.IDLE || this.eating ? Math.max(0, Math.sin(this.time * 0.8)) : 0;
     neck.rotation.x = graze * 0.9 + Math.sin(ph) * 0.12 * s;
     tail.rotation.x = -0.2 - s * 0.6 + Math.sin(this.time * 3) * 0.08;
 
@@ -827,6 +830,7 @@ export class Horse {
       grounded: this.grounded,
       ridden: this.mode !== MODES.IDLE,
       eating: this.eating,
+      drinking: this.drinking,
       hopVelocity: HC.hopVelocity,
       vy: this.velocity.y,
     });

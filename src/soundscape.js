@@ -153,18 +153,19 @@ export class Soundscape {
     return AU.horseCallMin + Math.random() * (AU.horseCallMax - AU.horseCallMin);
   }
 
-  /** A cutscene line starts (cinematic.onLine). */
-  onLine(speaker, text) {
+  /** A cutscene line starts (cinematic.onLine); `voice`: another voice of the speaker (AJ weak: ajWeak). */
+  onLine(speaker, text, voice) {
     const id = AU.voice.speakers[speaker] ?? speaker;
     this.blipCount = 0;
-    this.audio.playVoice(id, LINE_IDS.get(text) ?? 'line');
+    this.audio.playVoice(id, LINE_IDS.get(text) ?? 'line'); // (the file is the speaker's own: voice/aj_…)
   }
 
   /** The typewriter showed one more letter (cinematic.onType): a blip every few letters. */
-  onType(speaker, ch) {
+  onType(speaker, ch, voice) {
     if (!/[\p{L}\p{N}]/u.test(ch)) return;
-    if (this.blipCount++ % AU.voice.charsPerBlip) return;
-    this.audio.voiceBlip(AU.voice.speakers[speaker] ?? speaker);
+    const id = voice ?? AU.voice.speakers[speaker] ?? speaker;
+    if (this.blipCount++ % (AU.voice.characters[id]?.charsPerBlip ?? AU.voice.charsPerBlip)) return;
+    this.audio.voiceBlip(id);
   }
 
   /** A menu / panel button tapped. */
@@ -267,7 +268,7 @@ export class Soundscape {
     if (boss.state === 'fire') A.setLoop('fire', 'boss_fire_breath', { position: boss.fireOrigin });
     // The sandstorm's wind (its strength).
     const ss = g.storm?.strength ?? 0;
-    if (ss > 0.02) A.setLoop('wind', 'sandstorm_wind', { volume: ss });
+    if (ss > 0.02) A.setLoop('wind', 'sandstorm_wind', { volume: ss * AU.sandstormVolume }); // (a soft low breeze)
     // A slow heartbeat on the last heart.
     const L = g.lives;
     if (L.hearts > 0 && L.hearts <= 1) A.setLoop('heart', 'low_health_beat');

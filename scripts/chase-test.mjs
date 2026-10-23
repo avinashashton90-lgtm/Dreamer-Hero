@@ -1,7 +1,9 @@
 // Headless test: the sandstorm chase after the Lazarus Pit and the castle-gate cinematic.
 // Nothing spawns before the pit scene ends; the first skeleton group rises 2 s after the ride
-// resumes (also when the scene is skipped); caps; 2 Batarang hits kill a skeleton; Smoke and
-// Flash from the saddle; the hero never drops below half a heart in the chase; the storm (builds,
+// resumes (also when the scene is skipped), every group ahead of the horse and charging it, in
+// view (the camera pulls back while they come); one lunge each for a quarter heart, then they fall
+// away; caps; one Batarang hit shatters a skeleton; Smoke and Flash from the saddle; the hero
+// never drops below half a heart in the chase; the storm (builds,
 // the trail corridor stays clear of sand, enough visibility, a gentle shake); dying in the chase
 // restarts at the checkpoint after the pit (storm and skeletons reset, no pit again); a bot rides
 // from the pit to the castle and the gate cinematic always completes (the skeleton line thrown
@@ -113,7 +115,7 @@ async function frame(input = null) {
   girl.update(dt);
   story.update(dt, playing || state.is(STATES.CUTSCENE));
   if (cinematic.active) cinematic.update(dt);
-  else cam.update(dt, hero.position, { mounted: horse.mounted, speed: horse.speedRatio, gallop: horse.galloping, heading: horse.heading });
+  else cam.update(dt, hero.position, { mounted: horse.mounted, speed: horse.speedRatio, gallop: horse.galloping, heading: horse.heading, chase: playing && minions.skeletonsCharging });
   world.update(dt, cam.camera.position);
   storm.update(dt, story.stormLevel, cam.camera, cam);
   gate.update(dt, story.gateStarted && !story.gateDone ? horse : null);
@@ -172,18 +174,29 @@ for (const skip of [false, true]) {
   check(active && Math.abs(firstAt - SK.firstDelay) < 0.05, `${skip ? 'pit skipped' : 'pit played'}: desertChaseActive set, the first group rises ${firstAt.toFixed(2)} s after the ride resumes`);
   check(Math.abs(stormAt - CH.stormDelay) < 0.05, `the storm begins to build ${stormAt.toFixed(2)} s after the ride resumes`);
   const cp = horse.checkpoints[horse.lastCheckpoint];
-  check(cp?.here && Math.abs(cp.s - story.pitTriggerS) < 10, `a checkpoint right after the pit (s ${cp?.s.toFixed(0)}, the pit at ${story.pitTriggerS.toFixed(0)})`);
+  const pitS = track.nearest(pit.position.x, pit.position.z, 40).s; // (the horse walked up to the pit)
+  check(cp?.here && cp.s > story.pitTriggerS - 10 && cp.s < pitS + 10, `a checkpoint right after the pit (s ${cp?.s.toFixed(0)}: from the "Stop." at ${story.pitTriggerS.toFixed(0)} — skipped — to the pit at ${pitS.toFixed(0)})`);
 }
 
-// 2) The storm: builds over 3 s, the trail corridor stays clear of sand, visibility, a gentle shake.
+// 2) The storm: builds over 3 s, the trail corridor stays clear of sand (and of the whirlwinds and
+// debris), visibility, a gentle shake; 2–4 whirlwinds beside the path, debris tumbling with the wind.
 {
   let full = -1, inCorridor = 0, frames = 0, shake = 0;
+  const ww = { max: 0, minLate: Infinity, heights: new Set(), off: Infinity, cam: Infinity }, db = { shown: 0, nearest: Infinity, inWhirls: 0 };
   const t0 = story.chaseTime;
   for (let i = 0; i < 60 * 8; i++) {
     await frame(rideInput());
     if (full < 0 && story.stormLevel >= 1) full = story.chaseTime;
     if (storm.strength > 0.3) { inCorridor += storm.particlesInCorridor(); frames++; }
     shake = Math.max(shake, cam.wind);
+    if (storm.strength > 0.9) {
+      const w = storm.whirlwindStats(cam.camera), d = storm.debrisStats(cam.camera);
+      ww.max = Math.max(ww.max, w.count);
+      if (i > 60 * 6) ww.minLate = Math.min(ww.minLate, w.count);
+      w.heights.forEach((h) => ww.heights.add(h));
+      ww.off = Math.min(ww.off, w.offCorridor); ww.cam = Math.min(ww.cam, w.fromCamera);
+      db.shown = Math.max(db.shown, d.shown); db.nearest = Math.min(db.nearest, d.nearest); db.inWhirls = Math.max(db.inWhirls, d.inWhirls);
+    }
   }
   const fog = scene.fog;
   const at60 = (60 - fog.near) / (fog.far - fog.near);
@@ -193,9 +206,15 @@ for (const skip of [false, true]) {
   const shown = [...vis].filter((f) => f > 0.05).length;
   check(at60 < 0.4 && fog.far >= 120 && shown > ST.streaks.count * 0.2, `visibility along the trail: fog ${(at60 * 100).toFixed(0)}% at 60 (near ${fog.near.toFixed(0)}, far ${fog.far.toFixed(0)}); ${shown} wind streaks at the sides`);
   check(shake > 0 && shake <= ST.shake * 1.6, `a gentle camera shake with the wind (${shake.toFixed(3)})`);
+  const hs = [...ww.heights];
+  check(ww.max >= ST.whirlwinds.count[0] && ww.max <= ST.whirlwinds.count[1] && ww.minLate >= ST.whirlwinds.count[0] - 1 && hs.every((h) => h >= ST.whirlwinds.height[0] && h <= ST.whirlwinds.height[1]) && ww.off >= ST.clear.soft && ww.cam >= ST.whirlwinds.minCam,
+    `whirlwinds beside the path: up to ${ww.max} at a time (at least ${ww.minLate} late on), ${hs.map((h) => h.toFixed(1)).join(' / ')} tall, ≥ ${ww.off.toFixed(1)} off the corridor's edge, ≥ ${ww.cam.toFixed(1)} from the camera`);
+  check(db.shown >= 6 && db.inWhirls >= 1 && db.nearest >= ST.debris.minCam - 1e-6,
+    `flying debris: up to ${db.shown} pieces (${db.inWhirls} spinning in the whirlwinds), none nearer the camera than ${db.nearest.toFixed(1)} (≥ ${ST.debris.minCam}), none in the corridor (above)`);
 }
 
-// 3) Skeletons from the saddle: 2 Batarang hits kill one; Smoke paralyzes one; Flash kills those near its target.
+// 3) Skeletons from the saddle: one Batarang hit shatters one; Smoke paralyzes one; Flash kills (and shatters) those near its target.
+// (the skeletons are held where they stand here: on their own they charge the horse)
 {
   minions.clear();
   gems.counts.yellow = 20; gems.counts.blue = 10; gems.counts.pink = 10;
@@ -204,30 +223,42 @@ for (const skip of [false, true]) {
   const f = new THREE.Vector3(Math.sin(horse.heading), 0, Math.cos(horse.heading));
   const at = (ahead, side = 0) => { const p = horse.position.clone().addScaledVector(f, ahead).add(new THREE.Vector3(-f.z, 0, f.x).multiplyScalar(side)); return { x: p.x, z: p.z }; };
   const stand = { moveX: 0, moveY: -1, jumpPressed: false };
-  const sk = await minions.spawnAt('skeleton', at(-9, 2)); sk.state = 'move'; sk.cooldown = 99; // (behind: any direction)
-  let throws = 0;
+  const hold = (m, p) => { if (m.alive) { m.position.x = p.x; m.position.z = p.z; m.set('move'); } };
+  const skAt = at(16, 2);
+  const sk = await minions.spawnAt('skeleton', skAt); sk.state = 'move';
+  let throws = 0, kick = 0;
+  const yellow0 = gems.counts.yellow;
+  const bursts0 = minions.shatter.stats.bursts;
   for (let i = 0; i < 60 * 6 && sk.alive; i++) {
-    sk.cooldown = 99; sk.state = sk.state === 'move' ? 'move' : sk.state;
+    hold(sk, skAt);
     const ready = !abilities.batarangOut && abilities.cooldowns.batarang <= 0;
     if (ready) throws++;
     await frame({ ...stand, ability: ready ? 'batarang' : null });
   }
-  check(!sk.alive && throws === 2 && MN.types.skeleton.hp === 2 * MN.damage.batarang, `2 Batarang throws kill a skeleton behind the horse (${MN.types.skeleton.hp} HP, ${MN.damage.batarang} each; ${throws} throws)`);
+  const bones = minions.shatter.active;
+  check(!sk.alive && throws === 1 && sk.killedBy === 'batarang' && sk.shattered && minions.shatter.stats.bursts === bursts0 + 1 && bones >= MN.shatter.bones && gems.counts.yellow === yellow0 - 1,
+    `one Batarang throw kills a charging skeleton (${MN.types.skeleton.hp} HP; ${throws} throw): it breaks apart (${bones} bones)`);
+  for (let i = 0; i < 60 * (MN.shatter.life + 0.3); i++) await frame(stand);
+  check(minions.shatter.active === 0 && sk.removed, `the bones are gone after ${MN.shatter.life} s`);
   minions.clear();
-  const sm = await minions.spawnAt('skeleton', at(8, 1)); sm.state = 'move';
+  const smAt = at(10, 1);
+  const sm = await minions.spawnAt('skeleton', smAt); sm.state = 'move';
   const smokeOk = abilities.use('smokeBomb');
   let paralyzedFor = 0;
-  for (let i = 0; i < 60 * 3; i++) { sm.cooldown = 99; await frame(stand); if (sm.state === 'paralyzed') paralyzedFor += dt; }
+  for (let i = 0; i < 60 * 3; i++) { if (sm.state === 'move') hold(sm, smAt); await frame(stand); if (sm.state === 'paralyzed') paralyzedFor += dt; }
   check(smokeOk && paralyzedFor > 1.5, `Smoke Bomb from the saddle paralyzes a skeleton (${paralyzedFor.toFixed(1)} s so far)`);
   minions.clear();
-  const near = await minions.spawnAt('skeleton', at(10, 2));
-  const near2 = await minions.spawnAt('skeleton', at(12, -2));
-  const far = await minions.spawnAt('skeleton', at(-12, 0));
-  for (const m of [near, near2, far]) m.state = 'move';
+  const spots = [at(10, 2), at(12, -2), at(-12, 0)];
+  const near = await minions.spawnAt('skeleton', spots[0]);
+  const near2 = await minions.spawnAt('skeleton', spots[1]);
+  const far = await minions.spawnAt('skeleton', spots[2]);
+  const trio = [near, near2, far];
+  for (const m of trio) m.state = 'move';
   lives.setHearts(lives.maxHearts);
   const flashOk = abilities.use('flashMode');
-  for (let i = 0; i < 60 * 1.5; i++) { for (const m of [near, near2, far]) m.cooldown = 99; await frame(stand); }
-  check(flashOk && !near.alive && !near2.alive && far.alive, `Flash from the saddle auto-locks onto the nearest skeleton and kills those within ${MN.flashKillRadius} of it (the one behind lives)`);
+  for (let i = 0; i < 60 * 1.5; i++) { trio.forEach((m, k) => hold(m, spots[k])); await frame(stand); }
+  check(flashOk && !near.alive && !near2.alive && far.alive && near.shattered && near2.shattered,
+    `Flash from the saddle auto-locks onto the nearest skeleton and kills those within ${MN.flashKillRadius} of it — they break apart too (the one behind lives)`);
   minions.clear();
   lives.setHearts(lives.maxHearts);
 }
@@ -257,9 +288,10 @@ for (const skip of [false, true]) {
 // 4b) Stopped in the chase with skeletons all round for 20 s: they hit, but never below half a heart.
 {
   minions.clear();
-  lives.setHearts(lives.maxHearts);
+  lives.setHearts(2);
   hitsTaken.length = 0;
   const d0 = deaths;
+  const lunges0 = minions.stats.lunges, hits0 = minions.stats.hits;
   let low = Infinity, grace = Infinity, last = -Infinity;
   for (let i = 0; i < 60 * 20; i++) {
     if (aliveSk().length < SK.max && i % 60 === 0) minions.skeletonGroup();
@@ -269,6 +301,8 @@ for (const skip of [false, true]) {
   const sk = hitsTaken.filter((h) => h.source === 'skeleton');
   for (const h of sk) { grace = Math.min(grace, h.t - last); last = h.t; }
   check(sk.length >= 4 && low === CH.minHearts && deaths === d0 && grace >= CH.grace - 1e-6, `stopped among ${SK.max} skeletons for 20 s: ${sk.length} hits, hearts down to ${low} and no lower, no death, ≥ ${CH.grace} s between hits (${grace.toFixed(2)})`);
+  check(sk.every((h) => h.n <= SK.skeletonDamage + 1e-9) && minions.stats.hits - hits0 <= minions.stats.lunges - lunges0 && minions.stats.lunges > lunges0,
+    `each skeleton lunges once (${minions.stats.lunges - lunges0} lunges, ${minions.stats.hits - hits0} hits) for at most ${SK.skeletonDamage} of a heart, then falls away`);
   minions.clear();
   lives.setHearts(lives.maxHearts);
 }
@@ -278,7 +312,10 @@ const rideToEnd = async (gallop) => {
   await freshGame();
   await throughPit(true);
   const r = { maxAlive: 0, groups: 0, minHearts: Infinity, overAt: -1, sunk: -1, gateAt: -1, stormClear: -1, puppetsStaged: 0, blocked: 0, launched: 0, openAtGate: -1,
-    inside: false, slammedAt: -1, glance: false, ending: -1, stuck: false, hits: 0, lastD: 0, standsInPath: 0 };
+    inside: false, slammedAt: -1, glance: false, ending: -1, stuck: false, hits: 0, lastD: 0, standsInPath: 0,
+    spawnAhead: [Infinity, -Infinity], spawnLat: 0, outOfView: 0, viewFrames: 0, alongside: 0, chaseCam: 0 };
+  const seenSk = new Set();
+  const frustum = new THREE.Frustum(), pv = new THREE.Matrix4();
   let best = 0, since = 0, t = 0;
   hitsTaken.length = 0;
   while (t < 200 && !state.is(STATES.ENDING)) {
@@ -314,6 +351,31 @@ const rideToEnd = async (gallop) => {
     if (n.s > best + 1) { best = n.s; since = 0; } else if ((since += dt) > 5) { r.stuck = true; break; }
     await frame(rideInput(gallop));
     r.maxAlive = Math.max(r.maxAlive, aliveSk().length);
+    // Every skeleton rises ahead of the horse (30–45 along the trail, across its width), charges
+    // it in view, and never runs alongside once past it.
+    const fx = Math.sin(horse.heading), fz = Math.cos(horse.heading);
+    cam.camera.updateMatrixWorld();
+    frustum.setFromProjectionMatrix(pv.multiplyMatrices(cam.camera.projectionMatrix, cam.camera.matrixWorldInverse));
+    r.chaseCam = Math.max(r.chaseCam, cam.chase);
+    for (const m of aliveSk()) {
+      const ax = m.position.x - horse.position.x, az = m.position.z - horse.position.z;
+      const ahead = ax * fx + az * fz;
+      if (!seenSk.has(m)) {
+        seenSk.add(m);
+        const hs = horse.trackS, ms = track.nearest(m.position.x, m.position.z, 30)?.s ?? hs;
+        r.spawnAhead[0] = Math.min(r.spawnAhead[0], ms - hs);
+        r.spawnAhead[1] = Math.max(r.spawnAhead[1], ms - hs);
+        r.spawnLat = Math.max(r.spawnLat, Math.abs(track.nearest(m.position.x, m.position.z, 30)?.lateral ?? 99));
+      }
+      if (!m.lunged && ahead > 0 && (m.state === 'move' || m.state === 'spawn')) {
+        r.viewFrames++;
+        if (!frustum.containsPoint(m.position.clone().setY(m.position.y + m.height * 0.6))) {
+          r.outOfView++;
+          r.outInfo ??= `${m.state} ${ahead.toFixed(1)} ahead, ${(-ax * fz + az * fx).toFixed(1)} across, cam ${m.position.distanceTo(cam.camera.position).toFixed(1)} away, chase ${cam.chase.toFixed(2)}`;
+        }
+      }
+      if (ahead < -(SK.passBehind + 1.5) && Math.abs(-ax * fz + az * fx) < 6) r.alongside++;
+    }
     if (story.desertChaseActive) r.minHearts = Math.min(r.minHearts, lives.hearts);
     if (story.chaseOver && r.overAt < 0) r.overAt = t;
     if (r.overAt >= 0 && r.sunk < 0 && t > r.overAt + SK.sink + 0.2) r.sunk = skeletons().filter((m) => m.state !== 'dying' && m.state !== 'fading').length;
@@ -330,6 +392,11 @@ for (const gallop of [false, true]) {
   const label = gallop ? 'galloping' : 'normal speed';
   check(!r.stuck && r.ending > 0, `${label}: a bot rides from the pit to the castle (${r.t.toFixed(1)} s) and reaches the ending`);
   check(r.groups - g0 >= (gallop ? 2 : 3) && r.maxAlive <= SK.max, `${label}: ${r.groups - g0} skeleton groups on the way, at most ${r.maxAlive} alive (cap ${SK.max})`);
+  const [a0, a1] = SK.skeletonSpawnDistance;
+  check(r.spawnAhead[0] >= a0 - 3 && r.spawnAhead[1] <= a1 + 3 && r.spawnLat <= SK.spread + 1.2,
+    `${label}: every skeleton rises ahead of the horse (${r.spawnAhead[0].toFixed(1)}…${r.spawnAhead[1].toFixed(1)} along the trail, within ${r.spawnLat.toFixed(1)} of its centre line), never beside or behind`);
+  check(r.viewFrames > 100 && r.outOfView === 0 && r.chaseCam > 0.5 && r.alongside === 0,
+    `${label}: charging skeletons always in the camera's view (${r.outOfView} of ${r.viewFrames} skeleton-frames out${r.outInfo ? ': ' + r.outInfo : ''}; the camera pulled back ${(r.chaseCam * 100).toFixed(0)}%), none alongside after passing (${r.alongside})`);
   check(r.minHearts >= CH.minHearts && deaths === 0, `${label}: ${r.hits} skeleton hits, the hero never below half a heart in the chase (lowest ${r.minHearts}), no deaths`);
   check(r.overAt > 0 && r.sunk === 0, `${label}: the chase ends ${SK.castleClear} from the castle, the rest sink into the sand (${r.sunk} left)`);
   check(r.gateAt > 0 && r.gateDist <= GT.trigger + 0.5 && r.gateDist > GT.trigger - 3 && r.stormClear > 0 && r.stormClear <= GT.stormClear + 0.05,

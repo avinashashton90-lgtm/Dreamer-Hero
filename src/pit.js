@@ -154,7 +154,7 @@ export class LazarusPit {
       this.auraT += dt;
       const up = smoothstep(this.auraT, 0, P.aura.time);
       const h = P.aura.height * up * Math.max(this.level, 0.001);
-      u.aura.visible = h > 0.05;
+      u.aura.visible = P.aura.show && h > 0.05;
       u.aura.scale.set(1, Math.max(0.01, h), 1);
       u.aura.material.opacity = P.aura.opacity * this.level * (0.85 + 0.15 * Math.sin(this.auraT * 3));
       if (!this.active && this.level <= 0) this.auraT = -1;

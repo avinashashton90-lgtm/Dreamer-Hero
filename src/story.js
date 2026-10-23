@@ -11,6 +11,8 @@ const PIT = DS.pit;
 const CH = DS.chase;
 const GT = DS.gate;
 const { smoothstep, clamp } = THREE.MathUtils;
+/** From angle a to b the short way round, by k (0..1). */
+const lerpAngle = (a, b, k) => a + Math.atan2(Math.sin(b - a), Math.cos(b - a)) * clamp(k, 0, 1);
 
 /**
  * The end of Part 1, kept free of the DOM so it runs headless in tests:
@@ -296,7 +298,8 @@ export class Story {
   /** Where each of them stands at the pit: on the trail side of the rim, facing the water. */
   #pitSpots() {
     const pit = this.pit.position;
-    const toTrail = this.horse.position.clone().sub(pit).setY(0).normalize();
+    // (from where the horse stopped at "Stop.": the spots stay put while it walks up to the pit)
+    const toTrail = (this.pitFrom ?? this.horse.position).clone().sub(pit).setY(0).normalize();
     const along = new THREE.Vector3(-toTrail.z, 0, toTrail.x);
     const spot = (dist, side) => {
       const p = pit.clone().addScaledVector(toTrail, PIT.radius + dist).addScaledVector(along, side);
@@ -362,11 +365,16 @@ export class Story {
       { camera: { pos: () => behind().pos, look: () => behind().look, duration: SH.behind.duration, wait: false } },
       { call: () => { girl.lookAtHero = true; } },
       { say: 'girl', text: L.stop },
-      { say: 'hero', text: L.fine },
+      { say: 'hero', text: L.keepGoing },
+      { say: 'girl', text: L.notWell },
+      { call: () => this.sound?.play('aj_cough') }, // (weak: a small cough, then a low grunted line)
+      { wait: PIT.coughLead },
+      { say: 'hero', text: L.ok, voice: 'ajWeak', pace: PIT.weakPace },
       { call: () => { girl.lookAtHero = false; girl.pointing = true; } },
-      { say: 'girl', text: L.look },
+      { say: 'girl', text: L.water },
       { call: () => pit.reveal() },
-      { camera: { pos: () => reveal().pos, look: () => reveal().look, duration: SH.reveal.duration } },
+      { camera: { pos: () => reveal().pos, look: () => reveal().look, duration: SH.reveal.duration, wait: false } },
+      { call: () => this.#horseToPit() }, // (the horse goes up to the pit)
       { camera: { pos: () => sideOn().pos, look: () => sideOn().look, duration: SH.sideOn.duration, wait: false } },
       { call: () => this.#walkToPit() },
       { call: () => this.#touchWater() },
@@ -378,7 +386,7 @@ export class Story {
       { call: () => { this.closeUp = this.#closeUpShot(); } },
       { camera: { pos: () => this.closeUp.pos, look: () => this.closeUp.look, duration: SH.closeUp.duration, wait: false, fov: SH.closeUp.fov, subject: 'girl', soften: ['hero'] } },
       { say: 'hero', text: L.who },
-      { call: () => { girl.smiling = true; girl.hint(SH.closeUp.glow); } },
+      { call: () => { girl.smiling = true; } },
       { wait: PIT.smileHold },
       { camera: { pos: () => pullBack().pos, look: () => pullBack().look, duration: SH.pullBack.duration, fov: null } },
       { call: () => this.finishPit(), essential: true },
@@ -393,6 +401,56 @@ export class Story {
     await this.cinematic.play(this.pitSteps());
     if (this.state.is(STATES.CUTSCENE)) this.state.set(STATES.PLAY);
     this.#cameraBehindHorse();
+  }
+
+  /**
+   * The horse walks up to the pit (scripted, both still riding): along the trail to the point
+   * level with it, over to `horseWalk.lateral` on the pit's side (inside the trail walls), its
+   * right side — the dismount side — to the water. Its stop on the trail is kept (`pitFrom`) so
+   * everyone's spots at the rim stay where they were.
+   */
+  async #horseToPit() {
+    const { horse, world } = this;
+    const W = PIT.horseWalk;
+    const track = world.desertTrack;
+    const pit = this.pit.position;
+    this.pitFrom = horse.position.clone();
+    const n = track.nearest(pit.x, pit.z, 40) ?? track.nearestGlobal(pit.x, pit.z);
+    const c = track.at(n.s);
+    const side = Math.sign(n.lateral) || 1; // (lateral: + = right of travel)
+    const to = new THREE.Vector3(c.x - c.tz * side * W.lateral, 0, c.z + c.tx * side * W.lateral);
+    to.y = world.heightAt(to.x, to.z);
+    // Right side to the pit: right = (−cos h, sin h) along (pit − spot).
+    const d = pit.clone().sub(to).setY(0).normalize();
+    const endHeading = Math.atan2(d.z, -d.x);
+    const from = horse.position.clone();
+    const startHeading = horse.heading;
+    const dist = from.distanceTo(to);
+    const T = Math.max(0.5, (dist / W.speed) * W.ease);
+    // (a gentle curve: out along its own heading first, then in to the spot)
+    const ctrl = from.clone().add(new THREE.Vector3(Math.sin(startHeading), 0, Math.cos(startHeading)).multiplyScalar(dist * 0.45));
+    const at = (k) => {
+      const a = from.clone().lerp(ctrl, k);
+      return a.lerp(ctrl.clone().lerp(to, k), k);
+    };
+    horse.scripted = true;
+    const last = from.clone();
+    await this.#tween((t, dt) => {
+      const k = THREE.MathUtils.smoothstep(Math.min(1, t / T), 0, 1);
+      const p = at(k);
+      p.y = world.heightAt(p.x, p.z);
+      const step = Math.hypot(p.x - last.x, p.z - last.z);
+      if (step > 1e-4) horse.heading = k > 0.85 ? lerpAngle(Math.atan2(p.x - last.x, p.z - last.z), endHeading, (k - 0.85) / 0.15) : Math.atan2(p.x - last.x, p.z - last.z);
+      horse.speed = dt > 0 ? step / dt : 0;
+      horse.position.copy(p);
+      last.copy(p);
+      return t >= T;
+    });
+    horse.heading = endHeading;
+    horse.position.copy(to);
+    horse.speed = 0;
+    horse.trackS = n.s;
+    horse.scripted = false;
   }
 
   /** Both get down (he on the pit side) and walk to the rim; the horse waits. */
@@ -524,6 +582,19 @@ export class Story {
     this.tweens.length = 0;
     this.actors.hero = this.actors.girl = null;
     hero.drink = null;
+    horse.scripted = false; // (skipped while it walked up to the pit)
+    this.pitFrom = null;
+    // (the camera cuts behind the horse: it rides on from a little further in on the trail)
+    const track = this.world.desertTrack;
+    const n = track.nearest(horse.position.x, horse.position.z, 40) ?? track.nearestGlobal(horse.position.x, horse.position.z);
+    if (Math.abs(n.lateral) > PIT.horseWalk.rideOn) {
+      const c = track.at(n.s);
+      const lat = Math.sign(n.lateral) * PIT.horseWalk.rideOn;
+      horse.position.set(c.x - c.tz * lat, 0, c.z + c.tx * lat);
+      horse.position.y = this.world.heightAt(horse.position.x, horse.position.z);
+      horse.heading = Math.atan2(c.tx, c.tz);
+      horse.trackS = n.s;
+    }
     lives.setHearts(lives.maxHearts);
     this.exhausted = false;
     this.recovering = true;
@@ -720,6 +791,8 @@ export class Story {
     this.boss.reset();
     this.girl.reset();
     this.pit?.reset();
+    this.pitFrom = null;
+    this.horse.scripted = false;
     this.gate?.reset();
     this.storm?.reset();
     this.hurdles?.reset();

@@ -22,6 +22,7 @@ export class FollowCamera {
     this.ride = 0; // 0 on foot … 1 mounted (smoothed)
     this.speed = 0; // 0 … 1 fraction of the horse's top speed (smoothed)
     this.gallop = 0; // 0 … 1 while galloping (smoothed)
+    this.chase = 0; // 0 … 1 while a skeleton group charges the horse (smoothed: pulled back and raised)
     this.pivot = new THREE.Vector3(); // look-at point (shifted over the rider's shoulder)
     this.sinceLook = Infinity; // seconds since the player last dragged to look
     this.shakeT = 0;
@@ -74,8 +75,9 @@ export class FollowCamera {
   /**
    * @param {number} dt
    * @param {THREE.Vector3} target  point to follow (hero feet, or rider's seat)
-   * @param {{mounted?: boolean, speed?: number, gallop?: boolean, heading?: number}} [ride]
-   *   speed = fraction of the horse's normal top speed; gallop = Gallop held; heading = horse yaw
+   * @param {{mounted?: boolean, speed?: number, gallop?: boolean, heading?: number, chase?: boolean}} [ride]
+   *   speed = fraction of the horse's normal top speed; gallop = Gallop held; heading = horse yaw;
+   *   chase = skeletons charging the horse (the view pulls back and rises a little so they stay in it)
    */
   update(dt, target, ride = {}) {
     this.sinceLook += dt;
@@ -89,6 +91,7 @@ export class FollowCamera {
     this.ride += ((ride.mounted ? 1 : 0) - this.ride) * rk;
     this.speed += ((ride.mounted ? Math.min(1, ride.speed ?? 0) : 0) - this.speed) * rk;
     this.gallop += ((ride.mounted && ride.gallop ? 1 : 0) - this.gallop) * rk;
+    this.chase += ((ride.mounted && ride.chase ? 1 : 0) - this.chase) * (1 - Math.exp(-C.camChaseBlend * dt));
     const fov = lerp(CONFIG.render.fov, C.camRideFov, this.ride) + C.speedFov * this.speed + C.gallopFov * this.gallop;
     if (Math.abs(this.camera.fov - fov) > 0.01) {
       this.camera.fov = fov;
@@ -96,7 +99,7 @@ export class FollowCamera {
     }
     const k = 1 - Math.exp(-C.followLerp * dt);
     this.focus.x += (target.x - this.focus.x) * k;
-    this.focus.y += (target.y + lerp(C.camOnFootHeight, C.camRideHeight, this.ride) - this.focus.y) * k;
+    this.focus.y += (target.y + lerp(C.camOnFootHeight, C.camRideHeight, this.ride) + this.chase * C.camChaseRaise - this.focus.y) * k;
     this.focus.z += (target.z - this.focus.z) * k;
     this.#place(dt);
     if (this.shakeT > 0) {
@@ -145,7 +148,7 @@ export class FollowCamera {
     const pitch = this.pitch + zone * C.treeZonePitchBoost + this.ride * C.ridePitchOffset;
     // On foot: normal (or tree-zone) distance. Riding: close over-the-shoulder view.
     const footDist = C.camOnFootDistance * (1 + zone * (C.treeZoneDistanceScale - 1));
-    const maxDist = lerp(footDist, C.camRideDistance, this.ride) * (1 + this.speed * C.speedDistanceScale);
+    const maxDist = (lerp(footDist, C.camRideDistance, this.ride) + this.chase * C.camChasePullBack) * (1 + this.speed * C.speedDistanceScale);
     // Shift the look-at point to the right so the camera sits over the rider's shoulder.
     const shoulder = C.rideShoulder * this.ride;
     this.pivot.set(this.focus.x + Math.cos(this.yaw) * shoulder, this.focus.y, this.focus.z - Math.sin(this.yaw) * shoulder);

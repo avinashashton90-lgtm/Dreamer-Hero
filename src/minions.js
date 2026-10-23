@@ -2,11 +2,13 @@ import * as THREE from 'three';
 import { CONFIG } from './config.js';
 import { loadMinionTemplate, makeMinionModel, minionTemplateNow } from './minionModels.js';
 import { makeDizzyModel } from './combat.js';
+import { BoneShatter } from './shatter.js';
 
 const MN = CONFIG.minions;
 const BT = MN.bats;
 const SL = MN.slimes;
 const SK = MN.skeletons;
+const SH_GONE = 0.2; // (a shattered skeleton is removed this long after it broke apart)
 const CV = CONFIG.cave;
 const TAU = Math.PI * 2;
 
@@ -44,6 +46,9 @@ export class Minion {
     this.removed = false;
     this.noDrop = false;
     this.knocked = false;
+    this.killedBy = null;
+    this.shattered = false; // (broke apart: the bones fly, the model is gone)
+    this.lunged = false; // (a desert skeleton lunges once, then falls away)
     this.clock = Math.random() * 10;
     this.extra = {}; // per-type behaviour data (side, angle, base height…)
   }
@@ -68,7 +73,10 @@ export class Minion {
     const dealt = Math.min(this.hp, dmg);
     this.hp -= dealt;
     this.flash = MN.hitFlash;
-    if (this.hp <= 0) this.die();
+    if (this.hp <= 0) {
+      this.killedBy = flash ? 'flash' : source; // (a skeleton killed by the Batarang / Flash shatters)
+      this.die();
+    }
     else {
       this.flinch = MN.flinch;
       this.director.onMinionHit(this);
@@ -136,7 +144,7 @@ export class Minion {
     if (s === 'dying') an.set('death', { once: true });
     else if (s === 'fading') an.scrub('death', 1);
     else if (s === 'spawn' && this.type === 'skeleton') an.scrub('spawn', this.stateTime / SK.rise);
-    else if (s === 'attack' || s === 'dive') an.set('attack', { once: true });
+    else if (s === 'attack' || s === 'dive' || s === 'lunge') an.set('attack', { once: true });
     else if (s === 'paralyzed' || s === 'smoked') an.set('idle', { timeScale: 0.35 });
     else if (this.flinch > 0) an.set('hit', { once: true });
     else if (s === 'idle') an.set('idle');
@@ -207,7 +215,9 @@ export class Minions {
     this.clock = 0;
     this.batWindows = [{ start: 0, end: Infinity }];
     this.lastBatAttackAt = -Infinity; // when the last bat started its dive (attackGap)
-    this.stats = { spawned: { bat: 0, skeleton: 0, slime: 0 }, defeated: { bat: 0, skeleton: 0, slime: 0 }, drops: 0, bites: 0, hits: 0, knocked: 0, horseEnergy: 0, dives: 0, screeches: 0, outOfView: 0, skeletonGroups: 0 };
+    this.stats = { spawned: { bat: 0, skeleton: 0, slime: 0 }, defeated: { bat: 0, skeleton: 0, slime: 0 }, drops: 0, bites: 0, hits: 0, knocked: 0, horseEnergy: 0, dives: 0, screeches: 0, outOfView: 0, skeletonGroups: 0, lunges: 0, fellAway: 0, shattered: 0 };
+    // Skeletons killed by the Batarang / Flash break apart into bones.
+    this.shatter = new BoneShatter(scene, world);
     this.resetTimers();
   }
 
@@ -250,6 +260,7 @@ export class Minions {
     this.epoch++;
     for (const m of this.list) this.#remove(m);
     this.list = [];
+    this.shatter.clear();
     this.reserved = { bat: 0, skeleton: 0, slime: 0 };
     this.resetTimers();
   }
@@ -291,10 +302,12 @@ export class Minions {
   /**
    * @param {number} dt
    * @param {{ playing: boolean, riding: boolean, route: 'forest' | 'desert' | null, pitDone: boolean, galloping: boolean,
-   *   chase?: { active: boolean, time: number, over: boolean } }} ctx  chase: the sandstorm chase after the pit
+   *   chase?: { active: boolean, time: number, over: boolean }, drinking?: boolean }} ctx  chase: the sandstorm
+   *   chase after the pit; drinking: the horse drinks at an oasis (no skeletons rise)
    */
   update(dt, ctx) {
     this.clock += dt;
+    this.shatter.update(dt);
     if (ctx.playing) {
       this.#spawnBats(dt, ctx);
       this.#spawnSkeletons(dt, ctx);
@@ -402,9 +415,9 @@ export class Minions {
 
   /**
    * The sandstorm chase (only while `ctx.chase.active` — set when the Lazarus Pit scene ends —
-   * and not over): the first group rises `firstDelay` s after the ride resumes, close behind and
-   * beside the horse, then a group every `interval` s, `max` alive at most, from the sides and
-   * from behind. The chase clock (`ctx.chase.time`) restarts on a respawn, and so does this.
+   * and not over): the first group rises `firstDelay` s after the ride resumes, then a group every
+   * `interval` s, `max` alive at most — always ahead of the horse (skeletonGroup), never while it
+   * drinks at an oasis. The chase clock (`ctx.chase.time`) restarts on a respawn, and so does this.
    */
   #spawnSkeletons(dt, ctx) {
     const C = ctx.chase;
@@ -412,21 +425,28 @@ export class Minions {
     if (C.time < this.chaseClock) this.nextSkeletons = SK.firstDelay; // (restarted)
     this.chaseClock = C.time;
     if (C.time < this.nextSkeletons) return;
-    const first = this.nextSkeletons === SK.firstDelay;
+    if (ctx.drinking) return; // (the horse drinking at an oasis: none rise there — the next group waits)
     this.nextSkeletons = C.time + this.#range(SK.interval);
-    this.skeletonGroup(first);
+    this.skeletonGroup();
   }
 
-  /** A group of `group` skeletons rising from the sand round the horse (debug Alt+K too). */
-  skeletonGroup(first = false) {
+  /**
+   * A group of `group` skeletons rising from the sand AHEAD of the horse — `skeletonSpawnDistance`
+   * along the trail in front of it, spread across the trail — so they are seen coming (debug Alt+K too).
+   */
+  skeletonGroup() {
     const h = this.deps.horse;
     const track = this.world.desertTrack;
     const n = Math.min(SK.group, SK.max - this.count('skeleton'));
-    const base = h.trackS ?? (track.nearest(h.position.x, h.position.z, 30) ?? track.nearestGlobal(h.position.x, h.position.z)).s;
+    const near = h.trackS ?? (track.nearest(h.position.x, h.position.z, 30) ?? track.nearestGlobal(h.position.x, h.position.z)).s;
+    // (the way the horse is running along the trail: ahead is +s, or −s if it rides back)
+    const t = track.at(near);
+    const dir = t.tx * Math.sin(h.heading) + t.tz * Math.cos(h.heading) < -0.3 ? -1 : 1;
+    const ahead = this.#range(SK.skeletonSpawnDistance);
     for (let i = 0; i < n; i++) {
-      const s = THREE.MathUtils.clamp(base + this.#range(first ? SK.firstAlong : SK.along), 0, track.length);
+      const s = THREE.MathUtils.clamp(near + dir * (ahead + this.#range([-2, 2])), 0, track.length);
       const p = track.at(s);
-      const lat = (i % 2 ? 1 : -1) * this.#range(SK.side);
+      const lat = THREE.MathUtils.lerp(-SK.spread, SK.spread, n > 1 ? i / (n - 1) : 0.5) + this.#range([-1, 1]);
       const x = p.x - p.tz * lat;
       const z = p.z + p.tx * lat;
       if (i === 0) this.stats.skeletonGroups++;
@@ -443,6 +463,20 @@ export class Minions {
     const f = Math.min(1, m.stateTime / SK.sink);
     m.position.y = ground - m.height * f;
     if (f >= 1) this.#remove(m);
+  }
+
+  /** A skeleton group is charging the horse (one alive ahead of it, still coming): the camera pulls back. */
+  get skeletonsCharging() {
+    const h = this.deps.horse;
+    if (!h) return false;
+    const fx = Math.sin(h.heading);
+    const fz = Math.cos(h.heading);
+    return this.list.some((m) => {
+      if (m.type !== 'skeleton' || !m.alive || m.removed || m.lunged) return false;
+      const ax = m.position.x - h.position.x;
+      const az = m.position.z - h.position.z;
+      return ax * fx + az * fz > -SK.passBehind && Math.hypot(ax, az) < SK.skeletonSpawnDistance[1] * 1.5;
+    });
   }
 
   /** The chase is over: every skeleton sinks back into the sand (no gems). */
@@ -463,10 +497,10 @@ export class Minions {
   }
 
   /** A hit on the hero (half a heart, at most once per hitCooldown per enemy). */
-  #hurtHero(m, opts = {}) {
+  #hurtHero(m, { hearts = MN.touchDamageHearts, ...opts } = {}) {
     if (m.cooldown > 0) return false;
     m.cooldown = MN.hitCooldown;
-    const landed = this.deps.onHitHero?.(MN.touchDamageHearts, m.position.x, m.position.z, { source: m.type, ...opts }) ?? false;
+    const landed = this.deps.onHitHero?.(hearts, m.position.x, m.position.z, { source: m.type, ...opts }) ?? false;
     if (landed) this.stats.hits++;
     return landed;
   }
@@ -685,6 +719,12 @@ export class Minions {
     if (m.state !== 'spawn') m.position.y = this.world.heightAt(m.position.x, m.position.z) + hop;
   }
 
+  /**
+   * Desert skeletons charge straight at the horse. Reaching it (within `lungeReach` of its body)
+   * one lunges once — `skeletonDamage` hearts if it lands — then falls away behind (no gem); one
+   * that got past the horse falls away too, so none ever runs alongside. On foot they chase and
+   * swing as before.
+   */
   #updateSkeleton(m, dt, target, ctx) {
     const horse = this.deps.horse;
     const dx = target.feet.x - m.position.x;
@@ -692,11 +732,12 @@ export class Minions {
     const d = Math.hypot(dx, dz) || 1;
     const edge = d - target.radius - m.radius;
     const ground = this.world.heightAt(m.position.x, m.position.z);
-    // Left far behind the horse: gone.
     if (m.state === 'sink') return this.#sink(m, dt, ground);
-    if (target.riding && m.state !== 'spawn') {
-      const behind = dx * Math.sin(horse.heading) + dz * Math.cos(horse.heading); // (dx, dz: from it to the horse — positive = it is behind)
-      if (behind > SK.despawnBehind) return this.#remove(m);
+    let behind = 0; // (how far it is behind the horse: dx, dz run from it to the horse)
+    if (target.riding) {
+      behind = dx * Math.sin(horse.heading) + dz * Math.cos(horse.heading);
+      // Left far behind: gone.
+      if (m.state !== 'spawn' && behind > SK.despawnBehind) return this.#remove(m);
     }
     // Galloping straight into it: knocked aside, defeated, no harm to the rider.
     if (target.riding && ctx.galloping && m.state !== 'spawn' && d < target.radius + m.radius + SK.gallopKnock) {
@@ -707,6 +748,23 @@ export class Minions {
       m.die();
       return;
     }
+    // Got past the horse (it was ahead, now it is behind) or already lunged: it falls away
+    // behind, never alongside.
+    if (target.riding && behind < 0) m.extra.wasAhead = true;
+    // (still rising off to the side as a galloping horse comes level: it would end up beside it)
+    const across = target.riding ? Math.abs(-dx * Math.cos(horse.heading) + dz * Math.sin(horse.heading)) : 0;
+    const passing = m.state === 'spawn' && behind > -SK.passAhead && across > target.radius + m.radius + SK.gallopKnock;
+    if (target.riding && m.extra.wasAhead && (behind > SK.passBehind || passing)) {
+      // (galloping past one still rising: it sinks back; mid lunge: the lunge misses)
+      if (m.state === 'spawn') {
+        const depth = Math.max(0, (ground - m.position.y) / m.height);
+        m.set('sink');
+        m.stateTime = depth * SK.sink; // (from where it is)
+        return;
+      }
+      return this.#fallAway(m, horse);
+    }
+    if (target.riding && m.state === 'move' && m.lunged) return this.#fallAway(m, horse);
     switch (m.state) {
       case 'spawn': {
         const f = Math.min(1, m.stateTime / SK.rise);
@@ -718,21 +776,42 @@ export class Minions {
 
       case 'move':
         m.facing = Math.atan2(dx, dz);
-        if (edge <= SK.attackReach && m.cooldown <= 0) {
+        if (target.riding && !ctx.galloping && !m.lunged && edge <= SK.lungeReach) { // (a galloping horse knocks it aside instead)
+          m.set('lunge');
+          break;
+        }
+        if (!target.riding && edge <= SK.attackReach && m.cooldown <= 0) {
           m.set('attack');
           break;
         }
-        if (edge > SK.attackReach * 0.5) {
+        if (target.riding || edge > SK.attackReach * 0.5) {
           const speed = target.riding ? SK.speedFactor * CONFIG.horse.maxSpeed : SK.footSpeed;
           m.position.x += (dx / d) * speed * dt;
           m.position.z += (dz / d) * speed * dt;
         }
         m.position.y = ground;
         break;
+      case 'lunge': {
+        // One leap at the rider (it keeps up with the horse while it lunges).
+        m.facing = Math.atan2(dx, dz);
+        const speed = SK.speedFactor * CONFIG.horse.maxSpeed + SK.lungeReach / SK.lungeTime;
+        if (edge > 0) {
+          m.position.x += (dx / d) * Math.min(edge, speed * dt);
+          m.position.z += (dz / d) * Math.min(edge, speed * dt);
+        }
+        m.position.y = ground;
+        if (m.stateTime >= SK.lungeTime) {
+          m.lunged = true;
+          this.stats.lunges++;
+          if (edge <= SK.attackReach) this.#hurtHero(m, { hearts: SK.skeletonDamage, knockback: false });
+          this.#fallAway(m, horse);
+        }
+        break;
+      }
       case 'attack':
         m.facing = Math.atan2(dx, dz);
         if (m.stateTime >= SK.windup) {
-          if (edge <= SK.attackReach + 0.3) this.#hurtHero(m, { knockback: !target.riding });
+          if (edge <= SK.attackReach + 0.3) this.#hurtHero(m, { hearts: SK.skeletonDamage, knockback: !target.riding });
           else m.cooldown = MN.hitCooldown * 0.5;
           m.set('move');
         }
@@ -741,6 +820,18 @@ export class Minions {
       default:
         m.set('move');
     }
+  }
+
+  /** It tumbles back off the horse's line and collapses (no gem: it wasn't beaten). */
+  #fallAway(m, horse) {
+    const fx = Math.sin(horse.heading);
+    const fz = Math.cos(horse.heading);
+    const side = Math.sign((m.position.x - horse.position.x) * fz - (m.position.z - horse.position.z) * fx) || 1;
+    const v = SK.fallSpeed;
+    m.velocity.set(-fx * v + fz * side * v * 0.5, v * 0.5, -fz * v - fx * side * v * 0.5);
+    m.knocked = true;
+    this.stats.fellAway++;
+    m.die({ noDrop: true });
   }
 
   /** Smoked (coughing, held still) or paralyzed (coughing and swaying). */
@@ -760,6 +851,11 @@ export class Minions {
   /** The death clip, then the fade, then its gem (unless it melted away with the boss). */
   #updateDeath(m, dt) {
     const ground = this.world.heightAt(m.position.x, m.position.z);
+    if (m.shattered) {
+      // (only its bones are left; a moment later the minion goes — the soundscape hears it die first)
+      if (m.stateTime > SH_GONE) this.#remove(m);
+      return;
+    }
     if (m.knocked || m.type === 'bat') {
       // Knocked aside / falling out of the air.
       m.velocity.y -= 20 * dt;
@@ -787,7 +883,23 @@ export class Minions {
 
   onMinionDefeated(m) {
     this.stats.defeated[m.type]++;
+    if (m.type === 'skeleton' && !m.knocked && (m.killedBy === 'batarang' || m.killedBy === 'flash')) this.#shatter(m);
     this.deps.onEvent?.('minionDefeated', m);
+  }
+
+  /** Killed by the Batarang / Flash: it breaks apart — bones, a flash, sparks — and its gem drops at once. */
+  #shatter(m) {
+    m.shattered = true;
+    this.stats.shattered++;
+    const at = m.position.clone().setY(m.position.y + m.height * 0.5);
+    const away = new THREE.Vector3(m.position.x - this.deps.hero.position.x, 0, m.position.z - this.deps.hero.position.z);
+    this.shatter.burst(at, away.lengthSq() > 1e-6 ? away.normalize() : null);
+    m.model.visible = false;
+    m.opacity = 0;
+    if (!m.noDrop && this.deps.gems?.drop(m.position)) this.stats.drops++;
+    m.noDrop = true;
+    m.set('fading');
+    this.deps.onEvent?.('skeletonShatter', m);
   }
 
   /** Slimes stay inside the arena (never into the cave). */

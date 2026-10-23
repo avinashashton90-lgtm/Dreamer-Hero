@@ -44,6 +44,7 @@ Layer files only play over a music file of their track (they start together, so 
 | river_splash | river_splash.ogg | Soft water as the horse first enters the river / an oasis (at most one per 0.6 s) |
 | river_flow ↻ | river_flow.ogg | A very quiet water wash while the horse stays in the river (loop) |
 | potion_drink | potion_drink.ogg | Drinking (an energy potion, the oasis) |
+| horse_sip | horse_sip.ogg | The horse sipping at an oasis (soft, every ~0.8 s while it drinks) |
 | aj_jump | aj_jump.ogg | AJ jumps (cloth whoosh) |
 | aj_land | aj_land.ogg | AJ lands from a jump |
 | aj_hurt | aj_hurt.ogg | AJ is hit |
@@ -107,6 +108,7 @@ Layer files only play over a music file of their track (they start together, so 
 | aj_hup | aj_hup.ogg | AJ’s effort as he jumps |
 | aj_hya | aj_hya.ogg | AJ’s effort as he throws / attacks |
 | aj_ugh | aj_ugh.ogg | AJ hurt |
+| aj_cough | aj_cough.ogg | AJ’s small weak cough (the Lazarus Pit, before “I’m ok.”) |
 | amy_gasp | amy_gasp.ogg | Amy’s small gasp when the boss roars |
 
 ## Voice lines (`voice/<character>_<line>`)
@@ -121,7 +123,9 @@ Without a file, each line plays a short synthesized "talking" blip per character
 | voice/aj_girlScene_safety.ogg | aj | Come, I will take you to safety. |
 | voice/amy_girlScene_castle.ogg | amy | My castle lies beyond the desert dunes. Let us go together! |
 | voice/amy_pitScene_stop.ogg | amy | Stop. |
-| voice/aj_pitScene_fine.ogg | aj | I'm fine... we should keep going. |
-| voice/amy_pitScene_look.ogg | amy | You're not. Look. |
+| voice/aj_pitScene_keepGoing.ogg | aj | We should keep going. |
+| voice/amy_pitScene_notWell.ogg | amy | You are not well. |
+| voice/aj_pitScene_ok.ogg | aj | I'm ok. |
+| voice/amy_pitScene_water.ogg | amy | At least you should have some water. Look. |
 | voice/amy_pitScene_drink.ogg | amy | Drink it. |
 | voice/aj_pitScene_who.ogg | aj | Thank you. But... who are you? |

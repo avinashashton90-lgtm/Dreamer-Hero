@@ -139,7 +139,7 @@ const throwAndFly = (maxS = 3) => { abilities.cooldowns.batarang = 0; const ok =
   const hp0 = m.hp;
   throwAndFly();
   const hitRising = log.find((e) => e.target === m && e.source === 'batarang');
-  check(rising && hitRising && hitRising.state === 'spawn' && m.hp === hp0 - MN.damage.batarang, `a skeleton rising from the sand is targeted and hit (${hp0} → ${m.hp} HP, state ${hitRising?.state})`);
+  check(rising && hitRising && m.hp === 0 && m.shattered, `a skeleton rising from the sand is targeted and killed by one hit (${hp0} → ${m.hp} HP, shattered ${m.shattered})`);
   // Return path: a second skeleton steps into its way back.
   reset();
   const a = await skeleton(12, 0);
@@ -157,13 +157,17 @@ const throwAndFly = (maxS = 3) => { abilities.cooldowns.batarang = 0; const ok =
     }
   }
   const backHit = log.find((e) => e.target === b2 && e.source === 'batarang');
-  check(moved && log.some((e) => e.target === a) && backHit && b2.hp === MN.types.skeleton.hp - MN.damage.batarang && (abilities.stats.batarangReturnHits ?? 0) >= 1,
+  check(moved && log.some((e) => e.target === a) && backHit && b2.hp === 0 && (abilities.stats.batarangReturnHits ?? 0) >= 1,
     `on its way back it strikes a skeleton in its path too (${MN.types.skeleton.hp} → ${b2.hp} HP)`);
-  // Two throws at the same skeleton: 6 + 6 of its 12 (a kill) (the out and back strikes don't double-count one pass).
+  // One throw kills a skeleton outright: it breaks apart (bones flying, a gem at once), the bones gone after `life` s.
   reset();
   const c = await skeleton(10, 0);
-  throwAndFly(); throwAndFly();
-  check(c.hp === MN.types.skeleton.hp - 2 * MN.damage.batarang, `two throws: ${MN.types.skeleton.hp} → ${c.hp} HP (${MN.damage.batarang} each)`);
+  const drops0 = minions.stats.drops, bursts0 = minions.shatter.stats.bursts;
+  throwAndFly();
+  const bones = minions.shatter.active;
+  step(secs(MN.shatter.life + 0.3), { ride: { stop: true } });
+  check(c.hp === 0 && c.shattered && minions.shatter.stats.bursts === bursts0 + 1 && bones >= MN.shatter.bones && minions.shatter.active === 0 && minions.stats.drops === drops0 + 1 && c.removed,
+    `one Batarang throw kills a skeleton (${MN.types.skeleton.hp} → ${c.hp} HP): it shatters (${bones} bones, gone after ${MN.shatter.life} s), its gem drops, the skeleton is removed`);
 }
 
 // 4) Galloping into skeletons knocks them aside and defeats them.
@@ -214,14 +218,14 @@ const throwAndFly = (maxS = 3) => { abilities.cooldowns.batarang = 0; const ok =
   let t = 0, rearAt = -1, pitch = 0;
   while (t < 4) {
     step(1, { ride: { stop: true } }); t += dt;
-    for (const m of pair) if (m.alive && m.state !== 'dying') { const p = at(m === pair[0] ? 0.5 : -0.5, m === pair[0] ? 1.9 : -1.9); m.position.x = p.x; m.position.z = p.z; } // (they stay beside it)
+    for (const m of pair) if (m.alive && m.state !== 'dying') { const p = at(m === pair[0] ? 0.5 : -0.5, m === pair[0] ? 1.9 : -1.9); m.position.x = p.x; m.position.z = p.z; m.set('move'); } // (they stay beside it: held from their one lunge)
     if (rescue.rears > 0 && rearAt < 0) rearAt = t;
     pitch = Math.min(pitch, horse.model.userData.body.rotation.x);
   }
   step(secs(3), { ride: { stop: true } });
   const killed = pair.every((m) => !m.alive);
   const more = [await skeleton(0.5, 1.9), await skeleton(-0.5, -1.9)];
-  for (let k = 0; k < secs(3); k++) { step(1, { ride: { stop: true } }); for (const [i, m] of more.entries()) if (m.alive) { const p = at(i ? -0.5 : 0.5, i ? -1.9 : 1.9); m.position.x = p.x; m.position.z = p.z; } }
+  for (let k = 0; k < secs(3); k++) { step(1, { ride: { stop: true } }); for (const [i, m] of more.entries()) if (m.alive) { const p = at(i ? -0.5 : 0.5, i ? -1.9 : 1.9); m.position.x = p.x; m.position.z = p.z; m.set('move'); } }
   check(rearAt > MR.time && rearAt < MR.time + 0.2 && killed && minions.stats.drops >= drops0 + 2 && pitch < -0.2 && rescue.rears === 1,
     `surrounded by 2 for ${rearAt.toFixed(2)} s: the horse rears up (pitch ${pitch.toFixed(2)}), the shockwave defeats both (gems ${minions.stats.drops - drops0}); no second one within ${MR.mountedRescueCooldown} s (${rescue.rears})`);
 }

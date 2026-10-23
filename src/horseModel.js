@@ -117,7 +117,7 @@ export class HorseAnimator {
 
   /**
    * @param {number} dt
-   * @param {{ speed, galloping, grounded, ridden, eating?, hopVelocity, vy }} s  eating: on a grass patch
+   * @param {{ speed, galloping, grounded, ridden, eating?, drinking?, hopVelocity, vy }} s  eating: on a grass patch; drinking: at an oasis
    */
   update(dt, s) {
     const targets = new Map([...this.actions.keys()].map((k) => [k, 0]));
@@ -147,6 +147,11 @@ export class HorseAnimator {
       const idleRole = (g) => (g.role === 'idle' && (!s.ridden || s.eating) ? 'graze' : g.role);
       add(idleRole(a), 1 - k, rate(a));
       if (k > 0) add(idleRole(b), k, rate(b));
+      // Drinking at an oasis: head down (the graze clip) over the slow walk.
+      if (s.drinking) {
+        for (const [name, w] of targets) targets.set(name, w * (1 - HM.drinkBlend));
+        add('graze', HM.drinkBlend, 1);
+      }
     }
     const step = dt / HM.crossfade;
     for (const [name, a] of this.actions) {

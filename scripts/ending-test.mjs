@@ -134,8 +134,8 @@ const afterBoss = async () => {
   const expected = [`${DIALOGUE.speakers.hero}: ${L.safe}`, `${DIALOGUE.speakers.girl}: ${L.thanks}`, `${DIALOGUE.speakers.hero}: ${L.safety}`, `${DIALOGUE.speakers.girl}: ${L.castle}`];
   check(JSON.stringify(view.lines) === JSON.stringify(expected), `dialogue in order:\n       ${view.lines.join('\n       ')}`);
   check(dEstablish < 9 && minDist < 3.2, `camera on the girl (${dEstablish.toFixed(1)} away), pushes in to ${minDist.toFixed(1)}`);
-  check(hintSeen && eyesPurple && shadowHat && Math.abs(hintEndedAt - tHint - CI.hintTime) < 0.1 && sound.counts.eerie === 1,
-    `witch hint: eyes flicker purple ${eyesPurple}, wall shadow shows hat and staff ${shadowHat}, lasts ${(hintEndedAt - tHint).toFixed(2)} s, eerie sound ${sound.counts.eerie}`);
+  check(hintSeen && !eyesPurple && shadowHat && Math.abs(hintEndedAt - tHint - CI.hintTime) < 0.1 && sound.counts.eerie === 1,
+    `witch hint: no glow on her eyes (${eyesPurple ? 'GLOWING' : 'none'}), wall shadow shows hat and staff ${shadowHat}, lasts ${(hintEndedAt - tHint).toFixed(2)} s, eerie sound ${sound.counts.eerie}`);
   check(Math.abs(wrap(hero.facing - heroFacing)) < 1e-6 || hero.riding, 'the hero doesn\'t notice (no reaction)');
   await run(0.1);
   check(!cinematic.active && !view.shown && state.is(STATES.PLAY), `cutscene over, controls back (state ${state.current})`);
@@ -213,7 +213,21 @@ for (const at of ['second line, mid-typewriter', 'first line']) {
   const surf = (b) => { const sh = b.shape(); if (!sh) return Infinity; const p = cam.camera.position; const y = THREE.MathUtils.clamp(p.y, sh.feet.y, sh.feet.y + sh.height); return Math.hypot(p.x - sh.feet.x, p.y - y, p.z - sh.feet.z) - sh.radius; };
   const onScreen = (v) => { const q = v.clone().project(cam.camera); return q.z < 1 && Math.abs(q.x) <= 1 && Math.abs(q.y) <= 1 ? q : null; };
   let camFrames = 0, tooClose = 0, closest = Infinity, inSolid = 0, underGround = 0;
-  const drinkShot = { frames: 0, angle: [], up: [], heroIn: 0, pitIn: 0 };
+  const drinkShot = { frames: 0, angle: [], up: [], heroIn: 0, pitIn: 0, hidden: 0 };
+  const kneel = { rim: Infinity, hand: Infinity, handY: Infinity, frames: 0 };
+  let eyeGlowFrames = 0, horseAtDismount = null, horseFrom = null, coughBeforeOk = -1;
+  const okStep = story.pitSteps().find((st) => st.text === PL.ok);
+  const eyeGlowShown = () => girl.eyesGlowing || !!boss.girl.userData.eyes?.visible || (boss.girl.userData.eyeMat && !boss.girl.userData.eyeMat.color.equals(new THREE.Color(0x222222)));
+  // (a character between the camera and someone's chest hides them)
+  const hides = (p, target, other) => {
+    const sh = other.shape();
+    if (!sh) return false;
+    for (let k = 0.15; k < 0.95; k += 0.1) {
+      const q = p.clone().lerp(target, k);
+      if (q.y >= sh.feet.y && q.y <= sh.feet.y + sh.height && Math.hypot(q.x - sh.feet.x, q.z - sh.feet.z) < sh.radius * 0.8) return true;
+    }
+    return false;
+  };
   const closeShot = { frames: 0, front: [], below: 0, eyesCentred: 0, heroSoft: 0, glow: 0, heroDist: Infinity, fov: Infinity };
   let readyDrink = false;
   const clipsSeen = new Set(), layers = new Set();
@@ -227,7 +241,19 @@ for (const at of ['second line, mid-typewriter', 'first line']) {
     }
     if (girl.lookAtHero) lookedAtHero = true;
     if (girl.pointing) pointed = true;
-    if (view.lines.length >= 3 && pit.model.visible) revealedOnLook = true;
+    if (view.lines.length >= 5 && pit.model.visible) revealedOnLook = true;
+    if (!horseFrom && view.lines.length >= 5) horseFrom = horse.position.clone();
+    if (!horseAtDismount && horseFrom && horse.mode !== 'riding') horseAtDismount = { p: horse.position.clone(), heading: horse.heading };
+    if (coughBeforeOk < 0 && view.lines.at(-1)?.endsWith(PL.ok)) coughBeforeOk = sound.counts.aj_cough ?? 0;
+    if (eyeGlowShown()) eyeGlowFrames++;
+    if (hero.drink) {
+      // AJ kneels right at the water's edge; his hand reaches into the water.
+      kneel.frames++;
+      kneel.rim = Math.min(kneel.rim, Math.hypot(hero.position.x - pit.position.x, hero.position.z - pit.position.z) - DS.pit.radius);
+      const hp = hero.handPosition();
+      const hd = Math.hypot(hp.x - pit.position.x, hp.z - pit.position.z);
+      if (hp.y - pit.position.y < kneel.handY) { kneel.handY = hp.y - pit.position.y; kneel.hand = hd; }
+    }
     if (view.lines.length <= 2 && horse.speed < 0.2) stopped = true;
     if (girl.kneeling && pit.active) kneeled = true;
     if (hero.cupVisible) cup = true;
@@ -246,7 +272,7 @@ for (const at of ['second line, mid-typewriter', 'first line']) {
       if (cam.insideSolid(p, 0)) inSolid++;
       if (p.y < world.heightAt(p.x, p.z)) underGround++;
       const settled = cinematic.moves.length === 0;
-      // The drink: a wide side shot ~4 from the group at chest height, looking at the pit, AJ and Amy in frame.
+      // The drink: a clean wide side shot from the group, low, looking at the pit, AJ and Amy in frame, nobody hidden.
       if (hero.drink && settled) {
         drinkShot.frames++;
         const mid = hero.position.clone().add(boss.girl.position).add(pit.position).divideScalar(3);
@@ -256,6 +282,19 @@ for (const at of ['second line, mid-typewriter', 'first line']) {
         if (body(hero.position) && body(boss.girl.position)) drinkShot.heroIn++;
         const q = onScreen(pit.position);
         if (q && Math.abs(q.x) < 0.25 && Math.abs(q.y) < 0.35) drinkShot.pitIn++;
+        const chest = (o) => o.clone().setY(o.y + 0.7);
+        const [bh, bg, bhorse] = ['hero', 'girl', 'horse'].map((n) => cinematic.bodies.find((b) => b.name === n));
+        // (the pit's rim never hides AJ kneeling at it, nor Amy)
+        const rimHides = (target) => {
+          for (let k = 0.02; k < 1; k += 0.02) {
+            const q = p.clone().lerp(target, k);
+            const d = Math.hypot(q.x - pit.position.x, q.z - pit.position.z);
+            if (q.distanceTo(target) > 0.45 && d > DS.pit.radius - 0.1 && d < DS.pit.radius + 0.6 && q.y < pit.position.y + 0.27) return true;
+          }
+          return false;
+        };
+        if ([0.35, 0.6].some((k) => rimHides(hero.position.clone().setY(hero.position.y + k)) || rimHides(boss.girl.position.clone().setY(boss.girl.position.y + k)))) drinkShot.hidden++;
+        if (hides(p, chest(hero.position), bg) || hides(p, chest(hero.position), bhorse) || hides(p, chest(boss.girl.position), bh) || hides(p, chest(boss.girl.position), bhorse)) drinkShot.hidden++;
       }
       // The close-up: Amy's face from the front, slightly below eye level; AJ out of frame or soft.
       if (girl.smiling && settled) {
@@ -280,12 +319,22 @@ for (const at of ['second line, mid-typewriter', 'first line']) {
   }
   const range = (a) => a.length ? `${Math.min(...a).toFixed(0)}–${Math.max(...a).toFixed(0)}` : 'none';
   check(camFrames > 300 && tooClose === 0 && inSolid === 0 && underGround === 0, `pit scene camera, every frame (${camFrames}): ≥ ${GD.minDist} from every character's body or that one faded (closest ${closest.toFixed(2)}, ${tooClose} unfaded closer), never in a solid (${inSolid}) or below the ground (${underGround})`);
-  check(drinkShot.frames > 30 && drinkShot.angle.every((d) => Math.abs(d - SHT.drink.dist) < 0.4) && drinkShot.up.every((u) => Math.abs(u - SHT.drink.up) < 0.15) && drinkShot.heroIn === drinkShot.frames && drinkShot.pitIn === drinkShot.frames,
-    `the drink: a wide side shot ${drinkShot.angle.length ? Math.min(...drinkShot.angle).toFixed(1) : '?'} from AJ, Amy and the pit at chest height (${range(drinkShot.up.map((u) => u * 100))} cm), looking at the pit (centred ${drinkShot.pitIn}/${drinkShot.frames}), AJ and Amy both in frame (${drinkShot.heroIn}/${drinkShot.frames})`);
-  check(closeShot.frames > 30 && closeShot.front.every((a) => a < 30) && closeShot.below === closeShot.frames && closeShot.eyesCentred === closeShot.frames && closeShot.heroSoft === closeShot.frames && closeShot.glow > 0 && closeShot.heroDist >= GD.minDist - 1e-3 && closeShot.fov < CONFIG.render.fov,
-    `the close-up: Amy's face from the front (${range(closeShot.front)}° off her facing), just below eye level, her eyes centred (${closeShot.eyesCentred}/${closeShot.frames}) and glowing (${closeShot.glow} frames), AJ out of frame or soft (${closeShot.heroSoft}/${closeShot.frames}), ${closeShot.heroDist.toFixed(2)} from his body, fov ${closeShot.fov.toFixed(0)}`);
+  check(drinkShot.frames > 30 && drinkShot.angle.every((d) => Math.abs(d - SHT.drink.dist) < 0.4) && drinkShot.up.every((u) => Math.abs(u - SHT.drink.up) < 0.15) && drinkShot.heroIn === drinkShot.frames && drinkShot.pitIn === drinkShot.frames && drinkShot.hidden === 0,
+    `the drink: a clean wide side shot ${drinkShot.angle.length ? Math.min(...drinkShot.angle).toFixed(1) : '?'} from AJ, Amy and the pit (${range(drinkShot.up.map((u) => u * 100))} cm up), looking at the pit (centred ${drinkShot.pitIn}/${drinkShot.frames}), AJ and Amy both in frame (${drinkShot.heroIn}/${drinkShot.frames}), nobody hidden (${drinkShot.hidden})`);
+  check(kneel.frames > 30 && kneel.rim <= DS.pit.standOff[0] + 0.25 && (heroAssets.placeholder || (kneel.hand < DS.pit.radius && kneel.handY < 0.4)),
+    `AJ kneels right at the water's edge (${kneel.rim.toFixed(2)} from the rim) and his hand reaches the water (${kneel.hand.toFixed(2)} from the centre, inside ${DS.pit.radius}; ${kneel.handY.toFixed(2)} above it)`);
+  const hp = horseAtDismount;
+  const right = hp && new THREE.Vector3(-Math.cos(hp.heading), 0, Math.sin(hp.heading));
+  const toPit = hp && pit.position.clone().sub(hp.p).setY(0).normalize();
+  check(hp && horseFrom.distanceTo(pit.position) > 20 && hp.p.distanceTo(pit.position) < 9 && right.dot(toPit) > 0.8,
+    `after "Look." the horse goes up to the pit (${horseFrom ? horseFrom.distanceTo(pit.position).toFixed(1) : '?'} → ${hp ? hp.p.distanceTo(pit.position).toFixed(1) : '?'} from it), its right side to the water (${right ? right.dot(toPit).toFixed(2) : '?'}), then they get down`);
+  check(eyeGlowFrames === 0, `no glow on Amy anywhere in the pit scene (${eyeGlowFrames} frames)`);
+  check(okStep?.voice === 'ajWeak' && okStep.pace < 1 && coughBeforeOk === 1 && CONFIG.audio.voice.characters.ajWeak.freq < CONFIG.audio.voice.characters.aj.freq && CONFIG.audio.voice.characters.ajWeak.length > CONFIG.audio.voice.characters.aj.length,
+    `AJ's "${PL.ok}": a small cough first (${coughBeforeOk}), then his weak voice (lower, slower blips; typed at ${okStep?.pace}×)`);
+  check(closeShot.frames > 30 && closeShot.front.every((a) => a < 30) && closeShot.below === closeShot.frames && closeShot.eyesCentred === closeShot.frames && closeShot.heroSoft === closeShot.frames && closeShot.glow === 0 && closeShot.heroDist >= GD.minDist - 1e-3 && closeShot.fov < CONFIG.render.fov,
+    `the close-up: Amy's face from the front (${range(closeShot.front)}° off her facing), just below eye level, her eyes centred (${closeShot.eyesCentred}/${closeShot.frames}), no glow (${closeShot.glow} frames), AJ out of frame or soft (${closeShot.heroSoft}/${closeShot.frames}), ${closeShot.heroDist.toFixed(2)} from his body, fov ${closeShot.fov.toFixed(0)}`);
   const S = DIALOGUE.speakers;
-  const expected = [`${S.girl}: ${PL.stop}`, `${S.hero}: ${PL.fine}`, `${S.girl}: ${PL.look}`, `${S.girl}: ${PL.drink}`, `${S.hero}: ${PL.who}`];
+  const expected = [`${S.girl}: ${PL.stop}`, `${S.hero}: ${PL.keepGoing}`, `${S.girl}: ${PL.notWell}`, `${S.hero}: ${PL.ok}`, `${S.girl}: ${PL.water}`, `${S.girl}: ${PL.drink}`, `${S.hero}: ${PL.who}`];
   check(JSON.stringify(view.lines) === JSON.stringify(expected), `pit dialogue in order:\n       ${view.lines.join('\n       ')}`);
   check(lookedAtHero && pointed && stopped && revealedOnLook, `girl looks at him ${lookedAtHero}, horse halts ${stopped}, she points ${pointed}, pit revealed ${revealedOnLook}`);
   if (amy) check(['ride', 'walk', 'kneel', 'happy'].every((c) => clipsSeen.has(c)) && layers.has('talk') && layers.has('point'),

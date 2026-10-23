@@ -185,6 +185,7 @@ export class HorseEnergy {
       p.model.visible = true;
     }
     for (const o of this.oases) o.inside = false;
+    this.drink = null;
     if (newGame) this.hintShown = false;
   }
 
@@ -217,7 +218,10 @@ export class HorseEnergy {
     }
     this.#updateDrops(dt);
     horse.eating = false;
-    if (!playing || horse.scripted) return;
+    if (!playing || horse.scripted) {
+      this.#endDrink(horse);
+      return;
+    }
     const riding = horse.mode === 'riding';
     const resting = horse.mode === 'idle';
     if (!riding && !resting) return; // (mounting / dismounting)
@@ -244,16 +248,23 @@ export class HorseEnergy {
         horse.eating = Math.abs(horse.speed) < G.eatSpeed;
         this.stats.grass += dt;
       }
-      // Oases: riding into the pond, 60% back (once per visit).
+      // Oases: riding into the pond the horse drinks (once per visit): a slow walk, head down,
+      // sipping, its energy refilling gradually by `refill` over oasisDrinkTime.
       for (const o of this.oases) {
-        const inside = Math.hypot(horse.position.x - o.x, horse.position.z - o.z) < EN.oases.radius;
-        if (inside && !o.inside) {
+        const d = Math.hypot(horse.position.x - o.x, horse.position.z - o.z);
+        const inside = d < EN.oases.radius;
+        if (inside && !o.inside && !this.drink) {
           this.stats.oases++;
-          this.#refill(horse, EN.oases.refill, 'oasis', horse.position.x, o.y + 0.3, horse.position.z);
+          this.drink = { oasis: o, t: 0, given: 0, sip: 0, ripple: 0 };
+          horse.speed = Math.min(horse.speed, EN.oasisDrinkSpeed); // (it slows to a walk)
+          this.#splash(horse.position.x, o.y + 0.3, horse.position.z);
+          this.events.sound?.play('oasisSplash');
+          this.events.onRefill?.('oasis', horse.position.x, horse.position.z);
         }
         o.inside = inside;
       }
-    }
+      this.#drink(dt, horse);
+    } else this.#endDrink(horse);
     // Tired at 0: no gallop, a tired walk, until recoverAt; the hint the first time.
     if (horse.energy <= 0 && !horse.energyTired) {
       horse.energyTired = true;
@@ -264,6 +275,50 @@ export class HorseEnergy {
         this.events.onHint?.(DIALOGUE.energy.tired);
       }
     } else if (horse.energyTired && horse.energy >= EN.recoverAt * EN.horseEnergyMax) horse.energyTired = false;
+  }
+
+  /** Drinking at an oasis (see update): ends after oasisDrinkTime, leaving the pond, or a gallop. */
+  #drink(dt, horse) {
+    const D = this.drink;
+    if (!D) return;
+    const OD = EN.oasisDrink;
+    const o = D.oasis;
+    const away = Math.hypot(horse.position.x - o.x, horse.position.z - o.z) > EN.oases.radius + OD.leave;
+    if (D.t >= EN.oasisDrinkTime || away || horse.galloping) {
+      this.#endDrink(horse);
+      return;
+    }
+    D.t += dt;
+    horse.drinking = true;
+    // The energy back gradually: `refill` of the maximum over the drink.
+    const share = Math.min(EN.oases.refill * EN.horseEnergyMax - D.given, (EN.oases.refill * EN.horseEnergyMax * dt) / EN.oasisDrinkTime);
+    horse.energy = Math.min(EN.horseEnergyMax, horse.energy + share);
+    D.given += share;
+    // Sips and little ripples at its mouth.
+    const mouth = horse.position.clone().add(new THREE.Vector3(Math.sin(horse.heading), 0, Math.cos(horse.heading)).multiplyScalar(OD.mouth));
+    if ((D.sip -= dt) <= 0) {
+      D.sip = OD.sipEvery;
+      this.events.sound?.play('horse_sip', { position: mouth });
+    }
+    if ((D.ripple -= dt) <= 0) {
+      D.ripple = OD.rippleEvery;
+      const S = EN.splash;
+      for (let i = 0; i < OD.ripples; i++) {
+        const a = (i / OD.ripples) * Math.PI * 2 + D.t;
+        this.drops.push({ p: new THREE.Vector3(mouth.x, o.y + 0.25, mouth.z), v: new THREE.Vector3(Math.cos(a) * S.speed * 0.25, S.up * 0.15, Math.sin(a) * S.speed * 0.25), age: S.life * 0.3 });
+      }
+    }
+  }
+
+  #endDrink(horse) {
+    if (!this.drink) return;
+    this.drink = null;
+    horse.drinking = false;
+  }
+
+  /** Drinking at an oasis now (the horse's head down; no skeletons rise near it). */
+  get drinking() {
+    return !!this.drink;
   }
 
   #updateDrops(dt) {

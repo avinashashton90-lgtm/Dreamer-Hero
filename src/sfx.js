@@ -168,6 +168,11 @@ export const RECIPES = {
     return 0.7;
   },
   river_flow: (k, o, t, p) => k.noise(o, t, { filter: 'bandpass', f: 900 * p, q: 0.6, a: 0.4, d: 1, v: 0.1 }) - t, // (a drone when looped)
+  horse_sip: (k, o, t, p) => {
+    k.noise(o, t, { filter: 'bandpass', f: 1600 * p, f2: 1100 * p, q: 2, a: 0.02, d: 0.12, v: 0.14 });
+    k.tone(o, t + 0.05, { type: 'sine', f: 520 * p, f2: 760 * p, a: 0.01, d: 0.06, v: 0.04 });
+    return 0.2;
+  },
   potion_drink: (k, o, t, p) => {
     for (let i = 0; i < 3; i++) k.tone(o, t + i * 0.12, { f: 300 * p, f2: 520 * p, d: 0.08, v: 0.25 });
     return 0.4;
@@ -439,6 +444,13 @@ export const RECIPES = {
     return 0.2;
   },
   aj_ugh: (k, o, t, p) => k.vowel(o, t, { f: 240 * p, f2: 170 * p, a: 0.01, d: 0.2, v: 0.32, formants: [600, 1000] }) - t,
+  aj_cough: (k, o, t, p) => {
+    // (two short, husky bursts: the second smaller)
+    const a = k.noise(o, t, { filter: 'bandpass', f: 850 * p, q: 1.1, a: 0.006, d: 0.12, v: 0.34 });
+    k.vowel(o, t, { f: 150 * p, f2: 120 * p, a: 0.006, d: 0.1, v: 0.12, formants: [500, 900] });
+    const b = k.noise(o, t + 0.22, { filter: 'bandpass', f: 780 * p, q: 1.1, a: 0.006, d: 0.1, v: 0.22 });
+    return Math.max(a, b) - t;
+  },
   amy_gasp: (k, o, t, p) => {
     k.noise(o, t, { filter: 'bandpass', f: 1800 * p, q: 2, a: 0.03, d: 0.2, v: 0.25 });
     k.vowel(o, t + 0.02, { f: 480 * p, f2: 560 * p, a: 0.03, d: 0.15, v: 0.15, formants: [800, 2400], type: 'triangle' });
@@ -451,7 +463,7 @@ export const RECIPES = {
  * Names without one loop by re-triggering their one-shot (pulse loops, audio.js).
  */
 export const DRONES = {
-  sandstorm_wind: (k, out, p) => windDrone(k, out, p, { f: 500, q: 0.7, lfo: 0.18, depth: 380 }),
+  sandstorm_wind: (k, out, p) => windDrone(k, out, p, { f: 300, q: 0.6, lfo: 0.12, depth: 160 }), // (a soft low breeze)
   // The river while the horse is in it: a quiet, slowly moving wash.
   river_flow: (k, out, p) => windDrone(k, out, p, { f: 1000, q: 0.5, lfo: 0.3, depth: 250 }),
   boss_fire_breath: (k, out, p) => {

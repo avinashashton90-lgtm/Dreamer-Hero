@@ -66,8 +66,8 @@ function speakerMap() {
   const who = new Map();
   const G = DIALOGUE.girlScene;
   const P = DIALOGUE.pitScene;
-  const aj = [G.safe, G.safety, P.fine, P.who];
-  const amy = [G.thanks, G.castle, P.stop, P.look, P.drink];
+  const aj = [G.safe, G.safety, P.keepGoing, P.ok, P.who];
+  const amy = [G.thanks, G.castle, P.stop, P.notWell, P.water, P.drink];
   for (const t of aj) who.set(t, 'aj');
   for (const t of amy) who.set(t, 'amy');
   return who;

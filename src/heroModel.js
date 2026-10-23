@@ -51,7 +51,8 @@ export async function loadMixamoHero(opts = {}) {
   const bones = {
     hips: bone('Hips'), spine: bone('Spine1'), chest: bone('Spine2'), neck: bone('Neck'), head: bone('Head'),
     rightHand: bone('RightHand'), leftHand: bone('LeftHand'), leftUpLeg: bone('LeftUpLeg'), rightUpLeg: bone('RightUpLeg'),
-    leftLeg: bone('LeftLeg'), rightLeg: bone('RightLeg'),
+    leftLeg: bone('LeftLeg'), rightLeg: bone('RightLeg'), leftFoot: bone('LeftFoot'), rightFoot: bone('RightFoot'),
+    rightArm: bone('RightArm'), rightForeArm: bone('RightForeArm'),
   };
   if (Object.values(bones).some((b) => !b)) throw new Error('hero.fbx: missing Mixamo bones');
 
@@ -426,6 +427,16 @@ function makeDagger(mat) {
 // Animation
 // ---------------------------------------------------------------------------
 
+/** Turn `bone` (in world space) so its child `tip` points at `target`, by `weight` (0..1). */
+function aimBone(bone, tip, target, weight) {
+  const from = bone.getWorldPosition(new THREE.Vector3());
+  const cur = tip.getWorldPosition(new THREE.Vector3()).sub(from).normalize();
+  const want = target.clone().sub(from).normalize();
+  const ax = new THREE.Vector3().crossVectors(cur, want);
+  if (ax.lengthSq() < 1e-10) return;
+  rotateBone(bone, ax.normalize(), Math.acos(THREE.MathUtils.clamp(cur.dot(want), -1, 1)) * weight);
+}
+
 /**
  * Drives AJ's AnimationMixer from the hero's state each frame. One primary clip at a time
  * (blended over CONFIG.heroModel.crossfade): death → ride → drink → roll → combo hit → hit
@@ -552,6 +563,32 @@ export class HeroAnimator {
         rotateBone(shin, axis(1, 0, 0), R.knee * wr);
       }
     }
+    // The Lazarus Pit: down on one knee right at the water's edge, leaning over it; the right
+    // hand reaches down into the water while he scoops, then comes up to his lips.
+    const K = M.kneel;
+    const wk = hero.drink ? clamp(hero.drink.t / K.blend, 0, 1) * this.weights.drink : 0;
+    if (wk > 0) {
+      const b = this.u.bones;
+      const D = CONFIG.desert.pit.drink;
+      const t = hero.drink.t;
+      const reach = THREE.MathUtils.smoothstep(t, 0, D.scoop * 0.7) * (1 - THREE.MathUtils.smoothstep(t, D.scoop, D.scoop + D.raise));
+      this.u.inner.position.y -= K.drop * wk;
+      rotateBone(b.leftUpLeg, axis(1, 0, 0), K.front[0] * wk);
+      rotateBone(b.leftLeg, axis(1, 0, 0), K.front[1] * wk);
+      rotateBone(b.rightUpLeg, axis(1, 0, 0), K.back[0] * wk);
+      rotateBone(b.rightLeg, axis(1, 0, 0), K.back[1] * wk);
+      const lean = (K.lean + K.reachLean * reach) * wk;
+      rotateBone(b.spine, axis(1, 0, 0), lean / 2);
+      rotateBone(b.chest, axis(1, 0, 0), lean / 2);
+      // (the arm straightens and points at the water just past the rim, in front of him)
+      if (reach > 0) {
+        const fwd = axis(0, 0, 1).setY(0).normalize();
+        const water = root.position.clone().addScaledVector(fwd, K.reach).setY(root.position.y + K.handY);
+        aimBone(b.rightArm, b.rightForeArm, water, reach * wk);
+        aimBone(b.rightForeArm, b.rightHand, water, reach * wk);
+      }
+      this.kneel = { weight: wk, reach };
+    } else this.kneel = null;
     // Exhausted: slumped forward, head low, heavy breathing.
     const ex = hero.exhaustion;
     this.slump = 0;

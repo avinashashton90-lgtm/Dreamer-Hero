@@ -245,6 +245,12 @@ export const CONFIG = {
     runJumpSpeed: 4,         // take-off speed above which a jump uses the running jump
     runBlend: [0.3, 2.2],    // idle → run blend over this speed range
     ride: { lift: 0.1, thighPitch: 1.05, spread: 0.45, knee: -0.25 },  // seated on the horse: hips up a little, thighs down and apart round its body, shins hanging
+    // Kneeling at the Lazarus Pit (the drink, over the drink clip): hips `drop` lower, the left
+    // thigh forward / shin down (`front`: thigh, knee), the right knee on the ground (`back`),
+    // leaning `lean` (+ `reachLean` while reaching); during the scoop the right arm straightens
+    // and reaches down to the water `reach` in front of him (`handY` above the ground), then the
+    // cup comes up to his lips. Blended in over `blend` s.
+    kneel: { drop: 0.46, front: [-1.45, 1.5], back: [-0.1, 1.6], lean: 0.2, reachLean: 1.0, reach: 0.65, handY: 0.1, blend: 0.35 },
     hideBones: ['Backpack', 'RHoodieString2'], // costume only: AJ's backpack (skinned mostly to RHoodieString2), straps and pins are removed
     // Costume only (heroCostume): tint, cloak, mask, belt.
     tint: { pants: 0xc0262d, shoes: 0x6b3f1f, amount: 0.85 },
@@ -449,29 +455,35 @@ export const CONFIG = {
       faintOpacity: 0.25, activeOpacity: 0.85,
       vapor: { max: 30, rate: 8, life: 2.4, rise: 1.6, size: [0.18, 0.4], color: 0x3fb8a8, opacity: 0.1 },
       ripple: { time: 1.6, color: 0x9fd8ff },
-      aura: { height: 6, time: 2.2, color: 0x2f78ff, opacity: 0.16 },
+      aura: { show: false, height: 6, time: 2.2, color: 0x2f78ff, opacity: 0.16 }, // (off: over the sunset it read as a pink glow round Amy)
       pulse: { time: 1.1, size: 1.8, color: 0x5f9fff, opacity: 0.4 },
       walkSpeed: 2.4,        // the hero and girl walk to the pit
       drink: { scoop: 1.4, raise: 1.0, sip: 1.4 }, // the hero's cup: scoop, raise to the lips, sip (s)
       kneelTime: 0.8,        // the girl kneels before touching the water
       hum: 1.2,              // the water lights up; then "Drink it."
       smileHold: 2,          // she smiles silently (close-up)
-      standOff: [1.6, 0.9],  // hero / girl stand this far from the rim
+      standOff: [0.15, 0.9], // hero / girl this far from the rim (AJ kneels right at the water's edge)
+      // After "Look." the horse walks up to the pit (scripted): along the trail to the point level
+      // with it, `lateral` off the centre line on the pit's side (inside the trail walls), its
+      // right side (the dismount side) to the pit; at `speed`, easing in and out.
+      horseWalk: { speed: 6, lateral: 6.4, ease: 1.3, rideOn: 2.5 }, // (back in the saddle it rides on from `rideOn` off the centre line)
+      weakPace: 0.6,         // AJ's weak "I'm ok." types this much slower...
+      coughLead: 0.45,       // ...after a small cough this long before it
       healStep: 0.35,        // seconds per heart refilled
       dimTime: 1.5,
       shots: {
         behind: { back: 7.5, up: 3.4, ahead: 6, duration: 1.4 },
         reveal: { side: -6, up: 3.2, back: 6, duration: 2.2 },
         sideOn: { dist: 8.5, up: 2.6, duration: 1.6 },
-        // The drink: a simple wide side shot — `dist` from the group (AJ, Amy and the pit), from
-        // the side (`angle`° round toward the trail so the two don't overlap), at chest height
-        // (`up`), looking at the pit (`look` above its water) with AJ and Amy both in frame.
-        drink: { dist: 4, angle: 25, up: 1.3, look: 0.4, duration: 1.0 },
+        // The drink: a clean wide side shot — `dist` from the group (AJ kneeling at the water's
+        // edge, Amy and the pit), from the side (`angle`° round toward the trail so nobody is
+        // hidden), low (`up`), looking at the pit (`look` above its water), AJ and Amy both in frame.
+        drink: { dist: 4, angle: 25, up: 1.7, look: 0.3, duration: 1.0 },
         // "Who are you?" and her smile: a close-up on Amy's face from the front, slightly below
         // eye level (`eye` − `below`), `dist` from her body (≥ guard.minDist), `angle`° round from
         // the line to AJ (so the camera keeps clear of him), `eye` a fraction of her height, her yaw turned `cheat` of the way to
-        // the camera; narrow `fov`; AJ only a soft edge. Her eyes glow faintly for `glow` s.
-        closeUp: { angle: 65, dist: 1.85, eye: 0.926, below: 0.12, cheat: 0.75, fov: 38, glow: 1.6, duration: 1.0 },
+        // the camera; narrow `fov`; AJ only a soft edge.
+        closeUp: { angle: 65, dist: 1.85, eye: 0.926, below: 0.12, cheat: 0.75, fov: 38, duration: 1.0 },
         pullBack: { dist: 11, up: 5, duration: 1.6 },
       },
     },
@@ -499,6 +511,25 @@ export const CONFIG = {
       tint: { color: 0xd8944f, opacity: 0.1 },             // a light warm dusty tint over the view
       fog: { color: 0xcf9c66, near: 30, far: 150 },        // still ≥ 60 of visibility along the trail
       castleGlow: { color: 0xffb36b, up: 16, size: 46, opacity: 0.55 }, // the castle's warm glow reads through it
+      // Small whirlwinds beside the path: `count` (2–4) at a time, each a tight spiral of sand
+      // circling upward in a cone `height` tall (radius `radius` at the foot … the top), drifting
+      // slowly with the wind, fading in and out over its `life`; always off the clear corridor
+      // (`offTrail` beyond its soft edge) and `minCam` from the camera.
+      whirlwinds: {
+        count: [2, 4], particles: 34, height: [3, 5], radius: [0.35, 1.7], spin: 4.2, rise: 1.8,
+        life: [7, 12], fade: 1.5, drift: 1.4, ahead: [8, 46], offTrail: [3, 16], gap: [0.2, 1], minCam: 7,
+        size: [0.18, 0.4], color: 0xe8c48e, opacity: 0.6, debris: 2,
+      },
+      // Flying debris carried by the wind: small rocks, pebbles and dry grass tufts tumbling
+      // sideways (bouncing along the sand), a few spinning in the whirlwinds. Low counts, one
+      // InstancedMesh per kind; never in the clear corridor (it shrinks away at its edge) and
+      // never within `minCam` of the camera.
+      debris: {
+        rocks: 3, pebbles: 6, tufts: 5, area: 40, speed: [6, 11], hop: [2, 4.5], gravity: 14, bounce: 0.45,
+        spin: 9, minCam: 5, height: [0.2, 2.2],
+        rockSize: [0.12, 0.22], pebbleSize: [0.05, 0.09], tuftSize: [0.18, 0.3],
+        rockColor: 0x9a7a58, pebbleColor: 0xb59672, tuftColor: 0xb8a060,
+      },
     },
     // The castle-gate cinematic (not a fight): 70 from the castle, control is taken, the storm
     // clears, the horse gallops through a line of 4 skeletons (thrown aside) and into the castle.
@@ -594,7 +625,8 @@ export const CONFIG = {
         color: 0x3a2f4a,
       },
       skeleton: {
-        file: 'skeleton.fbx', hp: 12, fit: ['y', 1.85], radius: 0.45, height: 1.85, // (12 HP: 2 Batarang hits)
+        file: 'skeleton.fbx', hp: 12, fit: ['y', 1.85], radius: 0.45, height: 1.85,
+        damageTaken: { batarang: 12 }, // one Batarang hit kills a skeleton (it shatters: minions.shatter)
         hit: { radius: 0.6, height: 2.1 }, // a generous hit body (1.2 wide, the whole skeleton), counted while it rises
         roles: { idle: ['Skeleton_Idle'], move: ['Skeleton_Running'], attack: ['Skeleton_Attack'], hit: [], death: ['Skeleton_Death'], spawn: ['Skeleton_Spawn'] },
         fallback: { hit: 'idle', spawn: 'idle', move: 'idle' },
@@ -652,9 +684,17 @@ export const CONFIG = {
       firstDelay: 2,         // the first group rises this long after the ride resumes...
       interval: [6, 9], group: 2, max: 5, // ...then a group every 6–9 s, 5 alive at most
       castleClear: 120,      // the chase ends this far from the castle: the rest sink back into the sand
-      firstAlong: [-8, 1],   // the first group close behind / beside the horse (along the trail from it)...
-      along: [-16, 2],       // ...later ones from behind and the sides
-      side: [3.5, 6.5],      // this far left / right of the trail's centre line
+      // Every group rises AHEAD of the horse (never beside or behind it), this far along the trail
+      // from it, spread across the trail (±`spread` of the centre line), and charges straight at
+      // it — always in front of the camera.
+      skeletonSpawnDistance: [30, 45],
+      spread: 4.5,
+      skeletonDamage: 0.25,  // hearts per skeleton hit (one lunge per skeleton; the chase's 1 s grace and half-heart floor still apply)
+      lungeReach: 2.6,       // within this of the horse's body it lunges once (hit or miss), then falls away behind (no gem)
+      lungeTime: 0.35,
+      passBehind: 1.5,       // one that got past the horse (this far behind it) falls away too — never alongside
+      passAhead: 6,          // one still rising off to the side when the horse comes within this (a gallop) sinks back
+      fallSpeed: 6,          // falling away: tumbling back at this (and up at half)
       rise: 1.6,             // seconds rising from the sand
       sink: 1.2,             // seconds sinking back into it (the chase is over)
       speedFactor: 0.9,      // running at this × the horse's normal (non-gallop) top speed: a steady ride keeps them close...
@@ -663,6 +703,16 @@ export const CONFIG = {
       gallopKnock: 1.2,      // galloping into one (this close to the horse) knocks it aside: defeated
       knockSpeed: 9,
       despawnBehind: 40,
+    },
+    // A skeleton killed by the Batarang or the Flash breaks apart (shatter.js): bones burst out
+    // in all directions (a small physics burst, bouncing, gone after `life` s), a white-yellow
+    // hit flash, sparks, and a short screen kick.
+    shatter: {
+      bones: 9, size: [0.22, 0.42], speed: [3, 7], up: [2.5, 5.5], gravity: 18, bounce: 0.35, spin: 12,
+      life: 2, shrink: 0.5, maxBursts: 6, color: 0xe9e2cf,
+      flash: { time: 0.18, size: [0.4, 1.5], color: 0xfff1b0, opacity: 0.9 },
+      sparks: { count: 10, speed: 7, life: 0.4, size: 0.07, color: 0xffe28a },
+      kick: 0.12,            // the screen kick (camera shake amplitude)
     },
   },
 
@@ -923,6 +973,11 @@ export const CONFIG = {
     speedFov: 3,              // subtle extra FOV at full speed...
     gallopFov: 2,             // ...and a bit more while galloping
     rideBlend: 3,             // how quickly ride/speed effects follow
+    // A desert skeleton group charging the horse: the riding camera pulls back and rises a little
+    // (smoothly, and back after) so every skeleton stays in view as it comes.
+    camChasePullBack: 1.6,    // extra distance
+    camChaseRaise: 0.6,       // the look-at point (and so the camera) this much higher
+    camChaseBlend: 1.2,       // how quickly it eases in / out (1/s)
     rideFollow: 2.2,          // riding: camera swings back behind the horse (1/s)...
     rideFollowDelay: 1.2,     // ...this long after the player last dragged to look
     // A wall, rock or cliff right behind the hero: the camera slides in along the hero's line;
@@ -1037,6 +1092,8 @@ export const CONFIG = {
     // throttle.river_splash 0.6 s) and a very quiet wash while it stays in (river_flow), both
     // at this volume.
     riverSoundVolume: 0.35,
+    // The sandstorm's wind loop: only a soft low breeze (× the storm's strength), well below the music.
+    sandstormVolume: 0.15,
     // The horse's voice: while galloping a call (horse_neigh or horse_scream, never the same
     // twice in a row) every horseCallMin…horseCallMax s, never during dialogue; calls at moments
     // (a bat attacking, a stumble, the boss's roar, a big landing, a skeleton group rising, riding
@@ -1051,6 +1108,8 @@ export const CONFIG = {
         aj: { freq: 330, jitter: 0.12, type: 'square', volume: 0.22, length: 0.06, formant: 1400 },
         amy: { freq: 440, jitter: 0.08, type: 'sine', volume: 0.2, length: 0.075, formant: 2200 },
         boss: { freq: 85, jitter: 0.1, type: 'sawtooth', volume: 0.35, length: 0.11, formant: 500 },
+        // AJ weak and grunting (the Lazarus Pit's "I'm ok."): lower, slower, longer blips (own charsPerBlip).
+        ajWeak: { freq: 175, jitter: 0.05, type: 'square', volume: 0.2, length: 0.14, formant: 650, charsPerBlip: 3 },
       },
       speakers: { hero: 'aj', girl: 'amy', boss: 'boss' }, // cinematic speaker key → character
     },
@@ -1108,6 +1167,7 @@ export const CONFIG = {
   },
   girlHeightRatio: 0.9,      // Amy is 90% of AJ's height (girlModel.height, the placeholder girl too)
   girlWitchForm: false,      // hook for her later transformation: eyes glow and the wall shadow keeps the hat and staff
+  girlEyeGlow: false,        // Amy's purple-pink eye glow: off everywhere (the cave hint keeps its wall shadow and sound); on brings it back
 
   // The horse model (public/models/horse/horse.gltf: horseModel.js), animated by speed.
   // Collision, steering, hop, gallop and stamina stay in `horse` below.
@@ -1137,6 +1197,7 @@ export const CONFIG = {
     ],
     gallopRate: 1.35,        // Gallop button: the gallop clip plays this much faster again
     jumpWindow: [0.37, 0.73, 1.1],
+    drinkBlend: 0.85,        // drinking at an oasis: this much of the graze clip (head down) over the slow walk
     rootBone: 'Body',        // held level in the jump clip (the hop does the height)
   },
 
@@ -1297,6 +1358,13 @@ export const CONFIG = {
     grass: { at: [0.2, 0.47, 0.72], search: 60, lateral: 3.6, radius: 2.8, rate: 12, eatSpeed: 1.5, hurdleClear: 35, wallClear: 40, color: 0x4fa83a, tuftColor: 0x6cc24a },
     // Desert oases (a small pond with palm trees): before the Lazarus Pit, so never on the
     // skeleton chase or in the sandstorm's clear corridor. Riding through the pond refills 60%.
+    // An oasis: riding into the pond the horse slows to a walk (`oasisDrinkSpeed`, still
+    // steerable — out of the pond or a gallop ends it early) and drinks for `oasisDrinkTime` s,
+    // head down (the graze clip), sipping (`horse_sip` every `sipEvery` s, small ripples at its
+    // mouth), its energy refilling gradually by oases.refill over the drink; then it goes on.
+    oasisDrinkTime: 2.5,
+    oasisDrinkSpeed: 1.6,
+    oasisDrink: { sipEvery: 0.8, rippleEvery: 0.45, ripples: 5, mouth: 1.45, leave: 2.5 }, // leave: this far past the pond ends it early
     oases: { at: [0.22, 0.45], lateral: 3.8, radius: 2.6, refill: 0.6, palms: [[8.2, -3], [9.4, 2.5]], waterColor: 0x2f8fc4, rimColor: 0xd6b07a, trunkColor: 0x8a6a42, leafColor: 0x3f8a3a },
     splash: { count: 14, speed: 3.5, up: 4, life: 0.6, size: 0.12, color: 0xbff4ff },
   },
@@ -1537,8 +1605,10 @@ export const DIALOGUE = {
   // The Lazarus Pit, half way across the desert.
   pitScene: {
     stop: 'Stop.',
-    fine: "I'm fine... we should keep going.",
-    look: "You're not. Look.",
+    keepGoing: 'We should keep going.',
+    notWell: 'You are not well.',
+    ok: "I'm ok.",            // (weak, grunted: a cough first, AJ's low slow voice — voice.characters.ajWeak)
+    water: 'At least you should have some water. Look.',
     drink: 'Drink it.',
     who: 'Thank you. But... who are you?',
   },

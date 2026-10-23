@@ -3,7 +3,7 @@
 // outruns them, the Batarang hits them from the saddle), damage and HP, the per-enemy hit
 // cooldown, gem drops, Flash kills, Smoke paralysis (coughing and swaying), the boss's slam
 // slimes (crack spawns, cap, arena bounds, fire immunity, hop away, gone with the boss), desert
-// skeletons (none before the Lazarus Pit, caps, castle zone, gallop knock, hits), respawn
+// skeletons (none before the Lazarus Pit, ahead of the horse, caps, castle zone, gallop knock, one lunge), respawn
 // clearing everything, and the boss fight still won with slimes about.
 // Usage: npm run test:minions   (exits non-zero on failure)
 import { heroAssets } from './node-assets.mjs'; // the real models, read from public/
@@ -362,7 +362,7 @@ for (const t of ['bat', 'skeleton', 'slime']) {
 }
 
 
-// 2) HP and the hero's damage: melee 4 per hit, Batarang 6, Flash kills; bat 8, skeleton 12, slime 10.
+// 2) HP and the hero's damage: melee 4 per hit, Batarang 6 (a skeleton dies at one: it breaks apart), Flash kills; bat 8, skeleton 12, slime 10.
 {
   reset();
   placeHero(cx - 14, cz + 8, Math.PI / 2);
@@ -376,9 +376,12 @@ for (const t of ['bat', 'skeleton', 'slime']) {
   }
   const s2 = await minions.spawnAt('skeleton', { x: cx - 10, z: cz + 10 });
   combat.hitTarget(s2, { amount: 1, source: 'batarang' });
+  const sl = await minions.spawnAt('slime', { x: cx - 12, z: cz + 10 });
+  combat.hitTarget(sl, { amount: 1, source: 'batarang' });
   const f = await minions.spawnAt('skeleton', { x: cx - 10, z: cz + 12 });
   combat.hitTarget(f, { amount: 1, source: 'flash', flash: true });
-  check(s2.hp === s2.maxHp - MN.damage.batarang && !f.alive, `Batarang ${MN.damage.batarang} (${s2.hp}/${s2.maxHp} left), the Flash bolt kills`);
+  check(!s2.alive && s2.shattered && sl.hp === sl.maxHp - MN.damage.batarang && !f.alive && f.shattered,
+    `Batarang: a skeleton dies at one hit and breaks apart (a slime takes ${MN.damage.batarang}: ${sl.hp}/${sl.maxHp} left); the Flash bolt kills (and breaks a skeleton apart)`);
 }
 
 // 3) A minion hits the hero for half a heart at most once a second (per enemy).
@@ -560,25 +563,25 @@ for (const t of ['bat', 'skeleton', 'slime']) {
       if (chase.over) afterOver++;
       if (firstAt < 0) {
         firstAt = chase.time;
-        const f = new THREE.Vector3(Math.sin(horse.heading), 0, Math.cos(horse.heading));
-        firstRel = fresh.map((m) => m.position.clone().sub(horse.position).dot(f));
+        firstRel = fresh.map((m) => track.nearest(m.position.x, m.position.z, 30).s - horse.trackS);
       }
     }
   }
-  check(Math.abs(firstAt - SK.firstDelay) < 0.05 && firstRel.every((a) => a <= SK.firstAlong[1] + 2 && a >= SK.firstAlong[0] - 4), `the first group rises ${firstAt.toFixed(2)} s after the ride resumes, close behind / beside the horse (${firstRel.map((a) => a.toFixed(1)).join(', ')} along)`);
+  const [a0, a1] = SK.skeletonSpawnDistance;
+  check(Math.abs(firstAt - SK.firstDelay) < 0.05 && firstRel.every((a) => a <= a1 + 3 && a >= a0 - 3), `the first group rises ${firstAt.toFixed(2)} s after the ride resumes, ahead of the horse (${firstRel.map((a) => a.toFixed(1)).join(', ')} along the trail)`);
   check(groups.length >= 3 && groups.every((n) => n <= SK.group) && maxSk <= SK.max, `chase: ${groups.length} groups (${groups.join(', ')}) on the way to the castle, at most ${maxSk} alive (cap ${SK.max})`);
   check(overAt > 0 && afterOver === 0 && aliveAfterSink === 0, `chase over ${SK.castleClear} from the castle: none rise after it (${afterOver}), the rest sink back into the sand (${aliveAfterSink} left)`);
   check(fastest > 0 && fastest <= SK.speedFactor * CONFIG.horse.maxSpeed + 0.1, `they run at ${fastest.toFixed(1)} (≤ ${SK.speedFactor} × the horse's normal top speed ${CONFIG.horse.maxSpeed})`);
-  // The cap, with groups coming every 2–3 s.
+  // The cap, with groups coming every 0.3–0.5 s (they charge, lunge once and fall away, so it takes a rush).
   const iv = SK.interval;
-  SK.interval = [2, 3];
+  SK.interval = [0.3, 0.5];
   minions.clear();
   mountAt(track, 100);
   Object.assign(chase, { active: true, time: 0, over: false });
   maxSk = 0;
   step(secs(25), { ride: { stop: true }, each: () => { hero.iframes = 9; maxSk = Math.max(maxSk, alive('skeleton').length); } });
   SK.interval = iv;
-  check(maxSk === SK.max, `with groups every 2–3 s: never more than ${SK.max} at once (max ${maxSk})`);
+  check(maxSk === SK.max, `with groups every 0.3–0.5 s: never more than ${SK.max} at once (max ${maxSk})`);
   Object.assign(chase, { active: false, time: 0, over: false });
   // Galloping into one: defeated, knocked aside, no harm.
   minions.clear(); damage.length = 0;
@@ -597,7 +600,8 @@ for (const t of ['bat', 'skeleton', 'slime']) {
   sk2.state = 'move';
   step(secs(4), { ride: { stop: true }, each: () => { hero.iframes = 0; } });
   const hits = damage.filter((d) => d.source === 'skeleton');
-  check(hits.length >= 1 && hits.every((h) => h.n === 0.5), `standing still a skeleton hits for half a heart (${hits.length} hits in 4 s)`);
+  check(hits.length === 1 && hits.every((h) => h.n === SK.skeletonDamage) && !sk2.alive && minions.stats.lunges >= 1,
+    `standing still a skeleton lunges once for ${SK.skeletonDamage} of a heart (${hits.length} hit in 4 s), then falls away`);
 }
 
 // 9) A respawn clears every minion (and their smoke effects and combat targets).

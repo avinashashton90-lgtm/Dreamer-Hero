@@ -21,6 +21,7 @@ export const SOUNDS = {
   river_splash: { group: 'effects', desc: 'Soft water as the horse first enters the river / an oasis (at most one per 0.6 s)' },
   river_flow: { group: 'effects', loop: true, desc: 'A very quiet water wash while the horse stays in the river (loop)' },
   potion_drink: { group: 'effects', desc: 'Drinking (an energy potion, the oasis)' },
+  horse_sip: { group: 'effects', desc: 'The horse sipping at an oasis (soft, every ~0.8 s while it drinks)' },
   // AJ
   aj_jump: { group: 'effects', desc: 'AJ jumps (cloth whoosh)' },
   aj_land: { group: 'effects', desc: 'AJ lands from a jump' },
@@ -91,6 +92,7 @@ export const SOUNDS = {
   aj_hup: { group: 'voices', desc: 'AJ’s effort as he jumps' },
   aj_hya: { group: 'voices', desc: 'AJ’s effort as he throws / attacks' },
   aj_ugh: { group: 'voices', desc: 'AJ hurt' },
+  aj_cough: { group: 'voices', desc: 'AJ’s small weak cough (the Lazarus Pit, before “I’m ok.”)' },
   amy_gasp: { group: 'voices', desc: 'Amy’s small gasp when the boss roars' },
 };
 

@@ -188,6 +188,7 @@ async function boot() {
     camera: cam.camera, // (bats stay inside the view while coming in, waiting and attacking)
     onHitHero: (hearts, x, z, opts) => damageHero(hearts, x, z, opts),
     onEvent: (name) => {
+      if (name === 'skeletonShatter') cam.shake(CONFIG.minions.shatter.kick, CONFIG.combat.shake.time); // (a short screen kick)
       if (name === 'batScreech') {
         sound.play('batScreech'); // (the telegraph before a dive)
         soundscape?.onBatAttack(); // (the horse shies)
@@ -232,8 +233,8 @@ async function boot() {
   // The sound wiring (reads the game every frame; never changes it), the cutscene voices, the
   // speaker button + panel, and a tap sound on menu buttons (not the game's own controls).
   soundscape = new Soundscape(audio, { state, STATES, story, hero, horse, boss, minions, storm, gate, lives, abilities, arena, cam, cinematic });
-  cinematic.onLine = (speaker, text) => soundscape.onLine(speaker, text);
-  cinematic.onType = (speaker, ch) => soundscape.onType(speaker, ch);
+  cinematic.onLine = (speaker, text, voice) => soundscape.onLine(speaker, text, voice);
+  cinematic.onType = (speaker, ch, voice) => soundscape.onType(speaker, ch, voice);
   // (holding the speaker button 3 s switches the hidden test menu on / off: see buildTestMenu)
   const audioPanel = new AudioPanel(overlay, audio, { onLongPress: () => toggleTestMenu() });
   overlay.addEventListener('pointerdown', (e) => {
@@ -595,6 +596,7 @@ async function boot() {
         pitDone: story.pitDone,
         galloping: horse.galloping,
         chase: { active: story.desertChaseActive, time: story.chaseTime, over: story.chaseOver },
+        drinking: energy.drinking, // (no skeletons rise while the horse drinks at an oasis)
       });
       rescue.update(dt, { onFoot: !horse.controlsHero, riding: horse.controlsHero });
       arena.update(dt, true);
@@ -626,7 +628,7 @@ async function boot() {
     story.update(dt, !state.paused && (state.is(STATES.PLAY) || state.is(STATES.CUTSCENE)));
     if (cinematic.active) cinematic.update(state.paused ? 0 : realDt);
     // (the camera keeps going through hit-stop: real time, so a swipe always turns it)
-    else cam.update(realDt, hero.position, { mounted: horse.mounted, speed: horse.speedRatio, gallop: horse.galloping, heading: horse.heading });
+    else cam.update(realDt, hero.position, { mounted: horse.mounted, speed: horse.speedRatio, gallop: horse.galloping, heading: horse.heading, chase: state.is(STATES.PLAY) && minions.skeletonsCharging });
     soundscape.update(state.paused ? 0 : realDt); // (after the camera: it is the listener)
     audioPanel.setVisible(state.is(STATES.PLAY));
     if (!cinematic.active) hero.cameraOpacity = cam.heroOpacity; // (he fades if the camera is squeezed in right behind him; cutscenes fade him themselves)
