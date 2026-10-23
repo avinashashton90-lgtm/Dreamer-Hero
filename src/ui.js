@@ -94,7 +94,10 @@ export class UI {
 
     this.portrait = null;
     this.#checkOrientation();
-    window.addEventListener('resize', () => this.#checkOrientation());
+    window.addEventListener('resize', () => {
+      this.#checkOrientation();
+      this.bossBarPlaced = 0; // (re-checked against the quest panel / gem counters on the next update)
+    });
     window.addEventListener('orientationchange', () => this.#checkOrientation());
     // Some mobile browsers report the new size late; poll cheaply as a backup.
     setInterval(() => this.#checkOrientation(), CONFIG.ui.rotateCheckMs);
@@ -131,9 +134,15 @@ export class UI {
   setQuest(text, distance = null) {
     this.questEl.style.display = text ? '' : 'none';
     if (!text) return;
-    if (this.questText.textContent !== text) this.questText.textContent = text;
+    if (this.questText.textContent !== text) {
+      this.questText.textContent = text;
+      this.bossBarPlaced = 0; // (the panel's width changed: re-check the boss bar's room)
+    }
     const d = distance == null ? '' : `${distance} ${DIALOGUE.distanceUnit}`;
-    if (this.questDist.textContent !== d) this.questDist.textContent = d;
+    if (this.questDist.textContent !== d) {
+      if (this.questDist.textContent.length !== d.length) this.bossBarPlaced = 0;
+      this.questDist.textContent = d;
+    }
   }
 
   toast(text) {
@@ -252,13 +261,33 @@ export class UI {
   /** regen: the boss is regenerating (the sealed arena) — the bar pulses green with a small "+". */
   setBossBar(visible, fraction = 1, name = '', regen = false) {
     const d = visible ? '' : 'none';
-    if (this.bossBar.style.display !== d) this.bossBar.style.display = d;
+    if (this.bossBar.style.display !== d) {
+      this.bossBar.style.display = d;
+      this.bossBarPlaced = 0;
+    }
     if (!visible) return;
+    // Narrow screens: drop to a second row if the top row has no room between the quest panel
+    // and the gem counters (checked when shown, on resize and now and then as the text changes).
+    if ((this.bossBarPlaced = (this.bossBarPlaced ?? 0) - 1) < 0) {
+      this.bossBarPlaced = CONFIG.ui.bossBarRecheck;
+      this.#placeBossBar();
+    }
     const nameEl = this.bossBar.firstElementChild;
     if (nameEl.textContent !== name) nameEl.textContent = name;
     this.bossFill.style.transform = `scaleX(${Math.max(0, fraction).toFixed(3)})`;
     this.bossBar.classList.toggle('low', fraction <= CONFIG.boss.enrageAt);
     this.bossBar.classList.toggle('regen', regen);
+  }
+
+  #placeBossBar() {
+    this.bossBar.classList.remove('lower');
+    const b = this.bossBar.getBoundingClientRect();
+    const others = [this.questEl, ...Object.values(this.gemPills), document.querySelector('.test-toggle')];
+    const hit = others.some((el) => {
+      const r = el?.getBoundingClientRect();
+      return r && r.width && r.left < b.right + 4 && r.right > b.left - 4 && r.top < b.bottom && r.bottom > b.top;
+    });
+    this.bossBar.classList.toggle('lower', hit);
   }
 
   /** Big story banner (e.g. "Victory!"), shown briefly near the top. */

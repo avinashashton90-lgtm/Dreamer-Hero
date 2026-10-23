@@ -101,6 +101,7 @@ html, body {
   top: max(10px, env(safe-area-inset-top));
   width: min(40vw, 360px); text-align: center; font-weight: 900; font-size: clamp(11px, 3vh, 15px);
 }
+.boss-bar.lower { top: calc(max(10px, env(safe-area-inset-top)) + clamp(36px, 10vh, 46px)); } /* (no room in the top row) */
 .boss-hp { margin-top: 3px; height: 12px; border-radius: 6px; border: 2px solid #fff; background: rgba(0,0,0,.55); overflow: hidden; }
 .boss-hp i { display: block; height: 100%; background: linear-gradient(#ff5a5a, #b81d1d); transform-origin: left; transition: transform .15s; }
 .boss-bar.low .boss-hp i { background: linear-gradient(#ffb04a, #e0461d); animation: blink 0.6s ease-in-out infinite; }

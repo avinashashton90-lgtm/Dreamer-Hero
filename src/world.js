@@ -1156,9 +1156,19 @@ export class World {
     this.sky = makeSky();
     this.scene.add(this.sky, makeClouds(rnd));
 
+    // Draw zones: the forest side (terrain grid, town, trees, trail edges, river, walls) and the
+    // desert side (dunes, scenery, castle) are only drawn while the camera is on their side
+    // (update): their big meshes are never frustum-culled, and fog hides them anyway. The cave
+    // and its cliffs stay in both.
+    this.zones = { forest: new THREE.Group(), desert: new THREE.Group() };
+    this.zones.forest.name = 'forestZone';
+    this.zones.desert.name = 'desertZone';
+    this.scene.add(this.zones.forest, this.zones.desert);
+
     this.terrain = await loadTerrainModel(this.heightAt, layout, this.track);
     this.desertTerrain = await loadDesertTerrainModel(this.heightAt, this.desertTrack);
-    this.scene.add(this.terrain, this.desertTerrain);
+    this.zones.forest.add(this.terrain);
+    this.zones.desert.add(this.desertTerrain);
 
     this.#buildWater();
     await this.#buildTown();
@@ -1173,6 +1183,9 @@ export class World {
   /** Per-frame cosmetic updates. */
   update(dt, cameraPosition) {
     this.time += dt;
+    const ZN = CONFIG.world.zones;
+    this.zones.forest.visible = cameraPosition.x < ZN.forestMaxX;
+    this.zones.desert.visible = cameraPosition.x > ZN.desertMinX;
     this.sky.position.copy(cameraPosition);
     this.setSunset(smoothstep(cameraPosition.x, DS.sunset.blend[0], DS.sunset.blend[1]));
     this.river.position.y = Z.waterY + Math.sin(this.time * WATER.waveSpeed) * WATER.waveHeight;
@@ -1459,7 +1472,7 @@ export class World {
     geo.computeVertexNormals();
     this.river = new THREE.Mesh(geo, makeWater(WATER.color, WATER.opacity));
     this.river.position.y = Z.waterY;
-    this.scene.add(this.river);
+    this.zones.forest.add(this.river);
 
     const { townEndX, hazardEndX } = this.layout;
     const swampW = hazardEndX - townEndX;
@@ -1468,7 +1481,7 @@ export class World {
       makeWater(WATER.swampColor, WATER.swampOpacity),
     );
     swamp.position.set(townEndX + swampW / 2, 0.05, (W.ridge.z[0] + 10 + W.zMin) / 2);
-    this.scene.add(swamp);
+    this.zones.forest.add(swamp);
   }
 
   async #buildTown() {
@@ -1481,7 +1494,7 @@ export class World {
         safe: new THREE.Vector3((b.minX + b.maxX) / 2, b.top, (b.minZ + b.maxZ) / 2),
       });
     }
-    this.scene.add(await loadBuildingModels(buildings));
+    this.zones.forest.add(await loadBuildingModels(buildings));
   }
 
   /** Giant swamp trees: route trees carry the walkable branches; background ones frame it. */
@@ -1600,7 +1613,7 @@ export class World {
     }
 
     const trees = await loadGiantTreeModels(plan);
-    this.scene.add(trees);
+    this.zones.forest.add(trees);
     // Cluster bounds for the foliage fade and camera collision (index = instance index).
     this.foliageSets.push({
       mesh: trees.userData.leaves,
@@ -1705,7 +1718,7 @@ export class World {
         });
         trunks.computeBoundingSphere();
         crowns.computeBoundingSphere();
-        this.scene.add(trunks, crowns);
+        this.zones.forest.add(trunks, crowns);
         this.foliageSets.push({ mesh: crowns, items, bounds: crowns.boundingSphere });
       });
     }
@@ -1756,7 +1769,7 @@ export class World {
     }
     bushes.computeBoundingSphere();
     boulders.computeBoundingSphere();
-    this.scene.add(bushes, boulders);
+    this.zones.forest.add(bushes, boulders);
     this.edgeCount = spots.length;
     this.edgeItems = spots;
   }
@@ -1777,8 +1790,8 @@ export class World {
       const beam = makeBeam(o.cx - o.nx * o.halfLength, o.cz - o.nz * o.halfLength, o.cx + o.nx * o.halfLength, o.cz + o.nz * o.halfLength, o.top, hw, hw);
       this.beams.push({ ...beam, bottom: o.base - 0.1, obstacle: o });
     }
-    this.scene.add(await loadObstacleModels(this.obstacles.filter((o) => o.type !== 'brick')));
-    this.scene.add(await loadForestWallModels(this.obstacles.filter((o) => o.type === 'brick'), this.gapWalls, this.heightAt));
+    this.zones.forest.add(await loadObstacleModels(this.obstacles.filter((o) => o.type !== 'brick')));
+    this.zones.forest.add(await loadForestWallModels(this.obstacles.filter((o) => o.type === 'brick'), this.gapWalls, this.heightAt));
     // The forest hurdles' spots (hurdles.js draws and runs them); gems and checkpoints keep clear.
     this.hurdles = planHurdles(this);
   }
@@ -2016,7 +2029,7 @@ export class World {
     }
     for (const mesh of Object.values(meshes)) {
       mesh.computeBoundingSphere();
-      this.scene.add(mesh);
+      this.zones.desert.add(mesh);
     }
     this.desertItems = items;
 
@@ -2027,7 +2040,7 @@ export class World {
     this.castle = await loadCastleModel();
     this.castle.position.set(cx, this.heightAt(cx, cz) - 1, cz);
     this.castle.rotation.y = Math.atan2(-end.tx, -end.tz);
-    this.scene.add(this.castle);
+    this.zones.desert.add(this.castle);
     this.castlePosition = this.castle.position.clone();
   }
 }

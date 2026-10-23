@@ -5,6 +5,9 @@ export const CONFIG = {
 
   render: {
     maxPixelRatio: 2,
+    // Adaptive resolution (main.js): if the frame rate stays below lowFps for `window` s the pixel
+    // ratio steps down (not below minPixelRatio); above highFps for `window` s it steps back up to the cap.
+    adaptive: { lowFps: 45, highFps: 57, window: 2, step: 0.25, minPixelRatio: 1 },
     antialias: true,
     clearColor: 0x8fc8ff,
     fov: 60,
@@ -16,6 +19,9 @@ export const CONFIG = {
   // → forest → cave arena → desert (empty for now). X spans -width/2..width/2, Z -depth/2..depth/2.
   world: {
     seed: 20261004,
+    // Draw zones (World.update): the forest side is drawn while the camera is west of forestMaxX,
+    // the desert side east of desertMinX (both near the cave; the cliffs and the ridge hide the other side).
+    zones: { forestMaxX: 185, desertMinX: 125 },
     width: 300,
     depth: 200,              // the original map (town, swamp, cave region): z -100…100
     // The map extends north for the long ride: z from zMin to zMax.
@@ -486,8 +492,9 @@ export const CONFIG = {
       gust: { every: [5, 9], time: [1, 2], gain: 0.8 }, // the sides thicken for 1–2 s now and then
       // Kept clear of sand: ±halfWidth of the trail (soft over `soft`), from `behind` to `ahead` of the camera.
       clear: { halfWidth: 12, soft: 6, ahead: 70, behind: 20, step: 10 },
-      streaks: { count: 150, area: 42, length: [2.5, 6.5], width: [0.04, 0.09], height: [0.3, 7], color: 0xf3d7a6, opacity: 0.55 },
-      clouds: { count: 28, area: 48, band: 20, size: [9, 18], height: [1.5, 7], drift: 5, roll: 0.18, color: 0xd9a96b, opacity: 0.6 },
+      // (lightened for phones: fewer streaks, fewer and smaller soft clouds = much less overdraw)
+      streaks: { count: 110, area: 42, length: [2.5, 6.5], width: [0.04, 0.09], height: [0.3, 7], color: 0xf3d7a6, opacity: 0.55 },
+      clouds: { count: 18, area: 48, band: 20, size: [8, 14], height: [1.5, 7], drift: 5, roll: 0.18, color: 0xd9a96b, opacity: 0.66 },
       sky: { radius: 420, color: 0xc89060, opacity: 0.6 }, // the sky veils over (drawn behind everything near)
       tint: { color: 0xd8944f, opacity: 0.1 },             // a light warm dusty tint over the view
       fog: { color: 0xcf9c66, near: 30, far: 150 },        // still ≥ 60 of visibility along the trail
@@ -695,7 +702,8 @@ export const CONFIG = {
     walkSpeed: 3.4,
     turnRate: 2.6,           // rad/s
     retreat: { speed: 1.6, arrive: 0.6 }, // AJ revived in the sealed arena: backs off to the far side at walkSpeed × speed
-    arenaRadius: 16.5,       // leashed: its centre never gets further than this from the arena's centre (the boulders, the barrier, the cave stay out of reach)
+    arenaRadius: 16.5,
+    drawRange: 100,          // on guard and the hero further than this from the arena: not drawn (out of sight behind the cliffs)       // leashed: its centre never gets further than this from the arena's centre (the boulders, the barrier, the cave stay out of reach)
     // Slam: rears up with both fists overhead (0.8 s, red circle on the ground), then smashes
     // them into the ground in front — damage inside the circle, a shockwave ring, screen shake.
     slam: { range: 4.6, windup: 0.8, reach: 2.4, radius: 3.6, damage: 1, impact: 0.4, smash: 0.1, shake: 0.5, shockTime: 0.35, impactShoulder: -0.62, impactInward: 0.34, crouch: 0 },
@@ -992,6 +1000,7 @@ export const CONFIG = {
 
   ui: {
     rotateCheckMs: 250,
+    bossBarRecheck: 30,      // frames between checks that the boss bar fits the top row (else a second row)
     hintHideMs: 8000,      // controls hint fades after this long
     toastMs: 2000,
   },

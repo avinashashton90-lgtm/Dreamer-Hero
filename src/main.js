@@ -459,16 +459,38 @@ async function boot() {
 
   // --- Resize ---
   const onResize = () => {
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, CONFIG.render.maxPixelRatio));
+    renderer.setPixelRatio(Math.min(renderer.getPixelRatio(), window.devicePixelRatio, CONFIG.render.maxPixelRatio)); // (keeps an adapted lower ratio)
     renderer.setSize(window.innerWidth, window.innerHeight);
     cam.setAspect(window.innerWidth / window.innerHeight);
   };
   window.addEventListener('resize', onResize);
 
   // --- Loop ---
-  const clock = new THREE.Clock();
-  renderer.setAnimationLoop(() => {
-    const realDt = Math.min(clock.getDelta(), 0.05); // clamp to avoid tunnelling after tab switches
+  const timer = new THREE.Timer();
+  timer.connect(document); // (no huge step after the tab was hidden)
+  // Adaptive resolution: a phone that can't keep up steps the pixel ratio down (and back up).
+  const AD = CONFIG.render.adaptive;
+  const maxRatio = () => Math.min(window.devicePixelRatio, CONFIG.render.maxPixelRatio);
+  let slowT = 0, fastT = 0;
+  const adaptResolution = (frameDt) => {
+    if (frameDt <= 0 || frameDt >= 0.25) return; // (a hitch or a hidden tab says nothing)
+    const fps = 1 / frameDt;
+    slowT = fps < AD.lowFps ? slowT + frameDt : 0;
+    fastT = fps > AD.highFps ? fastT + frameDt : 0;
+    const now = renderer.getPixelRatio();
+    let next = now;
+    if (slowT > AD.window) next = Math.max(Math.min(AD.minPixelRatio, maxRatio()), now - AD.step);
+    else if (fastT > AD.window) next = Math.min(maxRatio(), now + AD.step);
+    if (next !== now) {
+      renderer.setPixelRatio(next);
+      slowT = fastT = 0;
+    }
+  };
+  renderer.setAnimationLoop((now) => {
+    timer.update(now);
+    const frameDt = timer.getDelta();
+    adaptResolution(frameDt);
+    const realDt = Math.min(frameDt, 0.05); // clamp to avoid tunnelling after tab switches
     // Hit-stop: heavy hits freeze the action for a moment (the camera keeps going).
     const dt = hitStop > 0 ? 0 : realDt;
     hitStop = Math.max(0, hitStop - realDt);
@@ -560,7 +582,7 @@ async function boot() {
   });
 
   // Exposed for debugging in the browser console (e.g. game.state.set('ending')).
-  window.game = { state, hero, cam, world, quests, horse, input, guide, gems, abilities, sound, combat, lives, boss, girl, pit, story, cinematic, minions, rescue, storm, gate, hurdles, energy, arena, damageHero, lifeEvents, STATES };
+  window.game = { renderer, state, hero, cam, world, quests, horse, input, guide, gems, abilities, sound, combat, lives, boss, girl, pit, story, cinematic, minions, rescue, storm, gate, hurdles, energy, arena, damageHero, lifeEvents, STATES };
 
   state.start();
 }

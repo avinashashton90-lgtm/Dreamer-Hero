@@ -58,7 +58,18 @@ export async function parseFBX(buffer, { textureMax = 1024, timeoutMs = 15000 } 
     fail(url);
     finish();
   };
-  const object = new FBXLoader(manager).parse(buffer, '');
+  // (Mixamo exports carry a camera node the game never uses: hush FBXLoader's one warning about it)
+  const warn = console.warn;
+  console.warn = (...args) => {
+    if (typeof args[0] === 'string' && args[0].includes('Orthographic cameras not supported')) return;
+    warn.apply(console, args);
+  };
+  let object;
+  try {
+    object = new FBXLoader(manager).parse(buffer, '');
+  } finally {
+    console.warn = warn;
+  }
   if (pending > 0) await Promise.race([allDone, new Promise((r) => setTimeout(r, timeoutMs))]);
   downsizeTextures(object, textureMax);
   return object;

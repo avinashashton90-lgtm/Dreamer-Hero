@@ -789,6 +789,8 @@ export class Boss {
     if (this.state !== S.SMOKED) this.smokeCloud = null;
     this.fireCooldown = Math.max(0, this.fireCooldown - dt);
     this.#updateCracks(dt);
+    // On guard and out of sight (the hero far from the arena): skip drawing the skinned model.
+    if (this.model && this.state === S.GUARD) this.model.visible = Math.hypot(hero.position.x - this.center.x, hero.position.z - this.center.z) < B.drawRange;
     this.#keepInArena(); // whatever moved it this frame (walk, charge, a push), it never leaves its leash
     this.position.y = this.world.heightAt(this.position.x, this.position.z);
 
