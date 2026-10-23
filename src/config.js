@@ -1182,6 +1182,12 @@ export const CONFIG = {
     // arenaReviveProtection s while the boss backs off to the far side, and the boss gets back
     // only bossReviveRecoverFraction of the damage he dealt it (no full reset).
     arenaReviveProtection: 3,
+    // The boss regenerates in the sealed fight once AJ hasn't hurt it for bossRegenDelay s (any
+    // hit stops it and restarts the wait): bossRegenPercentPerSec % of its max health a second
+    // (1.5 → ~67 s from empty to full), paused while paralysed / coughing in the Smoke, dying,
+    // or in a cutscene, never above max. Its health bar pulses green with a "+" meanwhile.
+    bossRegenDelay: 4,
+    bossRegenPercentPerSec: 1.5,
     bossReviveRecoverFraction: 0.5,
     reviveUses: 5,           // Batarang 5, Smoke Bomb 5, Flash 5 (more on hand is kept)
     farSide: 0.85,           // the boss backs off to this fraction of its leash, opposite AJ
@@ -1414,6 +1420,7 @@ export const DIALOGUE = {
   unlocked: (ability) => `${ability} Unlocked!`,
   smokeResisted: 'It shrugs off the smoke!',
   arenaGems: 'Gems at the arena edge!',
+  bossRegenIcon: '+', // beside the boss's health bar while it regenerates
   arena: {
     sealed: 'The way out is sealed!',
     open: 'The way out is open.',

@@ -508,6 +508,7 @@ async function boot() {
       abilities.inSealedArena = arena.sealed; // (Flash costs no hearts in the sealed fight)
       if (inp.ability) abilities.use(inp.ability);
       abilities.update(dt);
+      boss.regenEnabled = arena.sealed; // (its slow regen only in the sealed fight)
       boss.update(dt, hero);
       minions.update(dt, {
         playing: true,
@@ -520,7 +521,7 @@ async function boot() {
       rescue.update(dt, { onFoot: !horse.controlsHero, riding: horse.controlsHero });
       arena.update(dt, true);
       ui.setHorseEnergy(horse.energy / CONFIG.energy.horseEnergyMax, horse.everMounted, horse.energyTired);
-      ui.setBossBar(boss.active, boss.hp / boss.maxHp, DIALOGUE.bossName);
+      ui.setBossBar(boss.active, boss.hp / boss.maxHp, DIALOGUE.bossName, boss.regenerating);
       input.setCombatButtons(horse.controlsHero, abilities, story.fatigue > 0);
       // Collect from the body centre: horse + rider when riding, the hero's chest on foot.
       gems.update(dt, horse.controlsHero ? horse.collectPoint : hero.position.clone().setY(hero.position.y + 0.9));
@@ -536,6 +537,7 @@ async function boot() {
     } else if (!state.paused && state.is(STATES.CUTSCENE)) {
       // Cutscene: the world keeps moving (the horse slowing at the castle, the girl trembling).
       horse.update(dt, NEUTRAL, cam.yaw, hero);
+      boss.regenEnabled = false; // (no regen in a cutscene)
       boss.update(dt, hero);
       arena.update(dt, false);
     } else {

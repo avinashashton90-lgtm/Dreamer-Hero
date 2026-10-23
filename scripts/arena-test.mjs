@@ -62,6 +62,7 @@ const step = (n, { input = none, yaw = 0, each } = {}) => {
     combat.update(dt, none, { mounted: hero.riding });
     abilities.inSealedArena = arena.sealed;
     abilities.update(dt);
+    boss.regenEnabled = arena.sealed; // (main: the regen only in the sealed fight, in play)
     boss.update(dt, hero);
     arena.update(dt, true);
     maxBoss = Math.max(maxBoss, fromCentre(boss.position));
@@ -244,6 +245,56 @@ const burnHorse = () => {
   check(!wasInv && !hero.reviveShield && boss.state !== S.RECOVER && boss.state !== S.GUARD && arena.sealed,
     `after ${P} s: protection over (glow gone), the boss fights on (${boss.state})`);
   god = true;
+}
+
+// 5b) The boss's slow regen in the sealed fight: after bossRegenDelay s with no hit it heals
+//     bossRegenPercentPerSec % of its max a second; any hit stops it at once; paused while
+//     paralysed; never above max; none outside the sealed fight.
+{
+  god = true;
+  const calm = () => { boss.state = S.RECOVER; boss.stateTime = 0; boss.recoverFor = 1e9; boss.retreat = null; };
+  boss.reset(); calm();
+  placeHero(cx - 12, cz);
+  boss.hp = 60;
+  boss.takeHit({ amount: 1, source: 'batarang' });
+  const hit0 = boss.hp;
+  step(secs(AR.bossRegenDelay - 0.1));
+  const waited = boss.hp;
+  check(arena.sealed && waited === hit0 && !boss.regenerating, `no regen during the ${AR.bossRegenDelay} s wait after a hit (${hit0} → ${waited})`);
+  step(secs(0.2));
+  const startedAt = boss.hp;
+  step(secs(2));
+  const rate = ((boss.hp - startedAt) / 2 / boss.maxHp) * 100;
+  check(boss.regenerating && Math.abs(rate - AR.bossRegenPercentPerSec) < 0.05,
+    `then it regenerates at ${rate.toFixed(2)}% of its max health a second (bossRegenPercentPerSec ${AR.bossRegenPercentPerSec}; ~${Math.round(100 / AR.bossRegenPercentPerSec)} s empty to full), the bar flagged (regenerating)`);
+  const beforeHit = boss.hp;
+  boss.takeHit({ amount: 1, flash: false, source: 'melee' });
+  const afterHit = boss.hp;
+  check(!boss.regenerating && afterHit < beforeHit, `a hit stops it instantly (${beforeHit.toFixed(2)} → ${afterHit.toFixed(2)}, not regenerating)`);
+  step(secs(AR.bossRegenDelay - 0.1));
+  check(boss.hp === afterHit, `...and restarts the wait: unchanged for the next ${AR.bossRegenDelay - 0.1} s (${boss.hp.toFixed(2)})`);
+  step(secs(1));
+  check(boss.hp > afterHit && boss.regenerating, `then it heals again (${boss.hp.toFixed(2)})`);
+  // Paused while paralysed by the Smoke.
+  boss.paralyze(4);
+  const para0 = boss.hp;
+  step(secs(2));
+  check(boss.state === S.PARALYZED && boss.hp === para0 && !boss.regenerating, `paused while paralysed (${para0.toFixed(2)} → ${boss.hp.toFixed(2)})`);
+  step(secs(2.5)); calm();
+  step(secs(1));
+  check(boss.hp > para0, `resumes after the paralysis (${boss.hp.toFixed(2)})`);
+  // Never above max.
+  boss.hp = boss.maxHp - 0.5;
+  step(secs(3));
+  check(boss.hp === boss.maxHp && !boss.regenerating, `never above max (${boss.hp} of ${boss.maxHp}, regen stopped)`);
+  // None outside the sealed fight (forest arena before the barrier, desert, cutscenes: regenEnabled off).
+  const saved = arena.state;
+  arena.state = 'open';
+  boss.hp = 50; boss.sinceHit = 99;
+  step(secs(2));
+  check(!arena.sealed && boss.hp === 50 && !boss.regenerating, `outside the sealed fight: no regen (${boss.hp})`);
+  arena.state = saved;
+  boss.reset();
 }
 
 // 6) Flash in the sealed arena: no hearts spent, usable on his last heart and below 2 hearts.

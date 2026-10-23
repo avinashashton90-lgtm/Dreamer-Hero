@@ -104,6 +104,13 @@ html, body {
 .boss-hp { margin-top: 3px; height: 12px; border-radius: 6px; border: 2px solid #fff; background: rgba(0,0,0,.55); overflow: hidden; }
 .boss-hp i { display: block; height: 100%; background: linear-gradient(#ff5a5a, #b81d1d); transform-origin: left; transition: transform .15s; }
 .boss-bar.low .boss-hp i { background: linear-gradient(#ffb04a, #e0461d); animation: blink 0.6s ease-in-out infinite; }
+/* Regenerating (the sealed arena): a slow green pulse over the fill and a tiny "+" at the bar's end. */
+.boss-hp { position: relative; }
+.boss-regen { display: none; position: absolute; right: 3px; top: 50%; transform: translateY(-50%); font-size: 11px; line-height: 1; color: #eaffea; text-shadow: 0 0 3px #1c8a2e; }
+.boss-bar.regen .boss-regen { display: block; animation: regen-plus 1.6s ease-in-out infinite; }
+.boss-bar.regen .boss-hp i, .boss-bar.regen.low .boss-hp i { animation: regen-pulse 1.6s ease-in-out infinite; }
+@keyframes regen-pulse { 0%, 100% { background: linear-gradient(#ff5a5a, #b81d1d); } 50% { background: linear-gradient(#7cf08a, #229a3a); } }
+@keyframes regen-plus { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
 .banner {
   position: absolute; left: 0; right: 0; top: 18vh; text-align: center;
   font-size: clamp(30px, 12vh, 64px); font-weight: 900; color: #ffd23f;

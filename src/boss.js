@@ -355,6 +355,9 @@ export class Boss {
     this.fireAcc = 0;
     this.fireSpawn = 0;
     for (const f of this.flames) f.age = f.life;
+    this.sinceHit = 0; // seconds since anything last hurt it (the sealed arena's regen waits on this)
+    this.regenerating = false; // healing right now (the health bar pulses green)
+    this.regenEnabled = false; // set each frame by main: true only in play during the sealed arena fight
     this.retreat = null; // { x, z } AJ revived in the sealed arena: it backs off there during his protection
     this.defeated = false;
     this.girlTime = -1;
@@ -402,6 +405,9 @@ export class Boss {
 
   takeHit({ amount, flash = false, source = 'melee' }) {
     if (!this.alive) return 0;
+    // Any hit stops the sealed arena's regen at once and restarts its wait.
+    this.sinceHit = 0;
+    this.regenerating = false;
     if (this.state === S.GUARD) {
       this.#set(S.CHASE);
       this.events.onNotice?.();
@@ -506,6 +512,19 @@ export class Boss {
     return this.hp - before;
   }
 
+  /**
+   * The sealed arena fight's slow regen (`regenEnabled`, set by main): after `bossRegenDelay` s with
+   * no hit from anything it heals `bossRegenPercentPerSec` % of its max health a second, never
+   * above max; paused (the wait still runs) while paralysed or coughing in the Smoke and while dying.
+   */
+  #regen(dt) {
+    const AR = CONFIG.arena;
+    this.sinceHit += dt;
+    const paused = this.state === S.PARALYZED || this.state === S.SMOKED || !this.alive;
+    this.regenerating = this.regenEnabled && !paused && this.sinceHit >= AR.bossRegenDelay && this.hp < this.maxHp;
+    if (this.regenerating) this.hp = Math.min(this.maxHp, this.hp + this.maxHp * (AR.bossRegenPercentPerSec / 100) * dt);
+  }
+
   /** For a while after a paralysis wears off it shrugs off the Smoke Bomb. */
   resistsParalysis() {
     return this.paralysisResist > 0;
@@ -561,6 +580,7 @@ export class Boss {
    * @param {import('./hero.js').Hero} hero
    */
   update(dt, hero) {
+    this.#regen(dt);
     this.stateTime += dt;
     this.clock = (this.clock ?? 0) + dt;
     this.flash = Math.max(0, this.flash - dt);

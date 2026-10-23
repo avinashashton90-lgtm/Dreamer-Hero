@@ -13,7 +13,7 @@ export class UI {
       <div class="vitals"><div class="hearts"></div><div class="lives"></div></div>
       <div class="horse-energy" style="display:none"><span>${DIALOGUE.energy.label}</span><b><i></i></b></div>
       <div class="gems" style="display:none"></div>
-      <div class="boss-bar" style="display:none"><span class="boss-name"></span><div class="boss-hp"><i></i></div></div>
+      <div class="boss-bar" style="display:none"><span class="boss-name"></span><div class="boss-hp"><i></i><b class="boss-regen"></b></div></div>
       <div class="banner"></div>
       <div class="toast"></div>`;
     this.heartsEl = this.hud.querySelector('.hearts');
@@ -22,6 +22,8 @@ export class UI {
     this.energyFill = this.energyEl.querySelector('i');
     this.bossBar = this.hud.querySelector('.boss-bar');
     this.bossFill = this.hud.querySelector('.boss-hp i');
+    this.bossRegen = this.hud.querySelector('.boss-regen');
+    this.bossRegen.textContent = DIALOGUE.bossRegenIcon;
     this.bannerEl = this.hud.querySelector('.banner');
     this.questEl = this.hud.querySelector('.quest');
     this.questText = this.hud.querySelector('.quest-text');
@@ -247,7 +249,8 @@ export class UI {
   }
 
   /** Boss health bar (top centre). */
-  setBossBar(visible, fraction = 1, name = '') {
+  /** regen: the boss is regenerating (the sealed arena) — the bar pulses green with a small "+". */
+  setBossBar(visible, fraction = 1, name = '', regen = false) {
     const d = visible ? '' : 'none';
     if (this.bossBar.style.display !== d) this.bossBar.style.display = d;
     if (!visible) return;
@@ -255,6 +258,7 @@ export class UI {
     if (nameEl.textContent !== name) nameEl.textContent = name;
     this.bossFill.style.transform = `scaleX(${Math.max(0, fraction).toFixed(3)})`;
     this.bossBar.classList.toggle('low', fraction <= CONFIG.boss.enrageAt);
+    this.bossBar.classList.toggle('regen', regen);
   }
 
   /** Big story banner (e.g. "Victory!"), shown briefly near the top. */

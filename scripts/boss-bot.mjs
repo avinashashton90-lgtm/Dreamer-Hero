@@ -138,6 +138,7 @@ export function makeFight({ world, hero, combat, abilities, lives, boss, log, mi
     hero.update(dt, input, 0);
     combat.update(dt, input, {});
     abilities.update(dt);
+    boss.regenEnabled = true; // (the sealed arena fight: its slow regen when not hit for a while)
     boss.update(dt, hero);
     minions?.update(dt, { playing: true, riding: false, route: 'forest', pitDone: false, galloping: false });
     t += dt;
