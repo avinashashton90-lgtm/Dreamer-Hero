@@ -29,6 +29,7 @@ import { CastleGate } from './gate.js';
 import { TestMenu, testMenuWanted } from './testMenu.js';
 import { Hurdles } from './hurdles.js';
 import { HorseEnergy } from './energy.js';
+import { SealedArena } from './arena.js';
 
 async function boot() {
   const app = document.getElementById('app');
@@ -89,10 +90,12 @@ async function boot() {
     if (name === 'smokeResisted') ui.toast(DIALOGUE.smokeResisted);
   };
   let damageHero = () => false; // defined below (needs the state machine)
+  let arena = null; // the sealed boss arena (built below)
   const boss = new Boss(world.scene, world, {
     onHitHero: (hearts, x, z, opts) => damageHero(hearts, x, z, opts),
     onSlam: () => cam.shake(CONFIG.boss.slam.shake, CONFIG.combat.shake.time * 1.6),
     onWake: () => sound.play('bossRoar'), // (snapping out of a Smoke Bomb paralysis)
+    onNotice: () => arena.notice(), // it saw him: the arena seals behind him
     onDefeat: () => {
       ui.banner(DIALOGUE.victory);
       minions.despawnSlimes(); // (its slimes melt away)
@@ -114,7 +117,7 @@ async function boot() {
   const girl = new Girl(world.scene, boss.girl);
   await girl.init();
   const lives = new Lives({ onChange: (l) => ui.setLives(l.hearts, l.maxHearts, l.respawns, CONFIG.lives.respawns) });
-  abilities.lives = lives; // Flash also costs 30% of the hearts
+  abilities.lives = lives; // Flash also costs 30% of the hearts (none in the sealed boss arena)
 
   const gems = new Gems(world.scene, world, {
     onCollect: () => ui.setGems(gems.counts),
@@ -141,8 +144,13 @@ async function boot() {
     ui.toast(DIALOGUE.checkpoint);
     minions.onCheckpoint(); // (no bats in the first seconds after a checkpoint)
   };
-  // Once the hero has ridden, falls/deaths put him back on the horse at the last checkpoint.
+  // Once the hero has ridden, falls/deaths put him back on the horse at the last checkpoint
+  // (inside the sealed arena: back in the arena on foot).
   hero.onFall = () => {
+    if (arena?.sealed) {
+      arena.respawnHero();
+      return true;
+    }
     if (!horse.everMounted) return false;
     horse.respawnAtCheckpoint(hero);
     return true;
@@ -197,7 +205,10 @@ async function boot() {
   // The horse's energy: potions in the forest, grass patches, desert oases.
   const energy = new HorseEnergy(world.scene, world, { sound, onHint: (text) => ui.toast(text) });
   await energy.init(gems.gems);
-  const story = new Story({ world, hero, horse, boss, girl, gems, abilities, combat, lives, quests, cinematic, state, cam, pit, gate, storm, minions, hurdles, energy, sound, ui, guide });
+  // The sealed boss arena: a rock barrier closes the entrance behind AJ until the boss is dead.
+  arena = new SealedArena(world.scene, world, { hero, horse, boss, cam, sound, onToast: (text) => ui.toast(text) });
+  await arena.init();
+  const story = new Story({ world, hero, horse, boss, girl, gems, abilities, combat, lives, quests, cinematic, state, cam, pit, gate, storm, minions, hurdles, energy, arena, sound, ui, guide });
   quests.story = story;
   const NEUTRAL = { moveX: 0, moveY: 0, jumpPressed: false };
 
@@ -239,7 +250,9 @@ async function boot() {
         if (lives.resolveDeath() === 'respawn') {
           abilities.clear();
           combat.reset();
-          horse.respawnAtCheckpoint(hero);
+          // (the sealed boss fight: revived inside the arena, not outside)
+          if (arena.sealed) arena.respawnHero();
+          else horse.respawnAtCheckpoint(hero);
           lifeEvents.onRespawn?.();
           ui.fadeIn(CONFIG.lives.deathFadeMs);
           if (state.is(STATES.PLAY)) input.setEnabled(true);
@@ -273,6 +286,7 @@ async function boot() {
       combat.reset();
       horse.restartRide(hero);
       boss.onHeroRespawn();
+      arena.reset(); // (the entrance open again: the ride starts over)
       minions.clear();
       rescue.reset();
       gems.reset();
@@ -410,7 +424,9 @@ async function boot() {
         behindHorse();
       },
       boss: async () => {
+        // Straight into the sealed fight: AJ inside, the barrier shut, the horse by the entrance, Amy watching.
         teleportArena();
+        arena.sealNow();
         quests.goTo('cave');
       },
       afterBoss: () => story.debugDesert(),
@@ -482,6 +498,7 @@ async function boot() {
       horse.update(dt, inp, cam.yaw, hero);
       hurdles.update(dt, horse);
       combat.update(dt, inp, { mounted: horse.controlsHero });
+      abilities.inSealedArena = arena.sealed; // (Flash costs no hearts in the sealed fight)
       if (inp.ability) abilities.use(inp.ability);
       abilities.update(dt);
       boss.update(dt, hero);
@@ -494,6 +511,7 @@ async function boot() {
         chase: { active: story.desertChaseActive, time: story.chaseTime, over: story.chaseOver },
       });
       rescue.update(dt, { onFoot: !horse.controlsHero, riding: horse.controlsHero });
+      arena.update(dt, true);
       ui.setHorseEnergy(horse.energy / CONFIG.energy.horseEnergyMax, horse.everMounted, horse.energyTired);
       ui.setBossBar(boss.active, boss.hp / boss.maxHp, DIALOGUE.bossName);
       input.setCombatButtons(horse.controlsHero, abilities, story.fatigue > 0);
@@ -512,7 +530,9 @@ async function boot() {
       // Cutscene: the world keeps moving (the horse slowing at the castle, the girl trembling).
       horse.update(dt, NEUTRAL, cam.yaw, hero);
       boss.update(dt, hero);
+      arena.update(dt, false);
     } else {
+      arena.update(state.paused ? 0 : dt, false);
       horse.update(dt, null, cam.yaw, hero);
     }
     girl.update(dt, world.heightAt(CONFIG.boss.girl.shadow.x - 4, CONFIG.boss.girl.shadow.z));
@@ -531,7 +551,7 @@ async function boot() {
   });
 
   // Exposed for debugging in the browser console (e.g. game.state.set('ending')).
-  window.game = { state, hero, cam, world, quests, horse, input, guide, gems, abilities, sound, combat, lives, boss, girl, pit, story, cinematic, minions, rescue, storm, gate, hurdles, energy, damageHero, lifeEvents, STATES };
+  window.game = { state, hero, cam, world, quests, horse, input, guide, gems, abilities, sound, combat, lives, boss, girl, pit, story, cinematic, minions, rescue, storm, gate, hurdles, energy, arena, damageHero, lifeEvents, STATES };
 
   state.start();
 }

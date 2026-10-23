@@ -18,7 +18,8 @@
     "test:saddle": "node scripts/saddle-test.mjs",
     "test:chase": "node scripts/chase-test.mjs",
     "test:hurdles": "node scripts/hurdles-test.mjs",
-    "test:energy": "node scripts/energy-test.mjs"
+    "test:energy": "node scripts/energy-test.mjs",
+    "test:arena": "node scripts/arena-test.mjs"
   },
   "dependencies": {
     "three": "^0.186.1"

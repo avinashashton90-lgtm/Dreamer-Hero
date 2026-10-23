@@ -229,6 +229,7 @@ export class Horse {
     this.passenger = null; // the girl, riding behind the hero (desert)
     this.hold = false; // ending: brake to a stop and stay put
     this.scripted = false; // a cutscene drives position / heading / speed itself (the castle gate)
+    this.fled = false; // hurt to 0 in the sealed boss arena (arena.js): run off, out of sight, until the fight is over
     this.powerJumpZone = false; // just before a giant wall (hurdles.js): a jump while galloping is a power jump
     this.energy = CONFIG.energy.horseEnergyMax; // (energy.js drains / refills it; separate from AJ's hearts)
     this.energyTired = false; // out of energy: no gallop, a tired walk until it recovers
@@ -377,6 +378,7 @@ export class Horse {
     this.setPassenger(null);
     this.hold = false;
     this.scripted = false;
+    this.fled = false;
     for (const d of [...this.dust, ...this.drops, ...this.ripples, ...this.prints]) d.age = d.life;
     this.stamina = 1;
     this.restoreEnergy();
@@ -391,6 +393,8 @@ export class Horse {
   canMount(hero) {
     return (
       this.mode === MODES.IDLE &&
+      !this.scripted &&
+      !this.fled &&
       hero.grounded &&
       Math.hypot(hero.position.x - this.position.x, hero.position.z - this.position.z) < HC.mountRange
     );

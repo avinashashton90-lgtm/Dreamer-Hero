@@ -346,7 +346,11 @@ export const CONFIG = {
     // bolt strikes the target (flash, shockwave, screen shake).
     flashMode: {
       gemCost: 5,            // pink gems spent per use
-      flashHeartCostPct: 0.3, // of max hearts (1.5 of 5); usable only with more hearts than this
+      flashHeartCostPct: 0.3, // of max hearts (1.5 of 5); usable only with more hearts than this (outside the sealed arena)
+      // In the sealed boss arena (arena.js): Flash costs these hearts and needs at least this many
+      // (0 / 0: it never touches his hearts and works on his last heart; only the pink gems and the bar limit it).
+      flashHeartCostInArena: 0,
+      flashMinHeartsInArena: 0,
       flashReloadSeconds: 45, // the bar refills over this long after use
       hurtFlicker: 0.45,     // red flicker on the hero when he pays the cost
       hurtColor: 0xff2a2a,
@@ -690,7 +694,7 @@ export const CONFIG = {
     guard: [114, 0],         // waits here, in front of the cave mouth, until the hero enters the arena
     walkSpeed: 3.4,
     turnRate: 2.6,           // rad/s
-    keepInside: 3.5,         // stays this far inside the arena edge (boulders are its boundary)
+    arenaRadius: 16.5,       // leashed: its centre never gets further than this from the arena's centre (the boulders, the barrier, the cave stay out of reach)
     // Slam: rears up with both fists overhead (0.8 s, red circle on the ground), then smashes
     // them into the ground in front — damage inside the circle, a shockwave ring, screen shake.
     slam: { range: 4.6, windup: 0.8, reach: 2.4, radius: 3.6, damage: 1, impact: 0.4, smash: 0.1, shake: 0.5, shockTime: 0.35, impactShoulder: -0.62, impactInward: 0.34, crouch: 0 },
@@ -1160,6 +1164,28 @@ export const CONFIG = {
 
   // Forest hurdles (hurdles.js): an obstacle director places giant walls, sliding thorn bushes
   // and stones along the forest trail, mixed with the bat attacks (never at the same time).
+  // The sealed boss arena (arena.js): when the boss notices AJ, the entrance closes behind him
+  // with a rock barrier until the boss is dead. Only AJ fights; Amy watches from her corner at
+  // the cave mouth (beyond the boss's leash); the horse waits inside by the entrance.
+  arena: {
+    barrierCloseDelay: 2,    // seconds after the boss notices him (the horse walks in meanwhile)
+    closeTime: 0.9,          // the rocks rise this long...
+    openTime: 1.2,           // ...and sink again this long when the boss dies
+    barrier: { rocks: 5, radius: 1.75, height: 5.2, span: 5.9, color: 0x6d6560 }, // across the opening (between the entrance pillars)
+    clearIn: 3.5,            // closing: anything standing in the gateway is moved this far inside
+    shake: { amp: 0.35, time: 0.7 },
+    dust: { count: 26, size: [0.8, 1.8], speed: 3, life: 1.3, color: 0xa89a88, opacity: 0.55 },
+    respawn: [-14, 3],       // AJ revives here inside the arena (offset from its centre), facing the cave
+    horseSpot: [-17.8, -4.5], // the horse waits here (offset from the centre): inside, by the entrance, at the edge of the boss's reach
+    horseFacing: 0,          // ...side on to the arena, along the barrier (heading 0 = +z)
+    horseWalk: 9,            // speed it walks in at / comes back at
+    horseMaxHealth: 10,
+    horseFireDamage: 2,      // per burn tick (the boss's fire, every boss.fire.tick) while it stands in the cone
+    flee: { speed: 18, time: 1.6, fade: 0.6 }, // at 0 health it bolts away and fades out of sight
+    comeBack: { from: -27, stop: 3, maxTime: 15 }, // after the fight: back in from outside the entrance (offset x) to `stop` from AJ
+    healthBar: { width: 1.4, height: 0.16, up: 3.1, color: 0x5fe07a, low: 0xff4a3a, back: 0x1d1a2c },
+  },
+
   // Horse energy (energy.js): separate from AJ's hearts, a thin bar under them. Galloping drains
   // it, trotting / cantering drains it very slowly, walking or standing (or waiting dismounted)
   // lets it recover; nothing changes in cutscenes. At 0 the horse can't gallop and slows to a
@@ -1377,6 +1403,12 @@ export const DIALOGUE = {
   unlocked: (ability) => `${ability} Unlocked!`,
   smokeResisted: 'It shrugs off the smoke!',
   arenaGems: 'Gems at the arena edge!',
+  arena: {
+    sealed: 'The way out is sealed!',
+    open: 'The way out is open.',
+    horseFled: 'Your horse bolted!',
+    horseBack: 'Your horse is back.',
+  },
   gallop: 'Gallop',
   objectiveComplete: 'Objective complete!',
   distanceUnit: 'm',

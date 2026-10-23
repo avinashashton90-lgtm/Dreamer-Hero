@@ -283,7 +283,7 @@ export class Boss {
   /**
    * @param {THREE.Scene} scene
    * @param {import('./world.js').World} world
-   * @param {{ onHitHero?: (hearts:number, x:number, z:number, opts?:{knockback?:boolean, source?:string}) => void, onSlam?: Function, onDefeat?: Function, onWake?: Function }} [events]
+   * @param {{ onHitHero?: (hearts:number, x:number, z:number, opts?:{knockback?:boolean, source?:string}) => void, onSlam?: Function, onDefeat?: Function, onWake?: Function, onNotice?: Function }} [events]
    */
   /**
    * @param {object} [modelOptions]  for loadMonsterModel / loadGirlModel: readFile, placeholder,
@@ -401,7 +401,10 @@ export class Boss {
 
   takeHit({ amount, flash = false, source = 'melee' }) {
     if (!this.alive) return 0;
-    if (this.state === S.GUARD) this.#set(S.CHASE);
+    if (this.state === S.GUARD) {
+      this.#set(S.CHASE);
+      this.events.onNotice?.();
+    }
     // Its own scale: a fixed share of max HP per kind of hit (B.hitPct) — melee 3%, Batarang 2%,
     // the Flash bolt exactly 40%; other hits do bonus damage while it's helpless.
     const pct = B.hitPct[flash ? 'flash' : source];
@@ -469,7 +472,7 @@ export class Boss {
     const l = Math.hypot(dx, dz) || 1;
     let x = this.position.x + (dx / l) * dist;
     let z = this.position.z + (dz / l) * dist;
-    const max = CV.radius - this.radius - 1;
+    const max = B.arenaRadius;
     const cx = x - this.center.x;
     const cz = z - this.center.z;
     const r = Math.hypot(cx, cz);
@@ -518,8 +521,9 @@ export class Boss {
   placeGirl() {
     if (!this.girl || this.girlTaken) return;
     const [gx, gz] = B.girl.position;
-    const k = Math.min(1, Math.max(0, this.girlTime) / B.girl.appearTime);
-    this.girl.visible = this.girlTime >= 0;
+    // In the sealed arena she watches from her corner the whole fight (out of the boss's reach).
+    const k = this.girlWatching ? 1 : Math.min(1, Math.max(0, this.girlTime) / B.girl.appearTime);
+    this.girl.visible = this.girlTime >= 0 || this.girlWatching;
     this.girl.position.set(gx + (1 - k) * 4, this.world.heightAt(gx, gz), gz);
     this.girl.rotation.set(0, B.girl.facing, 0);
     this.girl.scale.setScalar(0.3 + 0.7 * k);
@@ -553,6 +557,7 @@ export class Boss {
         if (heroInArena) {
           this.#set(S.CHASE);
           this.events.onWake?.();
+          this.events.onNotice?.(); // the sealed arena closes behind him (arena.js)
         }
         break;
       case S.CHASE: {
@@ -714,7 +719,8 @@ export class Boss {
           this.#set(S.DEAD);
           this.defeated = true;
           if (this.model) this.model.visible = false;
-          this.girlTime = 0;
+          // Watching from her corner (the sealed arena) she is already there: no appearing.
+          this.girlTime = this.girlWatching ? B.girl.appearTime : 0;
           this.events.onDefeat?.();
         }
         break;
@@ -728,6 +734,7 @@ export class Boss {
     if (this.state !== S.SMOKED) this.smokeCloud = null;
     this.fireCooldown = Math.max(0, this.fireCooldown - dt);
     this.#updateCracks(dt);
+    this.#keepInArena(); // whatever moved it this frame (walk, charge, a push), it never leaves its leash
     this.position.y = this.world.heightAt(this.position.x, this.position.z);
 
     // Solid body: the hero is pushed out of it (not while dying), but never into a rock or wall
@@ -855,7 +862,7 @@ export class Boss {
     const ddx = this.position.x - this.center.x;
     const ddz = this.position.z - this.center.z;
     const d = Math.hypot(ddx, ddz);
-    const max = CV.radius - B.keepInside;
+    const max = B.arenaRadius; // leashed: the boulders, the entrance barrier and the cave stay out of reach
     if (d <= max) return false;
     this.position.x = this.center.x + (ddx / d) * max;
     this.position.z = this.center.z + (ddz / d) * max;

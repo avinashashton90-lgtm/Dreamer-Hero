@@ -220,6 +220,7 @@ export class Abilities {
     this.bombs = []; // smoke bombs in flight
     this.clouds = []; // active smoke clouds
     this.cooldowns = { batarang: 0, smokeBomb: 0 };
+    this.inSealedArena = false; // the sealed boss fight (arena.js): Flash's heart cost / minimum from the arena settings
     this.energy = 1; // Flash Mode bar 0..1 (full = ready; reloads after use)
     this.lives = null; // set by main: hearts pay for Flash
     this.camera = null; // set by main: billboards the auto-aim bracket
@@ -307,9 +308,27 @@ export class Abilities {
     if (this.flashTarget === t) this.flashTarget = null;
   }
 
-  /** Hearts Flash costs (30% of max). */
+  /**
+   * Hearts Flash costs: 30% of max — but in the sealed boss arena (`inSealedArena`, set by main
+   * from arena.js) `flashHeartCostInArena` (0 by default: it never touches his hearts there).
+   */
   get flashHeartCost() {
+    if (this.inSealedArena) return FM.flashHeartCostInArena;
     return (this.lives?.maxHearts ?? CONFIG.lives.hearts) * FM.flashHeartCostPct;
+  }
+
+  /**
+   * Enough hearts for Flash? Outside the arena more than its cost (so it can never kill him). In
+   * the sealed arena at least `flashMinHeartsInArena` (0: any heart level, his last one too) and
+   * more than its arena cost when that is above 0 — low hearts never block it there by default.
+   */
+  #flashHeartsOk() {
+    if (!this.lives) return true;
+    const hearts = this.lives.hearts;
+    if (!this.inSealedArena) return hearts > this.flashHeartCost;
+    const min = FM.flashMinHeartsInArena;
+    const cost = FM.flashHeartCostInArena;
+    return (min <= 0 || hearts >= min) && (cost <= 0 || hearts > cost);
   }
 
   /** Gems one use of an ability costs: { color, n }. */
@@ -329,7 +348,7 @@ export class Abilities {
 
   /** Enough gems (and, for Flash, hearts) to pay for one use? (No gem store attached = free.) */
   canAfford(name) {
-    if (name === 'flashMode' && this.lives && !(this.lives.hearts > this.flashHeartCost)) return false;
+    if (name === 'flashMode' && !this.#flashHeartsOk()) return false;
     const { color, n } = this.gemCost(name);
     return !this.gems || (this.gems.counts[color] ?? 0) >= n;
   }
@@ -344,7 +363,7 @@ export class Abilities {
     const hero = this.hero;
     if (name === 'flashMode') {
       if (this.charging > 0 || this.strike) return 'busy'; // (usable from the saddle too)
-      if (this.lives && !(this.lives.hearts > this.flashHeartCost)) return 'health';
+      if (!this.#flashHeartsOk()) return 'health';
       if (!this.canAfford(name)) return 'gems';
       if (this.energy < 1) return 'reload';
       if (this.combat && !this.#flashTarget()) return 'target';
@@ -402,8 +421,12 @@ export class Abilities {
       this.#faceTarget();
     } else if (name === 'flashMode') {
       // Pay 30% of the hearts too (he flickers red, the hearts drop); the bar empties; charge up.
-      this.lives?.spend(this.flashHeartCost);
-      this.hero.redFlicker = FM.hurtFlicker;
+      // (in the sealed arena it costs no hearts by default: no spend, no red flicker)
+      const heartCost = this.flashHeartCost;
+      if (heartCost > 0) {
+        this.lives?.spend(heartCost);
+        this.hero.redFlicker = FM.hurtFlicker;
+      }
       this.energy = 0;
       this.charging = FM.chargeTime;
       this.flashTarget = this.#flashTarget();

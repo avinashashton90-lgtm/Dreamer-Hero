@@ -7,7 +7,8 @@
 // hint), 'paralyze' (Smoke Bomb), 'hum' (the Lazarus Pit wakes), 'heal' (the hero drinks),
 // 'gateSlam' (the castle gates slam shut), 'bossRoar' (the boss snaps out of a paralysis),
 // 'wallThud' (the horse runs into a giant forest wall), 'potion' (an energy potion picked up),
-// 'oasisSplash' (riding into a desert oasis pond).
+// 'oasisSplash' (riding into a desert oasis pond), 'barrierRumble' (the sealed arena's rock
+// barrier rising / sinking), 'horseHurt' (the boss's fire burns the horse), 'horseFlee' (it bolts).
 
 export class Sound {
   constructor() {
