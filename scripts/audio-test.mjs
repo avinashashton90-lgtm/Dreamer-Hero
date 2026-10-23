@@ -27,7 +27,7 @@ class MockCtx {
     return { kind, connections: [], connect(n) { this.connections.push(n); return n; }, disconnect() { this.connections = []; }, start() { ctx.started++; }, stop() {}, ...extra };
   }
   createGain() { return this.#node('gain', { gain: param(1) }); }
-  createOscillator() { return this.#node('osc', { type: 'sine', frequency: param(440), detune: param(0) }); }
+  createOscillator() { this.oscs = (this.oscs ?? 0) + 1; return this.#node('osc', { type: 'sine', frequency: param(440), detune: param(0) }); }
   createBiquadFilter() { return this.#node('filter', { type: 'lowpass', frequency: param(350), Q: param(1) }); }
   createBufferSource() { return this.#node('source', { buffer: null, loop: false, playbackRate: param(1) }); }
   createStereoPanner() { return this.#node('panner', { pan: param(0) }); }
@@ -46,7 +46,7 @@ class MockCtx {
     'bat_screech', 'bat_flap', 'bat_hit', 'bat_die', 'skel_rattle', 'skel_walk', 'skel_hit', 'skel_die', 'skel_thrown_aside', 'slime_squelch', 'slime_burst',
     'boss_roar', 'boss_step', 'boss_slam', 'boss_charge', 'boss_fire_breath', 'boss_hurt', 'boss_dazed', 'boss_death', 'boss_regen', 'barrier_close',
     'barrier_open', 'rock_rumble', 'pit_water_glow', 'pit_heal', 'gate_open', 'gate_slam', 'sandstorm_wind', 'thunder_soft', 'heart_lost', 'heart_gained',
-    'low_health_beat', 'aj_hup', 'aj_hya', 'aj_ugh', 'amy_gasp'];
+    'low_health_beat', 'aj_hup', 'aj_hya', 'aj_ugh', 'amy_gasp', 'horse_scream', 'horse_breath', 'river_flow'];
   const missing = required.filter((n) => !SOUNDS[n]);
   check(!missing.length, `all ${required.length} required sound names in the catalog${missing.length ? ` (missing ${missing})` : ''}`);
   const noRecipe = Object.keys(SOUNDS).filter((n) => !RECIPES[n]);
@@ -81,6 +81,42 @@ class MockCtx {
     try { if (!(voiceBlip(kit, out, 0, c) > 0)) errors.push(`blip ${id}`); } catch (e) { errors.push(`blip ${id}: ${e.message}`); }
   }
   check(!errors.length, `${Object.keys(RECIPES).length} recipes, ${Object.keys(DRONES).length} drones and ${Object.keys(AU.voice.characters).length} voice blips build (longest ${longest.toFixed(2)} s)${errors.length ? ` — ${errors.join('; ')}` : ''}`);
+}
+
+// 2b) No drum thumps: the water and the hooves are noise only (no pitched low oscillator); the
+//     boss's steps and the heartbeat are soft; the horse's whinnies sweep up then down.
+{
+  const ctx = new MockCtx();
+  const kit = new SynthKit(ctx);
+  const out = ctx.createGain();
+  const oscs = (name) => { const o0 = ctx.oscs ?? 0; RECIPES[name](kit, out, 0, 1); return (ctx.oscs ?? 0) - o0; };
+  const noOsc = ['river_splash', 'hoof_walk', 'hoof_trot', 'hoof_gallop'].map((n) => [n, oscs(n)]);
+  check(noOsc.every(([, n]) => n === 0), `water and hooves are soft noise, no thumping oscillator: ${noOsc.map(([n, c]) => `${n} ${c}`).join(', ')}`);
+  // Peak gain of the boss's step and the heartbeat (the envelopes' top values).
+  const peak = (name) => {
+    let top = 0;
+    const orig = kit.env.bind(kit);
+    kit.env = (o, t, a, d, v) => { top = Math.max(top, v); return orig(o, t, a, d, v); };
+    RECIPES[name](kit, out, 0, 1);
+    kit.env = orig;
+    return top;
+  };
+  const soft = ['boss_step', 'low_health_beat', 'horse_neigh', 'horse_scream'].map((n) => [n, peak(n)]);
+  check(soft.every(([, v]) => v <= 0.45), `soft levels: ${soft.map(([n, v]) => `${n} ${v}`).join(', ')}`);
+  // The whinny: a sawtooth swept up then down (the scream with two peaks), with a vibrato.
+  const sweep = (name) => {
+    const ramps = [];
+    const o0 = ctx.createOscillator;
+    ctx.createOscillator = function () { const o = o0.call(this); const f = o.frequency; const lin = f.linearRampToValueAtTime.bind(f); f.linearRampToValueAtTime = (v, tt) => { ramps.push(v); return lin(v, tt); }; const set = f.setValueAtTime.bind(f); f.setValueAtTime = (v, tt) => { if (!ramps.length) ramps.push(v); return set(v, tt); }; return o; };
+    RECIPES[name](kit, out, 0, 1);
+    ctx.createOscillator = o0;
+    let peaks = 0;
+    for (let i = 1; i < ramps.length - 1; i++) if (ramps[i] > ramps[i - 1] && ramps[i] > ramps[i + 1]) peaks++;
+    return { peaks, top: Math.max(...ramps) };
+  };
+  const n = sweep('horse_neigh');
+  const s = sweep('horse_scream');
+  check(n.peaks === 1 && s.peaks === 2 && s.top > n.top, `the neigh sweeps up then down (1 peak, ${n.top} Hz); the scream is higher with 2 peaks (${s.top} Hz)`);
 }
 
 // 3) Music: every section schedules notes; crossfades retire the old one; layers fade in / out.
@@ -210,6 +246,7 @@ function MU() { return CONFIG.audio.music; }
   const { Soundscape, LINE_IDS } = await import('../src/soundscape.js');
   const calls = [];
   const fake = {
+    // (the horse calls go through playSound: honour its throttle like the real one)
     setListener() {}, setMusic(s) { this.music = s; }, setMusicLayer(l, on) { this.layers[l] = on; }, duck() {}, update() {},
     setLoop(key, name, o) { calls.push(['loop', key, name, o]); }, playSound(name, o) { calls.push(['play', name, o]); return true; },
     playVoice() {}, voiceBlip() {}, spatial: () => ({ gain: 1, pan: 0 }), layers: {},
@@ -284,6 +321,58 @@ function MU() { return CONFIG.audio.music; }
     && revive.includes('aj_revive') && mount.includes('aj_mount') && roar.includes('boss_roar') && roar.includes('amy_gasp') && slam.includes('boss_slam')
     && skel.includes('skel_rattle') && skelDie.includes('skel_die'),
     `events from changes: jump [${jump}], land [${land}], hurt [${hurt}], heartbeat ${beat}, death [${death}], revive [${revive}], mount [${mount}], roar [${roar}], slam [${slam}], skeleton [${skel}] / [${skelDie}]`);
+  // The horse's voice: galloping, a call every horseCallMin…horseCallMax s, never the same twice
+  // in a row, never in dialogue; calls at moments; the breath loop on low energy; the river.
+  {
+    game.state.current = 'play';
+    game.story.phase = 'forest'; game.story.gateStarted = false; game.story.desertChaseActive = false; game.story.stormLevel = 0;
+    game.minions.list.length = 0;
+    game.horse.controlsHero = true; game.horse.mode = 'riding'; game.horse.galloping = true; game.horse.speed = 35; game.horse.stumbles = 0;
+    game.horse.energy = 100;
+    for (let i = 0; i < 3; i++) step();
+    calls.length = 0;
+    const T = 120;
+    for (let i = 0; i < T * 60; i++) step();
+    const horseCalls = calls.filter((c) => c[0] === 'play' && (c[1] === 'horse_neigh' || c[1] === 'horse_scream'));
+    let repeats = 0;
+    for (let i = 1; i < horseCalls.length; i++) if (horseCalls[i][1] === horseCalls[i - 1][1]) repeats++;
+    const lo = Math.floor(T / AU.horseCallMax), hi = Math.ceil(T / AU.horseCallMin) + 1;
+    check(horseCalls.length >= lo && horseCalls.length <= hi && repeats === 0,
+      `galloping 2 min: ${horseCalls.length} calls (${lo}…${hi} for every ${AU.horseCallMin}–${AU.horseCallMax} s), never the same twice in a row (${horseCalls.map((c) => c[1].replace('horse_', '')).join(' ')})`);
+    calls.length = 0;
+    game.cinematic.active = true; game.cinematic.typing = true;
+    for (let i = 0; i < 30 * 60; i++) step();
+    const inDialogue = calls.filter((c) => c[0] === 'play' && c[1].startsWith('horse_')).length;
+    game.cinematic.active = false; game.cinematic.typing = false;
+    check(inDialogue === 0, `no horse calls during dialogue (30 s: ${inDialogue})`);
+    const moment = (fn) => { sc.lastCallAt = -Infinity; calls.length = 0; fn(); step(); return calls.filter((c) => c[0] === 'play' && c[1].startsWith('horse_')).map((c) => c[1]); };
+    const bat = moment(() => sc.onBatAttack());
+    const stumble = moment(() => { game.horse.stumbles++; });
+    game.boss.position = V(game.horse.position.x + 10, 0, game.horse.position.z);
+    const roar = moment(() => sc.onBossRoar());
+    const skel = moment(() => { sc.lastSkelAt = -Infinity; game.minions.list.push({ type: 'skeleton', alive: true, state: 'spawn', position: V(3, 0, 3) }); });
+    const storm = moment(() => { game.storm.strength = 1; });
+    game.storm.strength = 0;
+    step();
+    const land = moment(() => { game.horse.grounded = false; for (let i = 0; i < 40; i++) step(); game.horse.grounded = true; });
+    check(bat.length && stumble.length && roar.length && skel.length && storm.includes('horse_scream') && land.includes('horse_snort'),
+      `horse calls at moments: bat attack [${bat}], stumble [${stumble}], boss roar [${roar}], skeleton group [${skel}], sandstorm [${storm}], big landing [${land}]`);
+    calls.length = 0;
+    game.horse.energy = 10;
+    step();
+    const breath = calls.some((c) => c[0] === 'loop' && c[2] === 'horse_breath');
+    game.horse.energy = 100;
+    calls.length = 0;
+    step();
+    const breathAfter = calls.some((c) => c[0] === 'loop' && c[2] === 'horse_breath');
+    game.horse.inWater = true;
+    calls.length = 0;
+    step();
+    const water = calls.find((c) => c[0] === 'loop' && c[2] === 'river_flow');
+    game.horse.inWater = false;
+    check(breath && !breathAfter && water && water[3].volume === AU.riverSoundVolume,
+      `heavy breathing while the energy is low (stops when it recovers); a quiet river_flow loop in the water (volume ${water?.[3].volume})`);
+  }
   // Voice ids for every cutscene line.
   const lines = [...Object.entries(DIALOGUE.girlScene), ...Object.entries(DIALOGUE.pitScene)].filter(([k, v]) => typeof v === 'string' && !/cue$/i.test(k));
   check(lines.every(([, t]) => LINE_IDS.has(t)), `a voice id for each of the ${lines.length} cutscene lines (e.g. ${LINE_IDS.get(DIALOGUE.girlScene.safe)})`);

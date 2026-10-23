@@ -11,12 +11,15 @@ export const SOUNDS = {
   hoof_walk: { group: 'effects', loop: true, desc: 'Hooves at a walk (loop; its rate follows the horse’s speed)' },
   hoof_trot: { group: 'effects', loop: true, desc: 'Hooves at a trot / canter (loop; rate follows the speed)' },
   hoof_gallop: { group: 'effects', loop: true, desc: 'Hooves at a gallop (loop; rate follows the speed)' },
-  horse_neigh: { group: 'effects', desc: 'The horse neighs (gallop start, rearing up, bolting)' },
-  horse_snort: { group: 'effects', desc: 'A snort (mount, stumble, settling down)' },
+  horse_neigh: { group: 'effects', desc: 'The horse neighs (now and then while galloping; a bat attacking, the boss roaring, a skeleton group)' },
+  horse_scream: { group: 'effects', desc: 'A loud rearing whinny (galloping, rearing up, bolting, riding into the sandstorm)' },
+  horse_snort: { group: 'effects', desc: 'A snort (mount, a stumble, a big landing)' },
+  horse_breath: { group: 'effects', loop: true, desc: 'Heavy panting while the horse’s energy is low (loop)' },
   horse_hurt: { group: 'effects', desc: 'The horse is burnt by the boss’s fire or bitten by a bat' },
   horse_eat: { group: 'effects', desc: 'Grazing / munching on a grass patch or while it waits' },
   // Water
-  river_splash: { group: 'effects', desc: 'The horse enters / crosses water (river, oasis; quieter per step)' },
+  river_splash: { group: 'effects', desc: 'Soft water as the horse first enters the river / an oasis (at most one per 0.6 s)' },
+  river_flow: { group: 'effects', loop: true, desc: 'A very quiet water wash while the horse stays in the river (loop)' },
   potion_drink: { group: 'effects', desc: 'Drinking (an energy potion, the oasis)' },
   // AJ
   aj_jump: { group: 'effects', desc: 'AJ jumps (cloth whoosh)' },

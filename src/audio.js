@@ -20,25 +20,26 @@ const AU = CONFIG.audio;
  * listed sound.
  */
 export const ALIASES = {
-  splashStep: [['river_splash', { volume: AU.waterStepVolume }]],
-  splashEnter: [['river_splash']],
-  splashExit: [['river_splash', { volume: 0.7 }]],
-  stumble: [['stumble'], ['horse_snort']],
-  gallopStart: [['horse_neigh', { volume: 0.7 }]],
+  // (the river: one soft splash entering it, then the quiet river_flow loop — soundscape.js)
+  splashStep: [],
+  splashEnter: [['river_splash', { volume: AU.riverSoundVolume }]],
+  splashExit: [],
+  stumble: [['stumble']], // (the horse's snort / neigh: soundscape.js horse calls)
+  gallopStart: [], // (the gallop calls: soundscape.js)
   eerie: [['thunder_soft']],
   hum: [['pit_water_glow']],
   heal: [['pit_heal']],
   batScreech: [['bat_screech']],
   rescuePulse: [['rescue_pulse']],
-  rearUp: [['horse_neigh']],
+  rearUp: [['horse_scream', { volume: AU.horse.volume }]],
   gateSlam: [['gate_slam']],
   bossRoar: [['boss_roar']],
   wallThud: [['rock_rumble', { volume: 0.6 }]],
   potion: [['potion_pickup'], ['potion_drink', { delay: 0.15 }]],
-  oasisSplash: [['river_splash'], ['potion_drink', { delay: 0.3 }]],
+  oasisSplash: [['river_splash', { volume: AU.riverSoundVolume }], ['potion_drink', { delay: 0.3 }]],
   barrierRumble: [['rock_rumble']],
   horseHurt: [['horse_hurt']],
-  horseFlee: [['horse_neigh']],
+  horseFlee: [['horse_scream', { volume: AU.horse.volume }]],
   paralyze: [], // (soundscape.js plays boss_dazed for the boss)
 };
 
@@ -544,7 +545,11 @@ export class AudioManager {
         if (L.acc >= period) {
           L.acc = Math.min(L.acc - period, period);
           try {
-            RECIPES[L.name](this.kit, L.out, now + 0.01, L.pitch * (0.97 + Math.random() * 0.06));
+            // (each hit a little different in pitch and level: never a drum machine)
+            const hit = this.ctx.createGain();
+            hit.gain.value = 0.72 + Math.random() * 0.28;
+            hit.connect(L.out);
+            RECIPES[L.name](this.kit, hit, now + 0.01 + Math.random() * 0.012, L.pitch * (0.94 + Math.random() * 0.12));
           } catch {
             /* (a broken recipe never stops the loop updates) */
           }

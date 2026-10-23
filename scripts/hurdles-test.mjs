@@ -1,8 +1,9 @@
 // Headless test: the forest hurdles (hurdles.js) and the bats. Layout (spacing, the middle 80%,
-// straights, no gem under one, bat windows never overlapping a hurdle); a giant wall hit at a
-// normal canter stops the horse (half a heart, a shake, the hint once) and a gallop + power
-// jump clears it; thorn bushes slide and cost half a heart and a slow-down unless jumped;
-// stones make the horse stumble for a second (no damage) unless jumped; then a full forest ride
+// straights, no gem under one, bat windows never overlapping a hurdle); the giant wall (4 layers)
+// hit at a normal canter stops the horse ~1 s, stumbling, then it goes on (no hearts, a shake,
+// the hint once) and a gallop + power jump clears it comfortably; thorn bushes slide and slow
+// the horse with a stumble (no hearts) unless jumped; stones make the horse stumble for a
+// second (no hearts) unless jumped; then a full forest ride
 // with bats about: it reaches the cave without getting stuck, clears every hurdle, and no bat
 // comes in or starts an attack within batClear of a hurdle.
 // Usage: npm run test:hurdles   (exits non-zero on failure)
@@ -82,22 +83,49 @@ const step = (input) => {
   hurdles.update(dt, horse);
 };
 
-// 2) A giant wall: a canter (even jumping) is stopped; a gallop + power jump clears it.
+// 2) A giant wall (`wallLayers` 4 layers): a canter into it → the horse stops and stumbles ~1 s,
+//    then goes on — no hearts; a gallop + power jump clears it comfortably.
 {
   const w = list.find((h) => h.type === 'wall');
+  const wallH = HU.wallLayers * T.wall.layerHeight;
+  check(HU.wallLayers === 4 && Math.abs(wallH - 1.52) < 1e-9, `the giant wall: ${HU.wallLayers} layers, ${wallH.toFixed(2)} high`);
   hurdles.reset(); hurts.length = 0; hints.length = 0;
   mountAt(w.s - 60);
-  let blocked = false, minSpeed = Infinity, shake = 0, t = 0;
-  while (t < 8 && hurdles.stats.wallBlocks === 0) {
-    const { along } = hurdles.frame(w, horse.position);
-    step({ jump: horse.grounded && along > -3.5 && along < -2.5 }); t += dt; // (a normal hop at the wall)
-  }
-  blocked = hurdles.stats.wallBlocks === 1;
+  let t = 0;
+  while (t < 8 && hurdles.stats.wallBlocks === 0) { step({}); t += dt; }
+  const blocked = hurdles.stats.wallBlocks === 1;
   const after = hurdles.frame(w, horse.position).along;
-  minSpeed = horse.speed; shake = w.shake;
-  check(blocked && minSpeed === 0 && after < -T.wall.recoil * 0.8 && hurts.length === 1 && hurts[0] === T.wall.damage && shake > 0,
-    `a canter into the giant wall (a normal hop) is stopped: speed ${minSpeed}, pushed back to ${after.toFixed(1)}, ${hurts[0]} heart lost, the wall shakes (${shake.toFixed(2)} s)`);
+  const shake = w.shake;
+  // Stopped about a second (stumbling, the stick still pushed), then it goes on by itself.
+  let stopped = 0, movedAt = -1;
+  t = 0;
+  while (t < 3) { step({}); t += dt; if (horse.speed < 0.05 && movedAt < 0) stopped += dt; else if (movedAt < 0 && horse.speed > 0.5) movedAt = t; }
+  check(blocked && Math.abs(stopped - T.wall.stop) < 0.1 && movedAt > 0 && horse.speed > 2 && after < 0 && hurts.length === 0 && shake > 0,
+    `a canter into the giant wall: stopped and stumbling ${stopped.toFixed(2)} s, then on again (${horse.speed.toFixed(1)}); moved back to ${after.toFixed(1)}; ${hurts.length} hearts lost (obstacleHeartDamage ${HU.obstacleHeartDamage}); the wall shakes`);
   check(hints.length === 1 && hints[0] === DIALOGUE.hurdles.wallHint, `the hint shows once: "${hints[0]}"`);
+  // Gallop + jump clears it comfortably: over a wide range of take-off spots, with room to spare.
+  let ok = 0, tries = 0, minClear = Infinity;
+  for (let at = -16; at <= -2; at += 1) {
+    hurdles.reset();
+    hurdles.hintShown = true; // (the once-only hint is checked separately)
+    mountAt(w.s - 50);
+    horse.speed = CONFIG.horse.maxSpeed * CONFIG.horse.gallop.speedMultiplier;
+    const c0 = hurdles.stats.wallsCleared, b0 = hurdles.stats.wallBlocks;
+    let jumped = false, peakOver = -Infinity;
+    t = 0;
+    while (t < 5 && (horse.trackS ?? 0) < w.s + 6) {
+      const { along } = hurdles.frame(w, horse.position);
+      const jump = !jumped && horse.grounded && along >= at;
+      if (jump) jumped = true;
+      step({ gallop: true, jump }); t += dt;
+      const a2 = hurdles.frame(w, horse.position).along;
+      if (Math.abs(a2) < T.wall.depth) peakOver = Math.max(peakOver, horse.position.y - w.base - wallH);
+    }
+    tries++;
+    if (hurdles.stats.wallsCleared > c0 && hurdles.stats.wallBlocks === b0) { ok++; minClear = Math.min(minClear, peakOver); }
+  }
+  hurdles.stats.wallBlocks = 1;
+  check(ok >= 8 && minClear > 0.2, `gallop + jump clears it from ${ok} of ${tries} take-off spots (16 → 2 before it), at least ${minClear.toFixed(2)} over the top`);
   // Back off a little and try again with a gallop and a power jump.
   mountAt(w.s - 60, 0);
   const pj0 = horse.powerJumps, cleared0 = hurdles.stats.wallsCleared;
@@ -110,7 +138,7 @@ const step = (input) => {
     `gallop + jump: a power jump (${HU.powerJump.boost}× the hop) clears it; the hint doesn't show again`);
 }
 
-// 3) Thorn bushes slide across the trail; touching one: half a heart and a slow-down; a jump clears it.
+// 3) Thorn bushes slide across the trail; touching one: a slow-down and a stumble, no hearts; a jump clears it.
 {
   const b = list.find((h) => h.type === 'thorns');
   const o1 = hurdles.thornOffset(b);
@@ -126,8 +154,8 @@ const step = (input) => {
     step({ lat }); t += dt;
     if (hurdles.stats.thornHits > hits0) slowed = Math.min(slowed, horse.speed);
   }
-  check(Math.abs(o2 - o1) > 0.1 && hurdles.stats.thornHits === hits0 + 1 && hurts[0] === T.thorns.damage && slowed < before * 0.8,
-    `the bush slides (${o1.toFixed(2)} → ${o2.toFixed(2)}); ridden into it: ${hurts[0]} heart, slowed ${before.toFixed(1)} → ${slowed.toFixed(1)}`);
+  check(Math.abs(o2 - o1) > 0.1 && hurdles.stats.thornHits === hits0 + 1 && hurts.length === 0 && slowed < before * 0.8,
+    `the bush slides (${o1.toFixed(2)} → ${o2.toFixed(2)}); ridden into it: no hearts lost, slowed ${before.toFixed(1)} → ${slowed.toFixed(1)} (a stumble)`);
   hurdles.reset(); hurts.length = 0;
   mountAt(b.s - 40);
   t = 0;

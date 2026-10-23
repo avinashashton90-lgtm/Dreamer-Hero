@@ -1,8 +1,29 @@
 import { CONFIG, DIALOGUE } from './config.js';
 
-/** True when the page URL asks for the hidden test menu (…?debug). */
-export function testMenuWanted(search = typeof location === 'undefined' ? '' : location.search) {
-  return new URLSearchParams(search).has(CONFIG.testMenu.param);
+/**
+ * True when the hidden test menu is wanted: ?debug in the page URL, or switched on by holding
+ * the HUD speaker button (saved in localStorage; `saved` overrides for tests).
+ */
+export function testMenuWanted(search = typeof location === 'undefined' ? '' : location.search, saved = testMenuSaved()) {
+  return new URLSearchParams(search).has(CONFIG.testMenu.param) || saved;
+}
+
+/** The saved switch (holding the speaker button): true / false; false if storage refuses. */
+export function testMenuSaved() {
+  try {
+    return globalThis.localStorage?.getItem(CONFIG.testMenu.storageKey) === '1';
+  } catch {
+    return false;
+  }
+}
+
+export function saveTestMenu(on) {
+  try {
+    if (on) globalThis.localStorage?.setItem(CONFIG.testMenu.storageKey, '1');
+    else globalThis.localStorage?.removeItem(CONFIG.testMenu.storageKey);
+  } catch {
+    /* (storage refused: it just isn't remembered) */
+  }
 }
 
 /**
@@ -14,7 +35,8 @@ export function testMenuWanted(search = typeof location === 'undefined' ? '' : l
  */
 export class TestMenu {
   constructor(overlay, items) {
-    document.body.classList.add('test-mode'); // (the quest panel makes room for the button)
+    this.enabled = true;
+    document.body.classList.add('test-mode');
     this.el = document.createElement('div');
     this.el.className = 'test-menu';
     this.toggle = document.createElement('button');
@@ -40,6 +62,14 @@ export class TestMenu {
     this.toggle.addEventListener('click', () => (this.panel.style.display === 'none' ? this.open() : this.close()));
     this.el.append(this.toggle, this.panel);
     overlay.append(this.el);
+  }
+
+  /** Shown / hidden (switched off by holding the speaker button again). */
+  setEnabled(on) {
+    this.enabled = on;
+    this.el.style.display = on ? '' : 'none';
+    document.body.classList.toggle('test-mode', on);
+    if (!on) this.close();
   }
 
   open() {

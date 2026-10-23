@@ -42,6 +42,11 @@ export class Soundscape {
     this.airT = 0;
     this.horseAirT = 0;
     this.seen = new Map(); // minion → { alive }
+    this.clock = 0; // seconds of sound time (for the horse's call gap)
+    this.lastCall = null; // the horse's last call (never the same twice in a row)
+    this.lastCallAt = -Infinity;
+    this.gallopCallT = this.#nextCall(); // seconds of galloping to the next call
+    this.lastSkelAt = -Infinity; // the last skeleton that rose (a new group → the horse calls)
     this.thrown = new Set(); // castle-gate skeletons already heard flying
     this.blipCount = 0;
     this.lastShown = 0;
@@ -116,6 +121,36 @@ export class Soundscape {
   onBossRoar() {
     const b = this.g.boss;
     if (b.girl?.visible && !b.girlTaken) this.#play('amy_gasp', { delay: 0.25 });
+    // (the horse answers if it is near: waiting in the arena)
+    const h = this.g.horse;
+    if (!h.fled && h.model?.visible !== false && h.position.distanceTo(b.position) < AU.horse.bossRange) this.horseCall(['horse_neigh', 'horse_scream'], 0.4);
+  }
+
+  /** A bat starts its attack (the screech): the horse shies if AJ is riding. */
+  onBatAttack() {
+    if (this.g.horse.controlsHero) this.horseCall(['horse_neigh', 'horse_snort'], 0.2);
+  }
+
+  /**
+   * The horse's voice: one of `names`, never the one it made last time, never during dialogue,
+   * at least `horse.callGap` after the last call. Returns true if it called.
+   */
+  horseCall(names, delay = 0) {
+    const g = this.g;
+    if (g.cinematic.active || g.cinematic.typing) return false;
+    const now = this.clock;
+    if (now - this.lastCallAt < AU.horse.callGap) return false;
+    const pick = names.filter((n) => n !== this.lastCall);
+    const name = (pick.length ? pick : names)[Math.floor(Math.random() * (pick.length || names.length))];
+    if (!this.audio.playSound(name, { position: g.horse.position, volume: AU.horse.volume, delay })) return false;
+    this.lastCall = name;
+    this.lastCallAt = now;
+    this.gallopCallT = this.#nextCall();
+    return true;
+  }
+
+  #nextCall() {
+    return AU.horseCallMin + Math.random() * (AU.horseCallMax - AU.horseCallMin);
   }
 
   /** A cutscene line starts (cinematic.onLine). */
@@ -147,6 +182,7 @@ export class Soundscape {
   update(dt) {
     const g = this.g;
     const A = this.audio;
+    this.clock += dt;
     A.setListener(g.cam.camera);
     const S = g.STATES;
     const st = g.state.current;
@@ -209,6 +245,11 @@ export class Soundscape {
       const rate = Math.max(GA.rateClamp[0], Math.min(GA.rateClamp[1], v / GA.rateRef[gait]));
       A.setLoop('hooves', gait, { rate, position: horse.position });
     }
+    // In the river: a very quiet wash while the horse stays in it (a soft splash entering: ALIASES).
+    if (horse.inWater && !horse.fled) A.setLoop('water', 'river_flow', { volume: AU.riverSoundVolume, position: horse.position });
+    // Heavy breathing while the horse's energy is low.
+    const lowEnergy = horse.energyTired || (horse.energy ?? Infinity) < CONFIG.energy.horseEnergyMax * AU.horse.lowEnergy;
+    if (lowEnergy && horse.everMounted && !horse.fled && horse.model?.visible !== false) A.setLoop('breath', 'horse_breath', { position: horse.position });
     // The nearest bat's wings.
     let bat = null;
     let bd = Infinity;
@@ -246,6 +287,8 @@ export class Soundscape {
       boss: boss.state,
       energy: g.abilities.energy,
       gateOpening: !!g.gate?.opening,
+      storm: g.storm?.strength ?? 0,
+      stumbles: horse.stumbles ?? 0,
       arena: g.arena?.state,
     };
     const p = this.prev ?? now;
@@ -265,9 +308,21 @@ export class Soundscape {
     if (now.riding) {
       if (!horse.grounded) this.horseAirT += dt;
       if (p.horseGrounded && !now.horseGrounded && horse.velocity.y > 2) this.#play('aj_hup');
-      if (!p.horseGrounded && now.horseGrounded && this.horseAirT > 0.25) this.#play('hoof_gallop', { position: horse.position, volume: 1.2 });
+      if (!p.horseGrounded && now.horseGrounded && this.horseAirT > 0.25) {
+        this.#play('hoof_gallop', { position: horse.position, volume: 1.2 });
+        if (this.horseAirT > AU.horse.bigLanding) this.horseCall(['horse_snort'], 0.15); // (a big jump)
+      }
       if (now.horseGrounded) this.horseAirT = 0;
+      // Galloping: a call now and then.
+      if (horse.galloping && (this.gallopCallT -= dt) <= 0) {
+        if (!this.horseCall(['horse_neigh', 'horse_scream'])) this.gallopCallT = 1;
+      }
+      // Riding into the sandstorm.
+      const ss = g.storm?.strength ?? 0;
+      if (ss >= AU.horse.stormAt && (p.storm ?? 0) < AU.horse.stormAt) this.horseCall(['horse_scream']);
     }
+    // A stumble on an obstacle.
+    if (now.stumbles > p.stumbles && now.riding) this.horseCall(['horse_snort', 'horse_neigh']);
     if (now.mode !== p.mode) {
       if (now.mode === 'mounting') {
         this.#play('aj_mount');
@@ -352,7 +407,12 @@ export class Soundscape {
       const s = this.seen.get(m);
       if (!s) {
         this.seen.set(m, { alive: m.alive });
-        if (m.type === 'skeleton') this.#play('skel_rattle', { position: m.position });
+        if (m.type === 'skeleton') {
+          this.#play('skel_rattle', { position: m.position });
+          // (a new group rising round the horse: it calls out)
+          if (this.clock - this.lastSkelAt > AU.horse.groupGap && g.horse.controlsHero) this.horseCall(['horse_neigh', 'horse_scream'], 0.3);
+          this.lastSkelAt = this.clock;
+        }
         else if (m.type === 'slime') this.#play('slime_squelch', { position: m.position });
         continue;
       }

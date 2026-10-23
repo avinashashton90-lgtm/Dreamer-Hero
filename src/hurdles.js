@@ -20,7 +20,7 @@ function seeded(seed) {
 /**
  * Placeholder hurdle models (swap for real ones later), feet at the origin, across local X
  * (the trail's width), local +Z along the trail:
- *  - 'wall': five layers of stacked stones in running bond (two greys and a light one);
+ *  - 'wall': `wallLayers` (4) layers of stacked stones in running bond (two greys and a light one);
  *  - 'thorns': a low clump of dark leaves with red thorns (the director slides it sideways);
  *  - 'stones': three small rocks across the trail.
  */
@@ -30,7 +30,7 @@ export async function loadObstacleModel(type) {
     const W = T.wall;
     const rnd = seeded(11);
     const parts = W.colors.map(() => []);
-    for (let layer = 0; layer < W.layers; layer++) {
+    for (let layer = 0; layer < HU.wallLayers; layer++) {
       let x = -W.halfWidth + (layer % 2 ? -W.stone[0] / 2 : 0);
       while (x < W.halfWidth) {
         const w = Math.min(W.stone[0] + rnd() * (W.stone[1] - W.stone[0]), W.halfWidth - x);
@@ -134,8 +134,9 @@ export function planHurdles(world) {
 }
 
 /**
- * The forest obstacle director: giant walls (power jump: jump while galloping), sliding thorn
- * bushes (half a heart + a slow-down, a jump clears them) and stones (a jump; else a 1 s stumble).
+ * The forest obstacle director: giant walls (power jump: jump while galloping; else a 1 s stop
+ * and stumble), sliding thorn bushes (a slow-down and a stumble, a jump clears them) and stones
+ * (a jump; else a 1 s stumble). No hearts lost to any of them (`obstacleHeartDamage` 0).
  * `batWindows()` gives the trail stretches where bats may come in and attack (none within
  * `batClear` of a hurdle) for `minions.scheduleBats`, so the two never clash.
  * @param {{ onHurt?: (hearts, x, z) => void, onHint?: (text) => void, sound? }} events
@@ -240,23 +241,24 @@ export class Hurdles {
     }
     const plane = -(W.depth / 2 + W.contact);
     if (!(h.prevAlong < plane && along >= plane && along < W.depth)) return;
-    if (height >= W.layers * W.layerHeight - W.clearMargin) {
+    if (height >= HU.wallLayers * W.layerHeight - W.clearMargin) {
       this.stats.wallsCleared++;
       return;
     }
-    // Stopped dead: pushed back off the wall, half a heart, the wall shakes.
+    // Stopped: moved back off the wall, a ~1 s stumble standing still, then it goes on; the wall
+    // shakes. No hearts (obstacleHeartDamage 0).
     const back = plane - W.recoil - along;
     horse.position.x += h.tx * back;
     horse.position.z += h.tz * back;
     horse.position.y = this.world.heightAt(horse.position.x, horse.position.z);
-    horse.speed = 0;
     horse.galloping = false;
     horse.velocity.set(0, 0, 0);
     horse.grounded = true;
+    horse.stumbleFor(W.stop, { stop: true });
     h.shake = W.shake.time;
     this.stats.wallBlocks++;
     this.events.sound?.play('wallThud');
-    this.events.onHurt?.(W.damage, h.x, h.z);
+    this.#hurt(h.x, h.z);
   }
 
   #thorns(h, along, across, height, horse) {
@@ -269,9 +271,15 @@ export class Hurdles {
     if (h.hit.size || height >= B.height - B.clearMargin) return;
     if (Math.abs(across - this.thornOffset(h)) > B.halfWidth + CONFIG.horse.radius * 0.6) return;
     h.hit.add('thorns');
+    horse.stumbleFor(B.stumble);
     horse.speed *= B.slow;
     this.stats.thornHits++;
-    this.events.onHurt?.(B.damage, horse.position.x, horse.position.z);
+    this.#hurt(horse.position.x, horse.position.z);
+  }
+
+  /** Hearts for AJ from an obstacle: `obstacleHeartDamage` (0 by default: none). */
+  #hurt(x, z) {
+    if (HU.obstacleHeartDamage > 0) this.events.onHurt?.(HU.obstacleHeartDamage, x, z);
   }
 
   #stones(h, along, across, height, horse) {
@@ -286,6 +294,7 @@ export class Hurdles {
       h.hit.add(lat);
       horse.stumbleFor(S.stumble);
       this.stats.stoneStumbles++;
+      this.#hurt(horse.position.x, horse.position.z);
     }
   }
 }

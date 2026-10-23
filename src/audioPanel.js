@@ -21,7 +21,8 @@ export class AudioPanel {
   /**
    * @param {HTMLElement} overlay
    * @param {import('./audio.js').AudioManager} audio
-   * @param {{ onTap?: Function }} [events]
+   * @param {{ onTap?: Function, onLongPress?: Function }} [events]  onLongPress: the button held
+   *   `CONFIG.testMenu.holdSeconds` (switches the hidden test menu on / off)
    */
   constructor(overlay, audio, events = {}) {
     this.audio = audio;
@@ -52,7 +53,30 @@ export class AudioPanel {
       this.sliders[group] = input;
       this.panel.append(row);
     }
+    // Held for holdSeconds: the long press (no panel toggle on that release).
+    let holdTimer = 0;
+    let held = false;
+    const cancel = () => {
+      clearTimeout(holdTimer);
+      this.button.classList.remove('holding');
+    };
+    this.button.addEventListener('pointerdown', () => {
+      held = false;
+      cancel();
+      this.button.classList.add('holding');
+      holdTimer = setTimeout(() => {
+        held = true;
+        this.button.classList.remove('holding');
+        this.events.onLongPress?.();
+      }, CONFIG.testMenu.holdSeconds * 1000);
+    });
+    for (const e of ['pointerup', 'pointercancel', 'pointerleave']) this.button.addEventListener(e, cancel);
+    this.button.addEventListener('contextmenu', (e) => e.preventDefault()); // (no phone long-press menu)
     this.button.addEventListener('click', () => {
+      if (held) {
+        held = false;
+        return;
+      }
       this.events.onTap?.();
       this.toggle();
     });

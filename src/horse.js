@@ -245,6 +245,7 @@ export class Horse {
     this.galloping = false;
     this.refillWait = 0;
     this.stumble = 0; // seconds left of a stumble
+    this.stumbleStop = 0; // seconds it still stands still (stopped by a giant wall)
     this.stumbles = 0;
     this.obstaclesCleared = 0;
     this.inWater = false;
@@ -384,7 +385,7 @@ export class Horse {
     this.restoreEnergy();
     this.fatigue = 0;
     this.galloping = false;
-    this.stumble = 0;
+    this.stumble = this.stumbleStop = 0;
     this.inWater = false;
     this.#syncModel(0);
   }
@@ -507,7 +508,7 @@ export class Horse {
     this.velocity.set(0, 0, 0);
     this.grounded = true;
     this.galloping = false;
-    this.stumble = 0;
+    this.stumble = this.stumbleStop = 0;
     this.mode = MODES.RIDING;
     this.everMounted = true;
     this.nearCave = this.#nearCave();
@@ -547,6 +548,7 @@ export class Horse {
     else if ((this.refillWait -= dt) <= 0) this.stamina = this.stamina + GAL.staminaRefill * dt;
     this.stamina = Math.min(this.stamina, staminaCap);
     this.stumble = Math.max(0, this.stumble - dt);
+    this.stumbleStop = Math.max(0, (this.stumbleStop ?? 0) - dt);
     this.rearT = Math.max(0, (this.rearT ?? 0) - dt);
 
     // Turning: slower the faster it goes, slower again while galloping.
@@ -621,7 +623,7 @@ export class Horse {
     this.nearCave = atCave;
     if (this.hold) this.galloping = false;
     const capped = this.energyTired ? Math.min(top, CONFIG.energy.tiredSpeed) : top; // (out of energy: a tired walk)
-    const target = braking || mag < 0.05 || this.autoStop || this.hold ? 0 : capped * mag * (1 - HC.turnSlowdown * Math.abs(this.steer));
+    const target = braking || mag < 0.05 || this.autoStop || this.hold || this.stumbleStop > 0 ? 0 : capped * mag * (1 - HC.turnSlowdown * Math.abs(this.steer));
     const accel =
       target > this.speed
         ? this.galloping ? GAL.acceleration : HC.acceleration
@@ -750,10 +752,15 @@ export class Horse {
     }
   }
 
-  /** A stumble (an obstacle hit without a jump): slower for `time` s, no damage. */
-  stumbleFor(time) {
+  /**
+   * A stumble (an obstacle hit without a jump): slower for `time` s, no damage. `stop`: it also
+   * stands still that long (the giant forest wall), then goes on.
+   */
+  stumbleFor(time, { stop = false } = {}) {
     this.stumble = time;
-    this.speed *= OBS.stumbleSpeed;
+    this.stumbleTotal = time;
+    this.stumbleStop = stop ? time : 0;
+    this.speed = stop ? 0 : this.speed * OBS.stumbleSpeed;
     this.stumbles++;
     this.sound?.play('stumble');
     this.onStumble?.();
@@ -801,7 +808,7 @@ export class Horse {
     this.lean += (leanTarget - this.lean) * (1 - Math.exp(-HC.leanSmoothing * dt));
     body.rotation.z = this.lean;
     const RU = CONFIG.corner.mounted.rear;
-    body.rotation.x = Math.sin(ph) * 0.05 * s + (this.stumble > 0 ? Math.sin((this.stumble / OBS.stumbleTime) * Math.PI) * 0.3 : 0)
+    body.rotation.x = Math.sin(ph) * 0.05 * s + (this.stumble > 0 ? Math.sin((this.stumble / (this.stumbleTotal || OBS.stumbleTime)) * Math.PI) * 0.3 : 0)
       - (this.rearT > 0 ? Math.sin((this.rearT / RU.time) * Math.PI) * RU.pitch : 0); // (rearing up: nose up)
     const graze = this.mode === MODES.IDLE || this.eating ? Math.max(0, Math.sin(this.time * 0.8)) : 0;
     neck.rotation.x = graze * 0.9 + Math.sin(ph) * 0.12 * s;

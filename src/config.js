@@ -987,9 +987,12 @@ export const CONFIG = {
   // hearts and this many uses of each ability (gems = uses × the ability's gem cost).
   testMenu: {
     param: 'debug',
+    holdSeconds: 3,          // holding the HUD speaker button this long switches the test menu on / off...
+    storageKey: 'dreamerHero.testMenu', // ...remembered here (localStorage, try/catch)
+    vibrate: 60,             // ms buzz confirming the switch (where the phone supports it)
     abilityUses: 5,
     caveApproach: 45,        // "Cave entrance": on the horse this far from the arena centre (it auto-dismounts at boss.dismountRange)
-    hurdleApproach: 70,      // "Forest hurdles": on the horse this far before the first hurdle
+    hurdleApproach: 30,      // "Forest hurdles": on the horse this far before the first hurdle (it's right there, in view)
   },
 
   cutscene: {
@@ -1006,8 +1009,8 @@ export const CONFIG = {
     maxVoices: 24,           // one-shots at once; when full, the quietest one goes first
     voiceStealFade: 0.04,    // s: a dropped one-shot fades out this fast
     throttle: {              // min seconds between two plays of the same name (repeats like footsteps)
-      default: 0.03, aj_land: 0.25, river_splash: 0.12, skel_walk: 0.14, boss_step: 0.2, melee_hit: 0.05,
-      gem_collect: 0.04, heart_lost: 0.15, heart_gained: 0.18, horse_neigh: 5, horse_snort: 2, horse_eat: 2.5,
+      default: 0.03, aj_land: 0.25, river_splash: 0.6, skel_walk: 0.14, boss_step: 0.2, melee_hit: 0.05,
+      gem_collect: 0.04, heart_lost: 0.15, heart_gained: 0.18, horse_neigh: 1.5, horse_scream: 1.5, horse_snort: 1, horse_eat: 2.5,
       skel_rattle: 0.6, slime_squelch: 0.25, bat_hit: 0.08, skel_hit: 0.08, boss_hurt: 0.12, ability_empty: 0.25,
       amy_gasp: 4, aj_hup: 0.3, aj_hya: 0.25, aj_ugh: 0.4, boss_roar: 1.5, thunder_soft: 2, rock_rumble: 0.5,
     },
@@ -1027,8 +1030,20 @@ export const CONFIG = {
     },
     loops: {                 // pulse loops: one hit every `period` s (÷ rate)
       hoof_walk: { period: 0.42, volume: 0.45 }, hoof_trot: { period: 0.3, volume: 0.55 }, hoof_gallop: { period: 0.36, volume: 0.7 },
-      bat_flap: { period: 0.13, volume: 0.35 }, low_health_beat: { period: 1.15, volume: 0.55 },
+      bat_flap: { period: 0.13, volume: 0.35 }, low_health_beat: { period: 1.15, volume: 0.5 },
+      horse_breath: { period: 0.75, volume: 0.6 },
     },
+    // The river: a soft splash as the horse first enters the water (at most one per
+    // throttle.river_splash 0.6 s) and a very quiet wash while it stays in (river_flow), both
+    // at this volume.
+    riverSoundVolume: 0.35,
+    // The horse's voice: while galloping a call (horse_neigh or horse_scream, never the same
+    // twice in a row) every horseCallMin…horseCallMax s, never during dialogue; calls at moments
+    // (a bat attacking, a stumble, the boss's roar, a big landing, a skeleton group rising, riding
+    // into the sandstorm); heavy breathing (horse_breath) while its energy is below `lowEnergy`.
+    horseCallMin: 8,
+    horseCallMax: 15,
+    horse: { callGap: 1.2, volume: 0.8, lowEnergy: 0.25, bigLanding: 0.45, groupGap: 3, stormAt: 0.5, bossRange: 45 },
     gait: { walkMax: 4.5, trotMax: 19, gallopMin: 19, rateRef: { hoof_walk: 3, hoof_trot: 12, hoof_gallop: 26 }, rateClamp: [0.6, 1.7] },
     voice: {
       charsPerBlip: 2,       // one blip every this many typed letters (spaces and punctuation skipped)
@@ -1046,7 +1061,6 @@ export const CONFIG = {
     eatEvery: 3,             // s between munches while grazing
     skelRattleEvery: [3, 6], // s between rattles of a running skeleton (random)
     slimeEvery: 1.2,         // s between squelches of a hopping slime
-    waterStepVolume: 0.35,   // river_splash per hoof step (vs 1 entering / leaving)
     testLoopSeconds: 2.5,    // ?debug audio test panel: a loop plays this long
   },
 
@@ -1305,18 +1319,23 @@ export const CONFIG = {
     hintRange: 60,           // the first giant wall ahead: a short hint ("Gallop and jump!")
     // A jump while galloping in the `zone` before a giant wall is a power jump (~2.5 high).
     powerJump: { boost: 1.25, zone: 40 },
+    wallLayers: 4,           // the giant wall's layers of stones (× types.wall.layerHeight 0.38 = 1.52 high): gallop + jump clears it comfortably
+    // Hearts AJ loses hitting any forest obstacle (wall, thorns, stones). 0: none — the horse only
+    // stumbles / slows; hearts are lost only to enemies and fire.
+    obstacleHeartDamage: 0,
     types: {
-      // Five layers of stacked stones across the whole trail. Only a power jump clears it;
-      // hit without one, the horse stops (pushed back `recoil`), half a heart, the wall shakes.
+      // Layers of stacked stones across the whole trail (`wallLayers`). Gallop + jump (a power
+      // jump) clears it; hit without one, the horse stops, stumbles for `stop` s (moved `recoil`
+      // back off it), then goes on; the wall shakes.
       wall: {
-        layers: 5, layerHeight: 0.38, depth: 1.2, halfWidth: 7.8, stone: [1.1, 1.7],
-        colors: [0x8d8a83, 0x6f6c66, 0xa49e93], runUp: 40, recoil: 6, damage: 0.5,
+        layerHeight: 0.38, depth: 1.2, halfWidth: 7.8, stone: [1.1, 1.7],
+        colors: [0x8d8a83, 0x6f6c66, 0xa49e93], runUp: 40, recoil: 1.5, stop: 1,
         contact: 1.0, clearMargin: 0.15, shake: { time: 0.45, amp: 0.12, rate: 40 },
       },
-      // Low thorn bushes sliding slowly left and right across the trail: half a heart and a
-      // short slow-down on touch; a normal jump clears them.
+      // Low thorn bushes sliding slowly left and right across the trail: a short slow-down and a
+      // stumble on touch (no hearts, see obstacleHeartDamage); a normal jump clears them.
       thorns: {
-        halfWidth: 2.2, height: 0.7, depth: 1.4, travel: 4.2, period: 4.5, damage: 0.5, slow: 0.55,
+        halfWidth: 2.2, height: 0.7, depth: 1.4, travel: 4.2, period: 4.5, slow: 0.55, stumble: 0.6,
         clearMargin: 0.15, color: 0x2f5a2a, thornColor: 0x9a2a2a,
       },
       // Small rocks across the trail: jump them; hit one and the horse stumbles for a second (no damage).
@@ -1457,6 +1476,7 @@ export const DIALOGUE = {
     forest: 'Forest start', cave: 'Cave entrance', boss: 'Boss fight', afterBoss: 'After boss (Amy rescued)',
     pit: 'Lazarus Pit scene', chase: 'Desert chase', storm: 'Sandstorm', gate: 'Castle gate cinematic', ending: 'Ending screen',
     audio: 'Audio test',
+    on: 'Test menu on', off: 'Test menu off',
   },
   skip: 'Skip ▶▶',
   gameOver: 'You woke up with a jolt!',

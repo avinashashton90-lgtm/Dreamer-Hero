@@ -35,11 +35,14 @@ Layer files only play over a music file of their track (they start together, so 
 | hoof_walk ↻ | hoof_walk.ogg | Hooves at a walk (loop; its rate follows the horse’s speed) |
 | hoof_trot ↻ | hoof_trot.ogg | Hooves at a trot / canter (loop; rate follows the speed) |
 | hoof_gallop ↻ | hoof_gallop.ogg | Hooves at a gallop (loop; rate follows the speed) |
-| horse_neigh | horse_neigh.ogg | The horse neighs (gallop start, rearing up, bolting) |
-| horse_snort | horse_snort.ogg | A snort (mount, stumble, settling down) |
+| horse_neigh | horse_neigh.ogg | The horse neighs (now and then while galloping; a bat attacking, the boss roaring, a skeleton group) |
+| horse_scream | horse_scream.ogg | A loud rearing whinny (galloping, rearing up, bolting, riding into the sandstorm) |
+| horse_snort | horse_snort.ogg | A snort (mount, a stumble, a big landing) |
+| horse_breath ↻ | horse_breath.ogg | Heavy panting while the horse’s energy is low (loop) |
 | horse_hurt | horse_hurt.ogg | The horse is burnt by the boss’s fire or bitten by a bat |
 | horse_eat | horse_eat.ogg | Grazing / munching on a grass patch or while it waits |
-| river_splash | river_splash.ogg | The horse enters / crosses water (river, oasis; quieter per step) |
+| river_splash | river_splash.ogg | Soft water as the horse first enters the river / an oasis (at most one per 0.6 s) |
+| river_flow ↻ | river_flow.ogg | A very quiet water wash while the horse stays in the river (loop) |
 | potion_drink | potion_drink.ogg | Drinking (an energy potion, the oasis) |
 | aj_jump | aj_jump.ogg | AJ jumps (cloth whoosh) |
 | aj_land | aj_land.ogg | AJ lands from a jump |

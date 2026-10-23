@@ -82,35 +82,75 @@ export class SynthKit {
 
 const max = Math.max;
 
+/**
+ * A horse's whinny: a sawtooth whose pitch follows `peaks` ([time, Hz] pairs: up, then down),
+ * with a vibrato, softened by a low-pass so it never turns piercing, and a breathy noise layer.
+ */
+SynthKit.prototype.whinny = function whinny(out, t, { peaks, v = 0.16, vib = 11, vibDepth = 28, cutoff = 2200, breath = 0.35 }) {
+  const ctx = this.ctx;
+  const end = t + peaks[peaks.length - 1][0];
+  const o = ctx.createOscillator();
+  o.type = 'sawtooth';
+  o.frequency.setValueAtTime(peaks[0][1], t);
+  for (const [dt, f] of peaks.slice(1)) o.frequency.linearRampToValueAtTime(f, t + dt);
+  const lfo = ctx.createOscillator();
+  lfo.frequency.value = vib;
+  const depth = ctx.createGain();
+  depth.gain.value = vibDepth;
+  lfo.connect(depth).connect(o.frequency);
+  const lp = ctx.createBiquadFilter();
+  lp.type = 'lowpass';
+  lp.frequency.value = cutoff;
+  lp.Q.value = 0.7;
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0, t);
+  g.gain.linearRampToValueAtTime(v, t + 0.06);
+  g.gain.setValueAtTime(v, end - 0.25);
+  g.gain.linearRampToValueAtTime(0, end);
+  o.connect(lp).connect(g).connect(out);
+  o.start(t);
+  lfo.start(t);
+  o.stop(end + 0.05);
+  lfo.stop(end + 0.05);
+  // (the breath through the nostrils)
+  this.noise(out, t, { filter: 'bandpass', f: 1400, q: 0.8, a: 0.08, d: end - t, v: v * breath });
+  return end;
+};
+
 /** One-shot recipes: (kit, out, t, p) → length (s). */
 export const RECIPES = {
   // --- Horse ---
+  // Hooves: soft "clops" (a short band-passed knock and a little dirt), no low thump, each hit a
+  // little different (the pulse loop also varies pitch and level) so they never beat like a drum.
   hoof_walk: (k, o, t, p) => {
-    k.noise(o, t, { filter: 'lowpass', f: 700 * p, f2: 200, d: 0.07, v: 0.5 });
-    k.tone(o, t, { f: 110 * p, f2: 60, d: 0.06, v: 0.25 });
-    return 0.08;
+    k.noise(o, t, { filter: 'bandpass', f: (1100 + Math.random() * 300) * p, q: 2.5, d: 0.045, v: 0.32 });
+    k.noise(o, t, { filter: 'lowpass', f: 900 * p, f2: 400, d: 0.05, v: 0.12 });
+    return 0.07;
   },
   hoof_trot: (k, o, t, p) => {
-    k.noise(o, t, { filter: 'lowpass', f: 900 * p, f2: 240, d: 0.06, v: 0.5 });
-    k.tone(o, t, { f: 120 * p, f2: 60, d: 0.05, v: 0.3 });
-    k.noise(o, t + 0.09, { filter: 'lowpass', f: 800 * p, f2: 220, d: 0.05, v: 0.35 });
+    k.noise(o, t, { filter: 'bandpass', f: (1200 + Math.random() * 300) * p, q: 2.5, d: 0.04, v: 0.3 });
+    k.noise(o, t + 0.085 + Math.random() * 0.02, { filter: 'bandpass', f: (1000 + Math.random() * 300) * p, q: 2.5, d: 0.04, v: 0.22 });
+    k.noise(o, t, { filter: 'lowpass', f: 1000 * p, f2: 450, d: 0.05, v: 0.1 });
     return 0.16;
   },
   hoof_gallop: (k, o, t, p) => {
-    [0, 0.06, 0.12].forEach((dt, i) => {
-      k.noise(o, t + dt, { filter: 'lowpass', f: 1000 * p, f2: 250, d: 0.06, v: 0.45 - i * 0.07 });
-      k.tone(o, t + dt, { f: 100 * p, f2: 55, d: 0.06, v: 0.3 });
+    [0, 0.055, 0.115].forEach((dt, i) => {
+      k.noise(o, t + dt + Math.random() * 0.012, { filter: 'bandpass', f: (1050 + Math.random() * 400) * p, q: 2.2, d: 0.045, v: 0.28 - i * 0.05 });
     });
-    return 0.22;
+    k.noise(o, t, { filter: 'lowpass', f: 900 * p, f2: 400, d: 0.12, v: 0.12 });
+    return 0.2;
   },
-  horse_neigh: (k, o, t, p) => {
-    const e = k.vowel(o, t, { f: 520 * p, f2: 380 * p, a: 0.06, d: 0.55, v: 0.35, formants: [800, 1600, 2600] });
-    k.vowel(o, t + 0.12, { f: 600 * p, f2: 420 * p, a: 0.02, d: 0.35, v: 0.2, formants: [900, 2000] });
-    for (let i = 0; i < 6; i++) k.tone(o, t + 0.1 + i * 0.07, { type: 'triangle', f: 700 * p, f2: 560 * p, d: 0.05, v: 0.06 });
-    k.noise(o, t, { filter: 'bandpass', f: 2000, q: 2, a: 0.05, d: 0.5, v: 0.08 });
-    return e - t;
+  // A gentle whinny: up, then down, with a vibrato and breath.
+  horse_neigh: (k, o, t, p) => k.whinny(o, t, { peaks: [[0, 360 * p], [0.12, 780 * p], [0.35, 680 * p], [0.8, 400 * p]], v: 0.15 }) - t,
+  // A loud rearing whinny: higher and longer, two pitch peaks (still low-passed: never piercing).
+  horse_scream: (k, o, t, p) => k.whinny(o, t, { peaks: [[0, 420 * p], [0.16, 1000 * p], [0.42, 720 * p], [0.62, 960 * p], [1.2, 460 * p]], v: 0.17, vib: 13, vibDepth: 38, cutoff: 2500 }) - t,
+  horse_snort: (k, o, t, p) => k.noise(o, t, { filter: 'bandpass', f: 800 * p, f2: 450 * p, q: 1.2, a: 0.03, d: 0.3, v: 0.3 }) - t,
+  // Heavy panting (a pulse loop while the horse's energy is low): in, then a longer breath out.
+  horse_breath: (k, o, t, p) => {
+    k.noise(o, t, { filter: 'bandpass', f: 900 * p, q: 1, a: 0.08, d: 0.12, v: 0.14 });
+    k.noise(o, t + 0.24, { filter: 'bandpass', f: 600 * p, q: 0.9, a: 0.04, d: 0.24, v: 0.18 });
+    return 0.55;
   },
-  horse_snort: (k, o, t, p) => k.noise(o, t, { filter: 'bandpass', f: 900 * p, f2: 500 * p, q: 1.5, a: 0.02, d: 0.28, v: 0.45 }) - t,
   horse_hurt: (k, o, t, p) => {
     k.vowel(o, t, { f: 700 * p, f2: 450 * p, a: 0.01, d: 0.3, v: 0.35, formants: [900, 1900] });
     k.noise(o, t, { filter: 'highpass', f: 2500, d: 0.12, v: 0.15 });
@@ -121,11 +161,13 @@ export const RECIPES = {
     return 0.45;
   },
   // --- Water ---
+  // Soft water: band-passed noise with a short fade-in and a longer fade-out — no thump, no pulse.
   river_splash: (k, o, t, p) => {
-    k.noise(o, t, { filter: 'bandpass', f: 1500 * p, f2: 600 * p, q: 0.8, a: 0.01, d: 0.3, v: 0.5 });
-    k.tone(o, t + 0.02, { f: 900 * p, f2: 1500 * p, d: 0.08, v: 0.1 });
-    return 0.32;
+    k.noise(o, t, { filter: 'bandpass', f: 1300 * p, f2: 900 * p, q: 0.9, a: 0.07, d: 0.6, v: 0.32 });
+    k.noise(o, t + 0.03, { filter: 'highpass', f: 3500, a: 0.05, d: 0.35, v: 0.06 });
+    return 0.7;
   },
+  river_flow: (k, o, t, p) => k.noise(o, t, { filter: 'bandpass', f: 900 * p, q: 0.6, a: 0.4, d: 1, v: 0.1 }) - t, // (a drone when looped)
   potion_drink: (k, o, t, p) => {
     for (let i = 0; i < 3; i++) k.tone(o, t + i * 0.12, { f: 300 * p, f2: 520 * p, d: 0.08, v: 0.25 });
     return 0.4;
@@ -133,8 +175,8 @@ export const RECIPES = {
   // --- AJ ---
   aj_jump: (k, o, t, p) => k.noise(o, t, { filter: 'bandpass', f: 600 * p, f2: 2400 * p, q: 1, a: 0.02, d: 0.16, v: 0.35 }) - t,
   aj_land: (k, o, t, p) => {
-    k.noise(o, t, { filter: 'lowpass', f: 600 * p, f2: 150, d: 0.1, v: 0.5 });
-    k.tone(o, t, { f: 90 * p, f2: 50, d: 0.08, v: 0.3 });
+    k.noise(o, t, { filter: 'lowpass', f: 700 * p, f2: 200, d: 0.1, v: 0.4 });
+    k.tone(o, t, { f: 90 * p, f2: 60, a: 0.01, d: 0.06, v: 0.12 });
     return 0.12;
   },
   aj_hurt: (k, o, t, p) => {
@@ -278,10 +320,12 @@ export const RECIPES = {
     k.tone(o, t, { type: 'sawtooth', f: 48 * p, f2: 40 * p, a: 0.1, d: 1.0, v: 0.18 });
     return 1.25;
   },
+  // A heavy footfall felt more than heard: a soft low rumble and a little grit (no drum thump).
   boss_step: (k, o, t, p) => {
-    k.tone(o, t, { f: 60 * p, f2: 32, d: 0.3, v: 0.7 });
-    k.noise(o, t, { filter: 'lowpass', f: 300, f2: 80, d: 0.25, v: 0.4 });
-    return 0.32;
+    k.noise(o, t, { filter: 'lowpass', f: (220 + Math.random() * 60) * p, f2: 70, a: 0.02, d: 0.35, v: 0.45 });
+    k.tone(o, t, { f: 48 * p, f2: 36, a: 0.03, d: 0.25, v: 0.22 });
+    k.noise(o, t + 0.02, { filter: 'bandpass', f: 900, q: 1.5, d: 0.08, v: 0.06 });
+    return 0.4;
   },
   boss_slam: (k, o, t, p) => {
     k.tone(o, t, { f: 70 * p, f2: 28, d: 0.7, v: 0.9 });
@@ -370,10 +414,11 @@ export const RECIPES = {
     k.tone(o, t + 0.08, { type: 'triangle', f: 990 * p, d: 0.2, v: 0.16 });
     return 0.3;
   },
+  // A soft, muffled lub-dub (gentle attack, low level) — felt, not a drum.
   low_health_beat: (k, o, t, p) => {
-    k.tone(o, t, { f: 70 * p, f2: 45, d: 0.12, v: 0.6 });
-    k.tone(o, t + 0.22, { f: 62 * p, f2: 40, d: 0.14, v: 0.45 });
-    return 0.4;
+    k.tone(o, t, { f: 58 * p, f2: 46, a: 0.025, d: 0.14, v: 0.3 });
+    k.tone(o, t + 0.24, { f: 52 * p, f2: 42, a: 0.025, d: 0.16, v: 0.22 });
+    return 0.45;
   },
   // --- Extras ---
   rescue_pulse: (k, o, t, p) => {
@@ -407,6 +452,8 @@ export const RECIPES = {
  */
 export const DRONES = {
   sandstorm_wind: (k, out, p) => windDrone(k, out, p, { f: 500, q: 0.7, lfo: 0.18, depth: 380 }),
+  // The river while the horse is in it: a quiet, slowly moving wash.
+  river_flow: (k, out, p) => windDrone(k, out, p, { f: 1000, q: 0.5, lfo: 0.3, depth: 250 }),
   boss_fire_breath: (k, out, p) => {
     const ctx = k.ctx;
     const g = ctx.createGain();

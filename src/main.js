@@ -29,7 +29,7 @@ import { CornerRescue } from './rescue.js';
 import { characterBodies } from './fade.js';
 import { Sandstorm } from './sandstorm.js';
 import { CastleGate } from './gate.js';
-import { TestMenu, testMenuWanted } from './testMenu.js';
+import { TestMenu, testMenuWanted, saveTestMenu } from './testMenu.js';
 import { Hurdles } from './hurdles.js';
 import { HorseEnergy } from './energy.js';
 import { SealedArena } from './arena.js';
@@ -188,7 +188,10 @@ async function boot() {
     camera: cam.camera, // (bats stay inside the view while coming in, waiting and attacking)
     onHitHero: (hearts, x, z, opts) => damageHero(hearts, x, z, opts),
     onEvent: (name) => {
-      if (name === 'batScreech') sound.play('batScreech'); // (the telegraph before a dive)
+      if (name === 'batScreech') {
+        sound.play('batScreech'); // (the telegraph before a dive)
+        soundscape?.onBatAttack(); // (the horse shies)
+      }
     },
   });
   abilities.camera = cam.camera; // (billboards the mounted Batarang's target bracket)
@@ -231,7 +234,8 @@ async function boot() {
   soundscape = new Soundscape(audio, { state, STATES, story, hero, horse, boss, minions, storm, gate, lives, abilities, arena, cam, cinematic });
   cinematic.onLine = (speaker, text) => soundscape.onLine(speaker, text);
   cinematic.onType = (speaker, ch) => soundscape.onType(speaker, ch);
-  const audioPanel = new AudioPanel(overlay, audio);
+  // (holding the speaker button 3 s switches the hidden test menu on / off: see buildTestMenu)
+  const audioPanel = new AudioPanel(overlay, audio, { onLongPress: () => toggleTestMenu() });
   overlay.addEventListener('pointerdown', (e) => {
     const b = e.target?.closest?.('button');
     if (b && !b.closest('.controls') && !b.matches('.btn, .mount-btn, .dismount-btn, .gallop-btn')) soundscape.onTap();
@@ -387,7 +391,27 @@ async function boot() {
   }
 
   // --- Hidden test menu (?debug): jump straight to any part of the game ---
-  if (testMenuWanted()) {
+  // The hidden test menu: built when wanted (?debug in the link, or switched on by holding the
+  // HUD speaker button 3 s — remembered in localStorage until held again).
+  let testMenu = null;
+  function toggleTestMenu() {
+    const on = !testMenu?.enabled;
+    saveTestMenu(on);
+    if (on) buildTestMenu();
+    else testMenu?.setEnabled(false);
+    ui.toast(on ? DIALOGUE.testMenu.on : DIALOGUE.testMenu.off);
+    try {
+      navigator.vibrate?.(CONFIG.testMenu.vibrate);
+    } catch {
+      /* (no vibration here) */
+    }
+  }
+  if (testMenuWanted()) buildTestMenu();
+  function buildTestMenu() {
+    if (testMenu) {
+      testMenu.setEnabled(true);
+      return;
+    }
     const TM = CONFIG.testMenu;
     const nextFrame = () => new Promise((r) => requestAnimationFrame(() => r()));
     const behindHorse = () => {
@@ -476,7 +500,7 @@ async function boot() {
       ending: () => story.finish(),
     };
     const audioTest = new AudioTestPanel(overlay, audio);
-    new TestMenu(overlay, [
+    testMenu = new TestMenu(overlay, [
       ...Object.entries(jumps).map(([key, jump]) => ({
         label: DIALOGUE.testMenu[key],
         run: async () => {
