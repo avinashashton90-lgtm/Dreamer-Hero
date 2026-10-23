@@ -19,7 +19,9 @@
     "test:chase": "node scripts/chase-test.mjs",
     "test:hurdles": "node scripts/hurdles-test.mjs",
     "test:energy": "node scripts/energy-test.mjs",
-    "test:arena": "node scripts/arena-test.mjs"
+    "test:arena": "node scripts/arena-test.mjs",
+    "test:audio": "node scripts/audio-test.mjs",
+    "audio:readme": "node scripts/audio-readme.mjs"
   },
   "dependencies": {
     "three": "^0.186.1"

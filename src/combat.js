@@ -174,6 +174,7 @@ export class Combat {
 
   #startStep(i) {
     const hero = this.hero;
+    this.events.onSwing?.(i); // (the swing's sound)
     this.step = i;
     this.stepT = 0;
     this.hitDone = false;

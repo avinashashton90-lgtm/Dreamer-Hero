@@ -480,6 +480,7 @@ export class Abilities {
         const hand = this.hero.handPosition();
         if (this.pending.name === 'batarang') this.#throwBatarang(hand);
         else this.#throwSmoke(hand);
+        this.onEvent?.(this.pending.name === 'batarang' ? 'batarangThrow' : 'smokeThrow'); // (the sound, at the release)
         this.lastSpawn = { name: this.pending.name, position: hand.clone(), hand: this.hero.handPosition() };
         this.pending = null;
       }
@@ -809,7 +810,7 @@ export class Abilities {
       if (b.t >= 1) {
         this.clouds.push({ x: b.end.x, y: b.end.y, z: b.end.z, age: 0, seed: Math.random() * 10 });
         if (this.clouds.length > SB.maxClouds) this.clouds.shift();
-        this.onEvent?.('smokeBurst');
+        this.onEvent?.('smokeBurst', { position: b.end });
         // Crystal sparks drifting inside the new cloud.
         for (let i = 0; i < SB.sparks; i++) {
           const a = Math.random() * Math.PI * 2;

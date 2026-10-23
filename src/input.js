@@ -376,7 +376,7 @@ export class Input {
       // Anything we track that is no longer on the screen lost its end event: drop it first, so
       // a stale touch never blocks this one.
       this.liveTouches = new Set([...e.touches].map((t) => t.identifier));
-      if (e.target?.closest?.('.test-menu')) return; // (the ?debug test menu: plain clicks, never the joystick)
+      if (e.target?.closest?.('.test-menu, .audio-ui')) return; // (the ?debug test menu, the sound panel: plain clicks, never the joystick)
       if (!this.enabled) return;
       this.touch.sync(this.liveTouches);
       for (const t of e.changedTouches) fn(t);

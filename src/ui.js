@@ -282,7 +282,7 @@ export class UI {
   #placeBossBar() {
     this.bossBar.classList.remove('lower');
     const b = this.bossBar.getBoundingClientRect();
-    const others = [this.questEl, ...Object.values(this.gemPills), document.querySelector('.test-toggle')];
+    const others = [this.questEl, ...Object.values(this.gemPills), document.querySelector('.test-toggle'), document.querySelector('.audio-speaker')];
     const hit = others.some((el) => {
       const r = el?.getBoundingClientRect();
       return r && r.width && r.left < b.right + 4 && r.right > b.left - 4 && r.top < b.bottom && r.bottom > b.top;

@@ -998,6 +998,58 @@ export const CONFIG = {
     nodSeconds: 3.2,   // one slow head-nod cycle on the drowsy slide
   },
 
+  // Sound (audio.js AudioManager, sfx.js / music.js synthesized fallbacks, soundscape.js wiring).
+  audio: {
+    volumes: { master: 1, music: 0.5, effects: 0.8, voices: 0.85 }, // defaults (the speaker panel saves the player's own)
+    storageKey: 'dreamerHero.audio', // localStorage (try/catch: private modes may refuse)
+    extensions: ['ogg', 'mp3'],      // looked for in this order in public/audio/ (only files the build saw)
+    maxVoices: 24,           // one-shots at once; when full, the quietest one goes first
+    voiceStealFade: 0.04,    // s: a dropped one-shot fades out this fast
+    throttle: {              // min seconds between two plays of the same name (repeats like footsteps)
+      default: 0.03, aj_land: 0.25, river_splash: 0.12, skel_walk: 0.14, boss_step: 0.2, melee_hit: 0.05,
+      gem_collect: 0.04, heart_lost: 0.15, heart_gained: 0.18, horse_neigh: 5, horse_snort: 2, horse_eat: 2.5,
+      skel_rattle: 0.6, slime_squelch: 0.25, bat_hit: 0.08, skel_hit: 0.08, boss_hurt: 0.12, ability_empty: 0.25,
+      amy_gasp: 4, aj_hup: 0.3, aj_hya: 0.25, aj_ugh: 0.4, boss_roar: 1.5, thunder_soft: 2, rock_rumble: 0.5,
+    },
+    // 3D feel for effects with a position: quieter with distance from the camera, panned left / right.
+    distance: { ref: 5, rolloff: 1.1, max: 90, pan: 0.85 },
+    music: {
+      fade: 2,               // s crossfade between sections (and layers in / out)
+      duck: 0.4,             // the music drops by this much during voice lines and cutscenes...
+      duckIn: 0.25, duckOut: 0.9, // ...ramping down / back up over these (s)
+      lookahead: 0.25,       // s of notes scheduled ahead (the synthesized tracks)
+      bossIntenseBelow: 0.5, // the boss track's stronger layer below this share of its health
+      sandstormAt: 0.45,     // storm strength from which the chase becomes the "sandstorm" section
+      batRange: 40,          // a bat this close and attacking / waiting → the bat-attack music
+      bossRange: 45,         // within this of the arena (boss alive) → the boss music
+      // The section for each part of the story (see soundscape.js).
+      phases: { title: null, town: 'forest', forest: 'forest', bats: 'bats', boss: 'boss', afterBoss: 'pit', girlScene: 'pit', desertTired: 'pit', pit: 'pit', chase: 'chase', sandstorm: 'sandstorm', gate: 'gate', ending: 'ending', gameover: null },
+    },
+    loops: {                 // pulse loops: one hit every `period` s (÷ rate)
+      hoof_walk: { period: 0.42, volume: 0.45 }, hoof_trot: { period: 0.3, volume: 0.55 }, hoof_gallop: { period: 0.36, volume: 0.7 },
+      bat_flap: { period: 0.13, volume: 0.35 }, low_health_beat: { period: 1.15, volume: 0.55 },
+    },
+    gait: { walkMax: 4.5, trotMax: 19, gallopMin: 19, rateRef: { hoof_walk: 3, hoof_trot: 12, hoof_gallop: 26 }, rateClamp: [0.6, 1.7] },
+    voice: {
+      charsPerBlip: 2,       // one blip every this many typed letters (spaces and punctuation skipped)
+      characters: {          // the synthesized "talking" blip per character
+        aj: { freq: 330, jitter: 0.12, type: 'square', volume: 0.22, length: 0.06, formant: 1400 },
+        amy: { freq: 440, jitter: 0.08, type: 'sine', volume: 0.2, length: 0.075, formant: 2200 },
+        boss: { freq: 85, jitter: 0.1, type: 'sawtooth', volume: 0.35, length: 0.11, formant: 500 },
+      },
+      speakers: { hero: 'aj', girl: 'amy', boss: 'boss' }, // cinematic speaker key → character
+    },
+    gemPitch: { yellow: 1, blue: 1.26, pink: 1.5 },
+    bossStepShake: 0.05,     // the camera shake linked to each heavy boss step (units)
+    bossStepEvery: 0.62,     // s between boss steps while it walks (÷ speed factor)
+    regenEvery: 2.5,         // s between the soft regen shimmers
+    eatEvery: 3,             // s between munches while grazing
+    skelRattleEvery: [3, 6], // s between rattles of a running skeleton (random)
+    slimeEvery: 1.2,         // s between squelches of a hopping slime
+    waterStepVolume: 0.35,   // river_splash per hoof step (vs 1 entering / leaving)
+    testLoopSeconds: 2.5,    // ?debug audio test panel: a loop plays this long
+  },
+
   ui: {
     rotateCheckMs: 250,
     bossBarRecheck: 30,      // frames between checks that the boss bar fits the top row (else a second row)
@@ -1404,6 +1456,7 @@ export const DIALOGUE = {
     open: 'TEST', close: 'Close', hurdles: 'Forest hurdles',
     forest: 'Forest start', cave: 'Cave entrance', boss: 'Boss fight', afterBoss: 'After boss (Amy rescued)',
     pit: 'Lazarus Pit scene', chase: 'Desert chase', storm: 'Sandstorm', gate: 'Castle gate cinematic', ending: 'Ending screen',
+    audio: 'Audio test',
   },
   skip: 'Skip ▶▶',
   gameOver: 'You woke up with a jolt!',
@@ -1430,6 +1483,11 @@ export const DIALOGUE = {
   smokeResisted: 'It shrugs off the smoke!',
   arenaGems: 'Gems at the arena edge!',
   bossRegenIcon: '+', // beside the boss's health bar while it regenerates
+  audio: {
+    title: 'Sound', on: '🔊', off: '🔇', mute: 'Mute', unmute: 'Sound on',
+    music: 'Music', effects: 'Effects', voices: 'Voices',
+    sections: 'Music sections', stopMusic: 'Stop music', voicesTest: 'Voice blips', sounds: 'Sounds',
+  },
   arena: {
     sealed: 'The way out is sealed!',
     open: 'The way out is open.',

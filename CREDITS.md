@@ -24,6 +24,18 @@ The horse (`public/models/horse/horse.gltf`) is from the **Ultimate Animated Ani
 
 The bat, skeleton and slime (`public/models/monsters/bat.fbx`, `skeleton.fbx`, `slime.fbx`) are from the **Animated Monster Pack** by [Quaternius](https://quaternius.com), licensed [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) (public domain). They are used as they come (flat material colours, no textures), with their own clips: Bat_Flying / Attack / Attack2 / Hit / Death, Skeleton_Idle / Running / Attack / Spawn / Death, Slime_Idle / Walk / Attack / Death. (`dragon.fbx` from the same pack is in the folder but not used yet.)
 
+## Sound and music
+
+Every sound effect, music track and voice blip is currently **synthesized in code** with the Web
+Audio API (`src/sfx.js` for the effects, voice efforts and blips, `src/music.js` for the looping
+music; no samples, no third-party audio). Real recordings can replace any of them by name: drop a
+file into `public/audio/` as listed in `public/audio/README.md`, and add its source and licence
+here.
+
+| Sound | Source | Licence |
+|---|---|---|
+| All effects, music, voice blips and efforts | Synthesized in code (Dreamer Hero) | Part of this game |
+
 ## Engine
 
 - [three.js](https://threejs.org) (MIT), including `FBXLoader` and `GLTFLoader`.

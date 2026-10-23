@@ -157,7 +157,10 @@ export class Cinematic {
     const step = c.step;
     if (step.say) {
       if (c.shown < step.text.length) {
+        const before = Math.floor(c.shown);
         c.shown = Math.min(step.text.length, c.shown + CI.charsPerSecond * dt);
+        // (each newly shown letter: the voice blips — soundscape.js)
+        for (let i = before; i < Math.floor(c.shown); i++) this.onType?.(step.say, step.text[i]);
         this.#fireCues(c);
         this.#showLine(c);
       }
@@ -210,6 +213,7 @@ export class Cinematic {
       else c.move = move;
     } else if (step.say) {
       this.log.push(`say:${step.say}`);
+      this.onLine?.(step.say, step.text); // (its voice: a file, or blips as it types)
       c.ran = true;
       this.#showLine(c);
     } else if (step.call) {

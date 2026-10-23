@@ -13,7 +13,10 @@ import { Horse } from './horse.js';
 import { JumpGuide } from './guides.js';
 import { Gems } from './gems.js';
 import { Abilities } from './abilities.js';
-import { Sound } from './audio.js';
+import { Sound, AudioManager } from './audio.js';
+import { Soundscape } from './soundscape.js';
+import { AudioPanel, AudioTestPanel } from './audioPanel.js';
+import audioFiles from 'virtual:audio-files'; // (the files the build found in public/audio/)
 import { Combat } from './combat.js';
 import { Lives } from './lives.js';
 import { Boss } from './boss.js';
@@ -53,7 +56,11 @@ async function boot() {
   const hero = new Hero(world.scene, world, { onProgress: (f) => ui.setLoading(f * SH.hero) });
   await hero.init();
 
-  const sound = new Sound(); // placeholders: events only, no audio yet
+  // Sound: the AudioManager (files from public/audio/ or synthesized fallbacks; it starts on the
+  // first touch) behind the `sound` facade every system holds; soundscape.js wires it up below.
+  const audio = new AudioManager({ files: audioFiles });
+  const sound = new Sound(audio);
+  let soundscape = null; // (built once every system exists)
   const horse = new Horse(world.scene, world, { onProgress: (f) => ui.setLoading(SH.hero + f * SH.horse) });
   horse.sound = sound;
   await horse.init();
@@ -73,7 +80,9 @@ async function boot() {
       if (p.z < 1) ui.damageNumber(((p.x + 1) / 2) * window.innerWidth, ((1 - p.y) / 2) * window.innerHeight, Math.round(e.amount * 10) / 10, e.flash ? 'flash' : e.heavy ? 'heavy' : '');
       cam.shake(e.shake, CONFIG.combat.shake.time);
       hitStop = Math.max(hitStop, e.hitStop);
+      soundscape?.onHit(e);
     },
+    onSwing: () => soundscape?.onSwing(),
     // (a defeated minion drops its gem itself, after its death clip and fade: minions.js)
   });
   await combat.init();
@@ -88,13 +97,17 @@ async function boot() {
     if (name === 'flashStrike') ui.screenFlash();
     if (name === 'paralyzed') sound.play('paralyze');
     if (name === 'smokeResisted') ui.toast(DIALOGUE.smokeResisted);
+    soundscape?.onAbility(name, e);
   };
   let damageHero = () => false; // defined below (needs the state machine)
   let arena = null; // the sealed boss arena (built below)
   const boss = new Boss(world.scene, world, {
     onHitHero: (hearts, x, z, opts) => damageHero(hearts, x, z, opts),
     onSlam: () => cam.shake(CONFIG.boss.slam.shake, CONFIG.combat.shake.time * 1.6),
-    onWake: () => sound.play('bossRoar'), // (snapping out of a Smoke Bomb paralysis)
+    onWake: () => {
+      sound.play('bossRoar'); // (noticing him, snapping out of a Smoke Bomb paralysis)
+      soundscape?.onBossRoar(); // (Amy gasps)
+    },
     onNotice: () => arena.notice(), // it saw him: the arena seals behind him
     onDefeat: () => {
       ui.banner(DIALOGUE.victory);
@@ -120,9 +133,13 @@ async function boot() {
   abilities.lives = lives; // Flash also costs 30% of the hearts (none in the sealed boss arena)
 
   const gems = new Gems(world.scene, world, {
-    onCollect: () => ui.setGems(gems.counts),
+    onCollect: (color) => {
+      ui.setGems(gems.counts);
+      soundscape?.onGem(color);
+    },
     onSpend: () => ui.setGems(gems.counts),
     onUnlock: (color, ability) => {
+      soundscape?.onUnlock();
       abilities.unlock(ability);
       ui.pulseGem(color);
       input.pulseAbility(ability);
@@ -209,6 +226,16 @@ async function boot() {
   arena = new SealedArena(world.scene, world, { hero, horse, boss, cam, sound, lives, gems, abilities, onToast: (text) => ui.toast(text) });
   await arena.init();
   const story = new Story({ world, hero, horse, boss, girl, gems, abilities, combat, lives, quests, cinematic, state, cam, pit, gate, storm, minions, hurdles, energy, arena, sound, ui, guide });
+  // The sound wiring (reads the game every frame; never changes it), the cutscene voices, the
+  // speaker button + panel, and a tap sound on menu buttons (not the game's own controls).
+  soundscape = new Soundscape(audio, { state, STATES, story, hero, horse, boss, minions, storm, gate, lives, abilities, arena, cam, cinematic });
+  cinematic.onLine = (speaker, text) => soundscape.onLine(speaker, text);
+  cinematic.onType = (speaker, ch) => soundscape.onType(speaker, ch);
+  const audioPanel = new AudioPanel(overlay, audio);
+  overlay.addEventListener('pointerdown', (e) => {
+    const b = e.target?.closest?.('button');
+    if (b && !b.closest('.controls') && !b.matches('.btn, .mount-btn, .dismount-btn, .gallop-btn')) soundscape.onTap();
+  }, true);
   quests.story = story;
   const NEUTRAL = { moveX: 0, moveY: 0, jumpPressed: false };
 
@@ -241,6 +268,7 @@ async function boot() {
     if (n <= 0) return false;
     // (fire ticks every 0.8 s: no post-hit invincibility from a burn, so every tick counts)
     hero.hurt(fromX, fromZ, opts.knockback !== false, opts.source !== 'fire');
+    soundscape?.onHeroHurt();
     input.unstick(); // (a hit never leaves a drag or a touch stuck: a live swipe keeps turning the camera)
     cam.shake(CONFIG.combat.shake.heavy, CONFIG.combat.shake.time);
     if (lives.damage(n)) {
@@ -447,14 +475,18 @@ async function boot() {
       gate: () => story.debugGate(),
       ending: () => story.finish(),
     };
-    new TestMenu(overlay, Object.entries(jumps).map(([key, jump]) => ({
-      label: DIALOGUE.testMenu[key],
-      run: async () => {
-        await freshPlay();
-        await jump();
-        kit();
-      },
-    })));
+    const audioTest = new AudioTestPanel(overlay, audio);
+    new TestMenu(overlay, [
+      ...Object.entries(jumps).map(([key, jump]) => ({
+        label: DIALOGUE.testMenu[key],
+        run: async () => {
+          await freshPlay();
+          await jump();
+          kit();
+        },
+      })),
+      { label: DIALOGUE.testMenu.audio, run: () => audioTest.open() }, // (every sound, the music sections)
+    ]);
   }
 
   // --- Resize ---
@@ -571,6 +603,8 @@ async function boot() {
     if (cinematic.active) cinematic.update(state.paused ? 0 : realDt);
     // (the camera keeps going through hit-stop: real time, so a swipe always turns it)
     else cam.update(realDt, hero.position, { mounted: horse.mounted, speed: horse.speedRatio, gallop: horse.galloping, heading: horse.heading });
+    soundscape.update(state.paused ? 0 : realDt); // (after the camera: it is the listener)
+    audioPanel.setVisible(state.is(STATES.PLAY));
     if (!cinematic.active) hero.cameraOpacity = cam.heroOpacity; // (he fades if the camera is squeezed in right behind him; cutscenes fade him themselves)
     minions.fitView(); // (bats stay on screen: once more against this frame's camera)
     energy.update(state.paused ? 0 : dt, horse, playing); // (only in play: never in a cutscene)
@@ -582,7 +616,7 @@ async function boot() {
   });
 
   // Exposed for debugging in the browser console (e.g. game.state.set('ending')).
-  window.game = { renderer, state, hero, cam, world, quests, horse, input, guide, gems, abilities, sound, combat, lives, boss, girl, pit, story, cinematic, minions, rescue, storm, gate, hurdles, energy, arena, damageHero, lifeEvents, STATES };
+  window.game = { renderer, audio, soundscape, state, hero, cam, world, quests, horse, input, guide, gems, abilities, sound, combat, lives, boss, girl, pit, story, cinematic, minions, rescue, storm, gate, hurdles, energy, arena, damageHero, lifeEvents, STATES };
 
   state.start();
 }
