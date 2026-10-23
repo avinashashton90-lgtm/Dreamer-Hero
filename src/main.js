@@ -206,7 +206,7 @@ async function boot() {
   const energy = new HorseEnergy(world.scene, world, { sound, onHint: (text) => ui.toast(text) });
   await energy.init(gems.gems);
   // The sealed boss arena: a rock barrier closes the entrance behind AJ until the boss is dead.
-  arena = new SealedArena(world.scene, world, { hero, horse, boss, cam, sound, onToast: (text) => ui.toast(text) });
+  arena = new SealedArena(world.scene, world, { hero, horse, boss, cam, sound, lives, gems, abilities, onToast: (text) => ui.toast(text) });
   await arena.init();
   const story = new Story({ world, hero, horse, boss, girl, gems, abilities, combat, lives, quests, cinematic, state, cam, pit, gate, storm, minions, hurdles, energy, arena, sound, ui, guide });
   quests.story = story;
@@ -220,11 +220,15 @@ async function boot() {
     // Dying at the boss: it resets to full health (CONFIG.lives.bossResetsOnRespawn); the trail
     // gems from the checkpoint to the cave come back and the stock is topped up; the arena rings
     // go with the boss reset.
-    onRespawn: () => {
+    // In the sealed arena (`inArena`) the boss is not reset: arena.reviveHero gave it back only part
+    // of the damage, and the gem rings already shown stay.
+    onRespawn: ({ inArena = false } = {}) => {
       minions.clear(); // every minion removed
       rescue.reset();
-      boss.onHeroRespawn();
-      if (!boss.defeated) gems.resetArena();
+      if (!inArena) {
+        boss.onHeroRespawn();
+        if (!boss.defeated) gems.resetArena();
+      }
       gems.restock(horse.checkpoints[horse.lastCheckpoint].s);
       energy.reset({ newGame: false }); // (the potions come back; the horse is rested: respawnAtCheckpoint)
       story.restartChase(); // (in the sandstorm chase: from the checkpoint after the pit, storm and skeletons afresh)
@@ -250,10 +254,13 @@ async function boot() {
         if (lives.resolveDeath() === 'respawn') {
           abilities.clear();
           combat.reset();
-          // (the sealed boss fight: revived inside the arena, not outside)
-          if (arena.sealed) arena.respawnHero();
+          // (the sealed boss fight: revived inside the arena — full hearts, abilities refilled,
+          // a few seconds' protection — not outside)
+          const inArena = arena.sealed;
+          if (inArena) arena.reviveHero();
           else horse.respawnAtCheckpoint(hero);
-          lifeEvents.onRespawn?.();
+          lifeEvents.onRespawn?.({ inArena });
+          ui.setGems(gems.counts);
           ui.fadeIn(CONFIG.lives.deathFadeMs);
           if (state.is(STATES.PLAY)) input.setEnabled(true);
         } else state.set(STATES.GAMEOVER);

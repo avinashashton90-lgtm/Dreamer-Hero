@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CONFIG, DIALOGUE } from './config.js';
+import { CONFIG, DIALOGUE, abilityGemCost } from './config.js';
 import { setObjectOpacity } from './fade.js';
 
 // The sealed boss arena. When the boss notices AJ the entrance closes behind him with a rock
@@ -39,6 +39,23 @@ export async function loadBarrierModel() {
     dust.push({ sprite: s, age: Infinity, life: D.life, v: new THREE.Vector3(), size: 1 });
   }
   group.userData = { rocks, dust };
+  return group;
+}
+
+/** Amy's revive glow: a faint golden mote with a short fading trail (additive, no lights). */
+export async function loadAmyGlowModel() {
+  const A = AR.amyGlow;
+  const group = new THREE.Group();
+  const geo = new THREE.IcosahedronGeometry(1, 1);
+  const motes = [];
+  for (let i = 0; i < A.trail; i++) {
+    const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: A.color, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false }));
+    m.scale.setScalar(A.size * 0.25 * (1 - (0.6 * i) / A.trail));
+    group.add(m);
+    motes.push(m);
+  }
+  group.userData = { motes };
+  group.visible = false;
   return group;
 }
 
@@ -94,6 +111,8 @@ export class SealedArena {
     this.scene.add(this.model);
     this.healthBar = makeHealthBar();
     this.scene.add(this.healthBar);
+    this.amyGlow = await loadAmyGlowModel();
+    this.scene.add(this.amyGlow);
     this.reset();
   }
 
@@ -103,6 +122,8 @@ export class SealedArena {
     this.timer = 0;
     this.rise = 0; // 0 (sunk) … 1 (shut)
     this.#setColliders(false);
+    this.glowT = -1; // Amy's revive glow: seconds into its drift (−1: none)
+    if (this.amyGlow) this.amyGlow.visible = false;
     if (this.horseTask) this.horse.scripted = false;
     this.horseTask = null;
     this.horseHealth = AR.horseMaxHealth;
@@ -174,11 +195,79 @@ export class SealedArena {
   }
 
   /**
+   * A death in the sealed fight (a respawn is used as usual): AJ revives inside the arena with
+   * full hearts and every ability refilled (`reviveUses` uses each, more on hand kept; the Flash
+   * bar full), protected for `arenaReviveProtection` s with a soft golden glow while the boss
+   * backs off to the far side; the boss regains only `bossReviveRecoverFraction` of the damage
+   * dealt so far (no full reset). A faint golden glow drifts from Amy to him — she stays put.
+   */
+  reviveHero() {
+    const { hero, boss, lives, gems, abilities } = this;
+    this.respawnHero();
+    lives?.setHearts(lives.maxHearts);
+    if (gems) {
+      for (const [color, ability] of Object.entries(CONFIG.gems.abilities)) {
+        gems.counts[color] = Math.max(gems.counts[color] ?? 0, AR.reviveUses * abilityGemCost(ability));
+        gems.unlocked.add(color);
+        abilities?.unlock(ability);
+      }
+    }
+    if (abilities) {
+      abilities.energy = 1; // (the Flash bar reloaded)
+      for (const k of Object.keys(abilities.cooldowns)) abilities.cooldowns[k] = 0;
+    }
+    const protect = AR.arenaReviveProtection;
+    hero.protectFor(protect);
+    // The far side of the arena, opposite him.
+    const ux = hero.position.x - this.center.x;
+    const uz = hero.position.z - this.center.y;
+    const ul = Math.hypot(ux, uz) || 1;
+    const far = CONFIG.boss.arenaRadius * AR.farSide;
+    boss.reviveRecover(AR.bossReviveRecoverFraction, this.center.x - (ux / ul) * far, this.center.y - (uz / ul) * far, protect);
+    this.glowT = 0;
+    this.stats.revives = (this.stats.revives ?? 0) + 1;
+  }
+
+  /** Amy's golden glow drifting from her corner to AJ (an arc, over `amyGlow.time`). */
+  #updateAmyGlow(dt) {
+    const g = this.amyGlow;
+    if (!g) return;
+    const A = AR.amyGlow;
+    if (this.glowT < 0 || !this.boss.girl) {
+      g.visible = false;
+      return;
+    }
+    this.glowT += dt;
+    const k = this.glowT / A.time;
+    if (k >= 1 + 0.3) {
+      this.glowT = -1;
+      g.visible = false;
+      return;
+    }
+    g.visible = true;
+    const from = this.boss.girl.position;
+    const to = this.hero.position;
+    g.userData.motes.forEach((m, i) => {
+      const t = Math.min(1, Math.max(0, k - i * 0.05));
+      const e = t * t * (3 - 2 * t);
+      m.position.set(
+        from.x + (to.x - from.x) * e,
+        from.y + A.from + (to.y + A.to - from.y - A.from) * e + Math.sin(Math.PI * e) * A.arc,
+        from.z + (to.z - from.z) * e,
+      );
+      // (fades in, travels, then melts into him)
+      const fade = Math.min(1, k * 4) * Math.max(0, Math.min(1, (1.3 - k) / 0.3));
+      m.material.opacity = A.opacity * fade * (1 - i / A.trail);
+    });
+  }
+
+  /**
    * @param {number} dt
    * @param {boolean} playing  in play (not a cutscene, menu or pause)
    */
   update(dt, playing) {
     const { hero, horse, boss } = this;
+    this.#updateAmyGlow(dt);
     if (!playing) {
       // Out of play the story owns the horse (the girl's scene): let go of it, whole and in sight.
       if (this.horseTask) {

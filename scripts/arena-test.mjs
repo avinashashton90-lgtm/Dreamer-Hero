@@ -49,7 +49,7 @@ const boss = new Boss(scene, world, {
 await boss.init();
 combat.addTarget(boss);
 const toasts = [];
-arena = new SealedArena(scene, world, { hero, horse, boss, sound, onToast: (t) => toasts.push(t) });
+arena = new SealedArena(scene, world, { hero, horse, boss, sound, lives, gems, abilities, onToast: (t) => toasts.push(t) });
 await arena.init();
 
 const fromCentre = (p) => Math.hypot(p.x - cx, p.z - cz);
@@ -181,17 +181,69 @@ const burnHorse = () => {
     `at 0 it bolts and fades out of sight (fled, hidden, no bar, can't be mounted)`);
 }
 
-// 5) A respawn during the sealed fight: AJ revived inside the arena (on foot), not outside.
+// 5) Dying in the sealed fight: a respawn is used and AJ revives inside the arena — full hearts,
+//    every ability refilled, protected for a few seconds with a golden glow while the boss backs
+//    off to the far side; the boss regains only half the damage dealt; Amy's glow drifts to him.
 {
   check(arena.sealed, 'the fight is sealed');
+  boss.reset(); boss.state = S.CHASE; boss.stateTime = 0;
+  boss.hp = boss.maxHp * 0.4; // (AJ has dealt 60%)
+  const hpBefore = boss.hp;
+  gems.counts.yellow = gems.counts.blue = gems.counts.pink = 0;
+  abilities.energy = 0.2; // (the Flash bar mid-reload)
   placeHero(arena.lineX + 3, cz); // (wherever he fell)
-  arena.respawnHero();
-  boss.onHeroRespawn();
+  const respawns = lives.respawns;
+  god = false;
+  lives.damage(lives.hearts); // dead
+  const r = lives.resolveDeath();
+  abilities.clear(); combat.reset(); // (main, before the revive)
+  arena.reviveHero();
+  const girl0 = boss.girl.position.clone();
+  check(r === 'respawn' && lives.respawns === respawns - 1, `a respawn is used as before (${respawns} → ${lives.respawns})`);
+  check(lives.hearts === lives.maxHearts, `revived with full hearts (${lives.hearts} of ${lives.maxHearts}), not the last heart`);
+  const want = boss.maxHp - (boss.maxHp - hpBefore) * (1 - AR.bossReviveRecoverFraction);
+  check(boss.hp > hpBefore && boss.hp < boss.maxHp && Math.abs(boss.hp - want) < 0.01,
+    `the boss's health above where it was but below full: ${hpBefore} → ${boss.hp} of ${boss.maxHp} (regains ${AR.bossReviveRecoverFraction * 100}% of the damage dealt)`);
+  const uses = ['batarang', 'smokeBomb', 'flashMode'].map((a) => abilities.usesLeft(a));
+  check(uses.every((u) => u === AR.reviveUses) && gems.counts.yellow === 5 && gems.counts.blue === 25 && gems.counts.pink === 25 && abilities.energy === 1 && abilities.blockReason('flashMode') !== 'reload',
+    `gems full: Batarang ${uses[0]}, Smoke ${uses[1]}, Flash ${uses[2]} uses (yellow ${gems.counts.yellow}, blue ${gems.counts.blue}, pink ${gems.counts.pink}); the reload bar full`);
   check(inside(hero.position, 3) && !hero.riding && arena.state === 'closed' && barrierIn(),
-    `respawned inside the arena at (${hero.position.x.toFixed(1)}, ${hero.position.z.toFixed(1)}), on foot; the barrier still shut`);
+    `revived inside the arena at (${hero.position.x.toFixed(1)}, ${hero.position.z.toFixed(1)}), on foot; the barrier still shut`);
   check(!horse.fled && horse.model.visible && arena.horseHealth === AR.horseMaxHealth && horse.position.x > arena.lineX, 'the horse back at its spot inside, whole');
-  step(secs(0.5));
-  check(boss.state !== S.GUARD && arena.sealed, `the boss (reset) notices him again at once: ${boss.state}`);
+  // Protected for arenaReviveProtection: no hurt, a golden glow; the boss backs away, then resumes.
+  const P = AR.arenaReviveProtection;
+  const hero0 = hero.position.clone();
+  let hurt = 0, attacked = false, minGap = Infinity, glowOn = true, glowSeen = false, glowAtEnd = Infinity;
+  let t = 0;
+  step(secs(P - 0.05), { each: () => {
+    t += dt;
+    // (every kind of blow tried on him while protected)
+    if (Math.round(t / dt) % 20 === 0) boss.events.onHitHero(1, boss.position.x, boss.position.z);
+    if (hero.invincible !== true) hurt++;
+    if (![S.RECOVER].includes(boss.state)) attacked = true;
+    minGap = Math.min(minGap, Math.hypot(boss.position.x - hero.position.x, boss.position.z - hero.position.z));
+    const em = (hero.model.userData.mats ?? []).some((m) => m.emissiveIntensity > 0.05);
+    if (!em && hero.reviveShield > AR.reviveGlow.fadeOut) glowOn = false; // (it fades out over the last fadeOut s)
+    if (arena.amyGlow.visible) glowSeen = true;
+    if (t > AR.amyGlow.time - 0.05 && t < AR.amyGlow.time + 0.05) {
+      const m0 = arena.amyGlow.userData.motes[0].position;
+      glowAtEnd = Math.hypot(m0.x - hero.position.x, m0.z - hero.position.z);
+    }
+  } });
+  const farX = cx - ((hero0.x - cx) / Math.hypot(hero0.x - cx, hero0.z - cz)) * BC.arenaRadius * AR.farSide;
+  const farZ = cz - ((hero0.z - cz) / Math.hypot(hero0.x - cx, hero0.z - cz)) * BC.arenaRadius * AR.farSide;
+  const toFar = Math.hypot(boss.position.x - farX, boss.position.z - farZ);
+  check(hurt === 0 && lives.hearts === lives.maxHearts, `protected for ${P} s: blows land on nothing (hearts ${lives.hearts})`);
+  check(glowOn, 'a soft golden glow on him the whole time (fading out at the end)');
+  check(!attacked && toFar < 1.5 && minGap > 10, `the boss backs away to the far side (${toFar.toFixed(1)} from it, never nearer than ${minGap.toFixed(1)} to him), no attacks`);
+  check(glowSeen && glowAtEnd < 1 && boss.girl.position.distanceTo(girl0) < 1e-6,
+    `Amy's golden glow drifts from her corner to him in ~${AR.amyGlow.time} s (${glowAtEnd.toFixed(2)} from him then); she stays put`);
+  step(secs(0.3));
+  const wasInv = hero.invincible;
+  step(secs(1.5));
+  check(!wasInv && !hero.reviveShield && boss.state !== S.RECOVER && boss.state !== S.GUARD && arena.sealed,
+    `after ${P} s: protection over (glow gone), the boss fights on (${boss.state})`);
+  god = true;
 }
 
 // 6) Flash in the sealed arena: no hearts spent, usable on his last heart and below 2 hearts.

@@ -694,6 +694,7 @@ export const CONFIG = {
     guard: [114, 0],         // waits here, in front of the cave mouth, until the hero enters the arena
     walkSpeed: 3.4,
     turnRate: 2.6,           // rad/s
+    retreat: { speed: 1.6, arrive: 0.6 }, // AJ revived in the sealed arena: backs off to the far side at walkSpeed × speed
     arenaRadius: 16.5,       // leashed: its centre never gets further than this from the arena's centre (the boulders, the barrier, the cave stay out of reach)
     // Slam: rears up with both fists overhead (0.8 s, red circle on the ground), then smashes
     // them into the ground in front — damage inside the circle, a shockwave ring, screen shake.
@@ -1176,6 +1177,16 @@ export const CONFIG = {
     shake: { amp: 0.35, time: 0.7 },
     dust: { count: 26, size: [0.8, 1.8], speed: 3, life: 1.3, color: 0xa89a88, opacity: 0.55 },
     respawn: [-14, 3],       // AJ revives here inside the arena (offset from its centre), facing the cave
+    // A revive in the sealed fight (after a death; a respawn is still used): full hearts, a refill
+    // of every ability (reviveUses uses each, the Flash bar full), protected for
+    // arenaReviveProtection s while the boss backs off to the far side, and the boss gets back
+    // only bossReviveRecoverFraction of the damage he dealt it (no full reset).
+    arenaReviveProtection: 3,
+    bossReviveRecoverFraction: 0.5,
+    reviveUses: 5,           // Batarang 5, Smoke Bomb 5, Flash 5 (more on hand is kept)
+    farSide: 0.85,           // the boss backs off to this fraction of its leash, opposite AJ
+    reviveGlow: { intensity: 0.45, pulse: 0.3, rate: 1.2, fadeOut: 0.5 }, // his soft golden glow while protected
+    amyGlow: { time: 1, arc: 2.2, size: 1.1, color: 0xffd36a, opacity: 0.6, trail: 6, from: 1.4, to: 1.1 }, // a faint golden glow from Amy to him (heights above the feet)
     horseSpot: [-17.8, -4.5], // the horse waits here (offset from the centre): inside, by the entrance, at the edge of the boss's reach
     horseFacing: 0,          // ...side on to the arena, along the barrier (heading 0 = +z)
     horseWalk: 9,            // speed it walks in at / comes back at

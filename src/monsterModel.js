@@ -240,6 +240,10 @@ export class MonsterAnimator {
           const W = B.paralysis.dazed.wakeRoar;
           this.#scrub(clip, mapTime(1 - boss.wakeRoar / W, [0, 1], M.wakeRoar));
           jaw = Math.max(jaw, M.jawOpen.fire * Math.sin(Math.PI * (1 - boss.wakeRoar / W)));
+        } else if (boss.state === S.RECOVER && boss.retreating) {
+          // Backing off to the far side (AJ revived in the sealed arena).
+          clip = 'walk';
+          this.#loop('walk', clamp((B.walkSpeed * B.retreat.speed) / M.walkRef, 0.6, 2.2));
         } else this.#loop('idle', 1); // guard, recover
     }
     this.clip = clip;

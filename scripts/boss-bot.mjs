@@ -1,6 +1,6 @@
 // The boss-fight bot shared by the simulation (boss-sim.mjs) and the minion test: a "player"
 // with a reaction delay and a dodge success rate fighting the boss with the real game code.
-import { CONFIG } from '../src/config.js';
+import { CONFIG, abilityGemCost } from '../src/config.js';
 import { BOSS_STATES as S } from '../src/boss.js';
 
 const BC = CONFIG.boss, CV = CONFIG.cave, CB = CONFIG.combat, AB = CONFIG.abilities, dt = 1 / 60;
@@ -142,15 +142,22 @@ export function makeFight({ world, hero, combat, abilities, lives, boss, log, mi
     minions?.update(dt, { playing: true, riding: false, route: 'forest', pitDone: false, galloping: false });
     t += dt;
     if (lives.hearts <= 0) {
-      // Dead: a respawn (the ride back from the checkpoint isn't counted) and the boss resets.
+      // Dead: a respawn inside the sealed arena (arena.reviveHero): full hearts, every ability
+      // refilled, a few seconds' protection while the boss backs off and regains only part of
+      // the damage dealt.
+      const AR = CONFIG.arena;
       deaths++;
       lives.resolveDeath();
       lives.setHearts(lives.maxHearts);
-      boss.onHeroRespawn();
       minions?.clear();
       abilities.clear();
       combat.reset();
       enter();
+      for (const [color, ability] of Object.entries(CONFIG.gems.abilities)) gems.counts[color] = Math.max(gems.counts[color] ?? 0, AR.reviveUses * abilityGemCost(ability));
+      hero.protectFor(AR.arenaReviveProtection);
+      const ux = hero.position.x - CV.center[0], uz = hero.position.z - CV.center[1], ul = Math.hypot(ux, uz) || 1;
+      const far = BC.arenaRadius * AR.farSide;
+      boss.reviveRecover(AR.bossReviveRecoverFraction, CV.center[0] - (ux / ul) * far, CV.center[1] - (uz / ul) * far, AR.arenaReviveProtection);
       attempt = t;
       log.length = 0;
     }

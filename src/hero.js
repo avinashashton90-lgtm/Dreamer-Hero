@@ -225,6 +225,7 @@ export class Hero {
     this.hurtRed = 0; // red flash after being hurt
     this.riderFlinch = 0; // the jolt of a hit while mounted
     this.glow = 0; // 0..1 gold glow (Flash Mode)
+    this.reviveShield = 0; // seconds of protection left after a revive in the sealed arena (soft golden glow)
     this.redFlicker = 0; // seconds of red flicker (paying hearts for Flash)
     this.throwAnim = null; // { kind: 'throw' | 'catch', t } (driven by Abilities)
     this.exhaustion = 0; // 0..1: slumped in the saddle, breathing heavily (desert, on 1 heart)
@@ -239,9 +240,15 @@ export class Hero {
     this.prevPos = new THREE.Vector3();
   }
 
-  /** Invincible: mid-dodge or just hurt. */
+  /** Invincible: mid-dodge or just hurt (or protected just after a revive in the sealed arena). */
   get invincible() {
-    return this.iframes > 0 || !!this.superArmor; // (dodge / after a hit, or Flash's super-armor)
+    return this.iframes > 0 || !!this.superArmor || this.reviveShield > 0; // (dodge / after a hit, Flash's super-armor, a revive)
+  }
+
+  /** Revived in the sealed arena: can't be hurt for `seconds`, with a soft golden glow. */
+  protectFor(seconds) {
+    this.reviveShield = seconds;
+    this.reviveShieldTotal = seconds;
   }
 
   async init() {
@@ -257,7 +264,7 @@ export class Hero {
     this.shadow.visible = true;
     this.attack = null;
     this.throwAnim = null;
-    this.dodgeT = this.dodgeCooldown = this.iframes = this.hurtT = this.glow = this.redFlicker = this.hitT = 0;
+    this.dodgeT = this.dodgeCooldown = this.iframes = this.hurtT = this.glow = this.redFlicker = this.hitT = this.reviveShield = 0;
     this.exhaustion = this.facePitch = 0;
     this.deathT = -1;
     this.drink = null;
@@ -566,6 +573,7 @@ export class Hero {
     this.hitT = Math.max(0, this.hitT - dt);
     // Status timers tick here, every frame, mounted or not (main skips hero.update while riding).
     this.iframes = Math.max(0, this.iframes - dt);
+    this.reviveShield = Math.max(0, (this.reviveShield ?? 0) - dt);
     this.hurtT = Math.max(0, this.hurtT - dt);
     this.hurtRed = Math.max(0, (this.hurtRed ?? 0) - dt);
     this.riderFlinch = Math.max(0, (this.riderFlinch ?? 0) - dt);
@@ -611,7 +619,10 @@ export class Hero {
     this.redFlicker = Math.max(0, this.redFlicker - dt);
     const flicker = this.redFlicker > 0 && Math.sin(this.redFlicker * 40) > 0;
     const hitRed = this.hurtRed > 0 ? this.hurtRed / CB.hurtRed.time : 0;
-    const g = this.glow;
+    // (a revive's protection: a soft golden pulse, fading out over its last `fadeOut` s)
+    const RG = CONFIG.arena.reviveGlow;
+    const rg = this.reviveShield > 0 ? RG.intensity * (1 - RG.pulse + RG.pulse * Math.sin(this.time * RG.rate * Math.PI * 2)) * Math.min(1, this.reviveShield / RG.fadeOut) : 0;
+    const g = Math.max(this.glow, rg);
     // (cameraOpacity: the camera squeezed in right behind him by a rock — see FollowCamera.heroOpacity)
     const camFade = Math.min(1, this.cameraOpacity ?? 1);
     const blinking = (this.hurtT > 0 && this.deathT < 0) || camFade < 1;
@@ -631,7 +642,7 @@ export class Hero {
 
   /** Invincibility, blink, red flashes and flinch back to normal at once (a death, a respawn). */
   resetStatus() {
-    this.iframes = this.hurtT = this.hurtRed = this.riderFlinch = this.hitT = this.redFlicker = 0;
+    this.iframes = this.hurtT = this.hurtRed = this.riderFlinch = this.hitT = this.redFlicker = this.reviveShield = 0;
     this.model.visible = true;
     for (const m of this.model.userData.mats ?? []) {
       m.opacity = 1;

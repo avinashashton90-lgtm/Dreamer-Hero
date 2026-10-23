@@ -355,6 +355,7 @@ export class Boss {
     this.fireAcc = 0;
     this.fireSpawn = 0;
     for (const f of this.flames) f.age = f.life;
+    this.retreat = null; // { x, z } AJ revived in the sealed arena: it backs off there during his protection
     this.defeated = false;
     this.girlTime = -1;
     this.girlTaken = false; // she has left with the hero (Story)
@@ -485,6 +486,24 @@ export class Boss {
     if (![S.STUNNED, S.PARALYZED, S.SMOKED, S.STAGGERED].includes(this.state)) this.#set(S.RECOVER);
     this.stats.rescued = (this.stats.rescued ?? 0) + 1;
     return true;
+  }
+
+  /**
+   * AJ revived in the sealed arena (arena.js): no full reset — it gets back only `fraction` of
+   * the damage dealt so far (the rest of his progress stays), stops whatever it was doing, and
+   * backs away to (x, z) (the far side) for `seconds`, then fights on. Returns the HP regained.
+   */
+  reviveRecover(fraction, x, z, seconds) {
+    if (this.defeated || this.state === S.DYING || this.state === S.DEAD) return 0;
+    const before = this.hp;
+    this.hp = Math.min(this.maxHp, Math.round((this.hp + (this.maxHp - this.hp) * fraction) * 100) / 100);
+    this.paralyzed = 0;
+    this.smokeExposure = 0;
+    if (this.warning) this.warning.visible = false;
+    this.retreat = { x, z };
+    this.#set(S.RECOVER);
+    this.recoverFor = seconds; // (exactly his protection, enraged or not)
+    return this.hp - before;
   }
 
   /** For a while after a paralysis wears off it shrugs off the Smoke Bomb. */
@@ -701,7 +720,23 @@ export class Boss {
         break;
       }
       case S.RECOVER:
-        if (this.stateTime >= this.recoverFor) this.#set(S.CHASE);
+        if (this.retreat) {
+          // Backing away to the far side while the revived hero is protected; then it faces him.
+          const rx = this.retreat.x - this.position.x;
+          const rz = this.retreat.z - this.position.z;
+          const rd = Math.hypot(rx, rz);
+          this.retreating = rd > B.retreat.arrive;
+          if (this.retreating) {
+            this.#turnTo(rx, rz, dt);
+            const v = Math.min(rd, B.walkSpeed * B.retreat.speed * dt);
+            this.#move((rx / rd) * v, (rz / rd) * v);
+          } else this.#turnTo(dx, dz, dt);
+        }
+        if (this.stateTime >= this.recoverFor) {
+          this.retreat = null;
+          this.retreating = false;
+          this.#set(S.CHASE);
+        }
         break;
       case S.PARALYZED:
         this.paralyzed = Math.max(0, this.paralyzed - dt);
@@ -757,6 +792,10 @@ export class Boss {
   /** @param {number} [recoverFor]  RECOVER only: how long (default B.recover; shorter in phase 2) */
   #set(state, recoverFor) {
     this.wakeRoar = 0; // (the wake-up roar belongs to the recovery right after a paralysis)
+    if (state !== S.RECOVER) {
+      this.retreat = null;
+      this.retreating = false;
+    }
     if (state === S.RECOVER) this.recoverFor = (recoverFor ?? B.recover) * (this.enraged ? B.enrageRecover : 1);
     this.state = state;
     this.stateTime = 0;
