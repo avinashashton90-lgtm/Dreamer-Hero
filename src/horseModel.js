@@ -117,7 +117,7 @@ export class HorseAnimator {
 
   /**
    * @param {number} dt
-   * @param {{ speed, galloping, grounded, ridden, hopVelocity, vy }} s
+   * @param {{ speed, galloping, grounded, ridden, eating?, hopVelocity, vy }} s  eating: on a grass patch
    */
   update(dt, s) {
     const targets = new Map([...this.actions.keys()].map((k) => [k, 0]));
@@ -144,7 +144,7 @@ export class HorseAnimator {
       const b = G[Math.min(i + 1, G.length - 1)];
       const k = b === a ? 0 : clamp((speed - a.speed) / (b.speed - a.speed), 0, 1);
       const rate = (g) => (g.ref ? clamp(speed / g.ref, g.min, g.max) * (g.role === 'gallop' && s.galloping ? HM.gallopRate : 1) : 1);
-      const idleRole = (g) => (g.role === 'idle' && !s.ridden ? 'graze' : g.role);
+      const idleRole = (g) => (g.role === 'idle' && (!s.ridden || s.eating) ? 'graze' : g.role);
       add(idleRole(a), 1 - k, rate(a));
       if (k > 0) add(idleRole(b), k, rate(b));
     }

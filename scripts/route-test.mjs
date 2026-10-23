@@ -10,6 +10,7 @@ import { Horse } from '../src/horse.js';
 import { Gems } from '../src/gems.js';
 import { Abilities } from '../src/abilities.js';
 import { Hurdles } from '../src/hurdles.js';
+import { HorseEnergy } from '../src/energy.js';
 import { hurdleControls } from './hurdle-bot.mjs';
 const world = new World(); await world.init();
 const hero = new Hero(world.scene, world, heroAssets); await hero.init();
@@ -183,6 +184,8 @@ function cameraCheck(cam) {
   let hurdleHurt = 0;
   const hurdles = new Hurdles(world.scene, world, { onHurt: (n) => (hurdleHurt += n) });
   await hurdles.init();
+  const energy = new HorseEnergy(world.scene, world); // (the horse's energy, its potions and grass, as in the game)
+  await energy.init(gems.gems);
   hero.onFall = () => { if (!horse.everMounted) return false; horse.respawnAtCheckpoint(hero); return true; };
   const none = { moveX: 0, moveY: 0, jumpPressed: false };
   const HC = CONFIG.horse, tApex = HC.hopVelocity / HC.gravity;
@@ -308,8 +311,9 @@ function cameraCheck(cam) {
     horse.lastCheckpoint = 0; horse.checkpoints.forEach((c, i) => (c.reached = i === 0));
     horse.respawnAtCheckpoint(hero); horse.stamina = 1; rideFalls = 0; checkpoints = 0;
     gems.reset(); abilities.reset?.(); horse.arrivedAtCave = false;
-    hurdles.reset(); hurdleHurt = 0;
+    hurdles.reset(); hurdleHurt = 0; energy.reset();
     const hs0 = { ...hurdles.stats };
+    let minEnergy = Infinity, tiredFrames = 0;
     const stumbles0 = horse.stumbles, cleared0 = horse.obstaclesCleared;
     cam.reset(); cam.snapTo(hero.position);
     let t = 0, bestS = 0, since = 0, stuck = false, stuckAt = '', topSpeed = 0, maxLat = 0, wobble = 0, prevSteer = 0;
@@ -336,6 +340,8 @@ function cameraCheck(cam) {
       const hc = hurdleControls(horse, hurdles, { jumpSmall: jump }); // (giant walls: always a gallop + power jump)
       horse.update(dt, { moveX, moveY: 1, jumpPressed: (jump && shouldJump()) || hc.jump, gallop: (gallop && !tight) || hc.gallop }, cam.yaw, hero);
       hurdles.update(dt, horse);
+      energy.update(dt, horse, true);
+      minEnergy = Math.min(minEnergy, horse.energy); if (horse.energyTired) tiredFrames++;
       gems.update(dt, horse.collectPoint);
       cam.update(dt, hero.position, { mounted: horse.mounted, speed: horse.speedRatio, gallop: horse.galloping, heading: horse.heading });
       if (check) world.updateFoliage(dt, cam.camera.position, cam.focus);
@@ -365,7 +371,7 @@ function cameraCheck(cam) {
     rideDists.sort((a, b) => a - b);
     return { gemsLeft: forestLeft(), missed: forestGems.filter((g) => !g.collected).map((g) => g.kind + '@' + g.s.toFixed(0)).join(' '), t, stuck, stuckAt, atCave, topSpeed, maxLat, wobble, frames, inside, worstBlock, medianDist: rideDists[Math.floor(rideDists.length / 2)],
       waterTime, waterMaxSpeed, minSeat, stumbles: horse.stumbles - stumbles0, cleared: horse.obstaclesCleared - cleared0, falls: rideFalls, checkpoints, gaps: gapsPassed.size - gapsMissed,
-      hu: Object.fromEntries(Object.entries(hurdles.stats).map(([k, v]) => [k, v - hs0[k]])), hurt: hurdleHurt };
+      hu: Object.fromEntries(Object.entries(hurdles.stats).map(([k, v]) => [k, v - hs0[k]])), hurt: hurdleHurt, minEnergy, tiredFrames, potions: energy.stats.potions };
   };
 
   // a) Normal speed, jumping and collecting.
@@ -377,7 +383,7 @@ function cameraCheck(cam) {
   if (r.stuck || r.falls || forestLeft() || abilities.unlocked.size !== 3 || !r.atCave || r.checkpoints !== nCp) failed = true;
   const nWalls = hl.filter((h) => h.type === 'wall').length;
   const nStones = hl.filter((h) => h.type === 'stones').length;
-  console.log(`hurdles (normal): ${JSON.stringify(r.hu)}, hearts lost ${r.hurt}`);
+  console.log(`hurdles (normal): ${JSON.stringify(r.hu)}, hearts lost ${r.hurt}; horse energy never below ${r.minEnergy.toFixed(0)} (tired frames ${r.tiredFrames})`);
   if (r.stumbles || r.cleared < obs.length || r.gaps < gapWalls.length || r.maxLat > TRK.halfWidth) failed = true;
   if (r.hu.wallsCleared !== nWalls || r.hu.wallBlocks || r.hu.thornHits || r.hu.stoneStumbles || r.hurt) failed = true;
   if (r.t < 75 || r.t > 105) { console.log('normal ride time out of the ~90 s target'); failed = true; }
@@ -389,7 +395,7 @@ function cameraCheck(cam) {
   // b) Holding Gallop the whole way (stamina permitting), easing off before tight corners.
   const rg = ride({ gallop: true });
   console.log(`ride (gallop held): ${rg.t.toFixed(1)}s, top speed ${rg.topSpeed.toFixed(1)}, gems missed ${rg.gemsLeft} ${rg.missed}, stumbles ${rg.stumbles}, jumps cleared ${rg.cleared}/${obs.length}, gaps ${rg.gaps}/${gapWalls.length}, max off-centre ${rg.maxLat.toFixed(1)}, stuck ${rg.stuck}, falls ${rg.falls}, reached cave ${rg.atCave}`);
-  console.log(`hurdles (gallop): ${JSON.stringify(rg.hu)}, hearts lost ${rg.hurt}`);
+  console.log(`hurdles (gallop): ${JSON.stringify(rg.hu)}, hearts lost ${rg.hurt}; horse energy never below ${rg.minEnergy.toFixed(0)} (tired frames ${rg.tiredFrames})`);
   if (rg.stuck || rg.falls || !rg.atCave || rg.maxLat > TRK.halfWidth || rg.t > 65 || rg.t < 40 || rg.gemsLeft || rg.stumbles || rg.cleared < obs.length || rg.gaps < gapWalls.length) failed = true;
   if (rg.hu.wallsCleared !== nWalls || rg.hu.wallBlocks || rg.hu.thornHits || rg.hu.stoneStumbles || rg.hurt) failed = true;
 

@@ -28,6 +28,7 @@ import { Sandstorm } from './sandstorm.js';
 import { CastleGate } from './gate.js';
 import { TestMenu, testMenuWanted } from './testMenu.js';
 import { Hurdles } from './hurdles.js';
+import { HorseEnergy } from './energy.js';
 
 async function boot() {
   const app = document.getElementById('app');
@@ -193,7 +194,10 @@ async function boot() {
   });
   await hurdles.init();
   minions.scheduleBats(hurdles.batWindows());
-  const story = new Story({ world, hero, horse, boss, girl, gems, abilities, combat, lives, quests, cinematic, state, cam, pit, gate, storm, minions, hurdles, sound, ui, guide });
+  // The horse's energy: potions in the forest, grass patches, desert oases.
+  const energy = new HorseEnergy(world.scene, world, { sound, onHint: (text) => ui.toast(text) });
+  await energy.init(gems.gems);
+  const story = new Story({ world, hero, horse, boss, girl, gems, abilities, combat, lives, quests, cinematic, state, cam, pit, gate, storm, minions, hurdles, energy, sound, ui, guide });
   quests.story = story;
   const NEUTRAL = { moveX: 0, moveY: 0, jumpPressed: false };
 
@@ -211,6 +215,7 @@ async function boot() {
       boss.onHeroRespawn();
       if (!boss.defeated) gems.resetArena();
       gems.restock(horse.checkpoints[horse.lastCheckpoint].s);
+      energy.reset({ newGame: false }); // (the potions come back; the horse is rested: respawnAtCheckpoint)
       story.restartChase(); // (in the sandstorm chase: from the checkpoint after the pit, storm and skeletons afresh)
     },
   };
@@ -271,6 +276,7 @@ async function boot() {
       minions.clear();
       rescue.reset();
       gems.reset();
+      energy.reset();
       ui.setGems(gems.counts);
       ui.fadeIn(CONFIG.lives.deathFadeMs);
     }
@@ -353,6 +359,7 @@ async function boot() {
     /** Full hearts and `abilityUses` uses of every ability (unlocked). */
     const kit = () => {
       lives.setHearts(lives.maxHearts);
+      horse.restoreEnergy(); // (full horse energy at every starting point)
       for (const [color, ability] of Object.entries(CONFIG.gems.abilities)) {
         gems.counts[color] = TM.abilityUses * abilityGemCost(ability);
         gems.unlocked.add(color);
@@ -487,6 +494,7 @@ async function boot() {
         chase: { active: story.desertChaseActive, time: story.chaseTime, over: story.chaseOver },
       });
       rescue.update(dt, { onFoot: !horse.controlsHero, riding: horse.controlsHero });
+      ui.setHorseEnergy(horse.energy / CONFIG.energy.horseEnergyMax, horse.everMounted, horse.energyTired);
       ui.setBossBar(boss.active, boss.hp / boss.maxHp, DIALOGUE.bossName);
       input.setCombatButtons(horse.controlsHero, abilities, story.fatigue > 0);
       // Collect from the body centre: horse + rider when riding, the hero's chest on foot.
@@ -498,7 +506,7 @@ async function boot() {
       input.setMountButton(!horse.controlsHero && horse.mode !== 'riding' && horse.canMount(hero));
       const DM = CONFIG.input.dismount;
       input.setDismountButton(horse.mode === 'riding', Math.abs(horse.speed) < DM.maxSpeed, realDt, ui.gemPillRect('pink'), DM.maxSpeed / Math.max(DM.maxSpeed, Math.abs(horse.speed)));
-      input.setGallopButton(horse.mode === 'riding', DIALOGUE.gallop, horse.stamina, horse.galloping);
+      input.setGallopButton(horse.mode === 'riding', DIALOGUE.gallop, horse.stamina, horse.galloping, horse.energyTired);
       ui.showGems(quests.index >= 2); // from "Mount the horse" on
     } else if (!state.paused && state.is(STATES.CUTSCENE)) {
       // Cutscene: the world keeps moving (the horse slowing at the castle, the girl trembling).
@@ -514,6 +522,7 @@ async function boot() {
     else cam.update(realDt, hero.position, { mounted: horse.mounted, speed: horse.speedRatio, gallop: horse.galloping, heading: horse.heading });
     if (!cinematic.active) hero.cameraOpacity = cam.heroOpacity; // (he fades if the camera is squeezed in right behind him; cutscenes fade him themselves)
     minions.fitView(); // (bats stay on screen: once more against this frame's camera)
+    energy.update(state.paused ? 0 : dt, horse, playing); // (only in play: never in a cutscene)
     world.update(dt, cam.camera.position);
     storm.update(state.paused ? 0 : realDt, story.stormLevel, cam.camera, cam); // (after the sky: it blends the fog from it)
     gate.update(state.paused ? 0 : dt, story.gateStarted && !story.gateDone ? horse : null);
@@ -522,7 +531,7 @@ async function boot() {
   });
 
   // Exposed for debugging in the browser console (e.g. game.state.set('ending')).
-  window.game = { state, hero, cam, world, quests, horse, input, guide, gems, abilities, sound, combat, lives, boss, girl, pit, story, cinematic, minions, rescue, storm, gate, hurdles, damageHero, lifeEvents, STATES };
+  window.game = { state, hero, cam, world, quests, horse, input, guide, gems, abilities, sound, combat, lives, boss, girl, pit, story, cinematic, minions, rescue, storm, gate, hurdles, energy, damageHero, lifeEvents, STATES };
 
   state.start();
 }

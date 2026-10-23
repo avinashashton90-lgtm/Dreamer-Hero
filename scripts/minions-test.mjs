@@ -176,7 +176,7 @@ for (const t of ['bat', 'skeleton', 'slime']) {
   check(swarms.length >= 3 && swarms.every((s) => s.n >= 1 && s.n <= 3) && gaps.every((g) => g >= BT.interval[0] - 0.05), `bats: ${swarms.length} swarms (${swarms.map((s) => s.n).join(', ')}) at ride times ${swarms.map((s) => s.ride.toFixed(0)).join(', ')} s (gaps ≥ ${BT.interval[0]} s)`);
   check(maxBats <= BT.max, `never more than ${BT.max} bats at once (max ${maxBats})`);
   check(badZone === 0 && nearCheckpoint === 0, `none within ${BT.caveClear} of the cave (${badZone}), none in the ${BT.checkpointQuiet} s after a checkpoint (${nearCheckpoint}; ${checkpoints.length} checkpoints)`);
-  check(bites.length > 0 && bites.every((d) => d.n === MN.touchDamageHearts), `bites on the rider: ${bites.length}, half a heart each; the horse has no energy system (energy drained ${minions.stats.horseEnergy})`);
+  check(bites.length > 0 && bites.every((d) => d.n === MN.touchDamageHearts), `bites on the rider: ${bites.length}, half a heart each; the horse loses ${CONFIG.minions.bats.horseEnergy} energy per bite (drained ${minions.stats.horseEnergy})`);
   check(horse.arrivedAtCave, `the ride reached the cave (${t.toFixed(0)} s)`);
   horse.onCheckpoint = () => minions.onCheckpoint();
 }

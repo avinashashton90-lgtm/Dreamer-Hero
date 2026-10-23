@@ -230,6 +230,9 @@ export class Horse {
     this.hold = false; // ending: brake to a stop and stay put
     this.scripted = false; // a cutscene drives position / heading / speed itself (the castle gate)
     this.powerJumpZone = false; // just before a giant wall (hurdles.js): a jump while galloping is a power jump
+    this.energy = CONFIG.energy.horseEnergyMax; // (energy.js drains / refills it; separate from AJ's hearts)
+    this.energyTired = false; // out of energy: no gallop, a tired walk until it recovers
+    this.eating = false; // on a grass patch, (nearly) stopped: it grazes
     this.powerJumps = 0;
     this.prints = []; // hoof prints in the sand
     this.dust = [];
@@ -376,6 +379,7 @@ export class Horse {
     this.scripted = false;
     for (const d of [...this.dust, ...this.drops, ...this.ripples, ...this.prints]) d.age = d.life;
     this.stamina = 1;
+    this.restoreEnergy();
     this.fatigue = 0;
     this.galloping = false;
     this.stumble = 0;
@@ -473,7 +477,20 @@ export class Horse {
   }
 
   /** After a fall: back on the horse at the last checkpoint reached. */
+  /** Energy lost (a bat bite); energy.js decides when it is tired. */
+  drainEnergy(amount) {
+    this.energy = Math.max(0, this.energy - amount);
+  }
+
+  /** Full energy, rested (a new game, a respawn). */
+  restoreEnergy() {
+    this.energy = CONFIG.energy.horseEnergyMax;
+    this.energyTired = false;
+    this.eating = false;
+  }
+
   respawnAtCheckpoint(hero) {
+    this.restoreEnergy();
     hero.resetStatus?.(); // (invincibility, blink and flashes back to normal)
     const { position: cp, heading, s } = this.checkpoints[this.lastCheckpoint];
     this.position.copy(cp);
@@ -508,8 +525,9 @@ export class Horse {
     const k = 1 - Math.exp(-(stick === 0 ? HC.straighten : HC.steerSmoothing) * dt);
     this.steer += (stick - this.steer) * k;
 
-    // Gallop (held) while stamina lasts; stamina refills slowly after a short pause.
-    const wantGallop = !!input.gallop && mag > 0.05 && !braking;
+    // Gallop (held) while stamina lasts; stamina refills slowly after a short pause. Never while
+    // the horse is out of energy (energy.js).
+    const wantGallop = !!input.gallop && mag > 0.05 && !braking && !this.energyTired;
     if (this.galloping && (!wantGallop || this.stamina <= 0)) {
       this.galloping = false;
       this.refillWait = GAL.refillDelay;
@@ -598,7 +616,8 @@ export class Horse {
     }
     this.nearCave = atCave;
     if (this.hold) this.galloping = false;
-    const target = braking || mag < 0.05 || this.autoStop || this.hold ? 0 : top * mag * (1 - HC.turnSlowdown * Math.abs(this.steer));
+    const capped = this.energyTired ? Math.min(top, CONFIG.energy.tiredSpeed) : top; // (out of energy: a tired walk)
+    const target = braking || mag < 0.05 || this.autoStop || this.hold ? 0 : capped * mag * (1 - HC.turnSlowdown * Math.abs(this.steer));
     const accel =
       target > this.speed
         ? this.galloping ? GAL.acceleration : HC.acceleration
@@ -780,7 +799,7 @@ export class Horse {
     const RU = CONFIG.corner.mounted.rear;
     body.rotation.x = Math.sin(ph) * 0.05 * s + (this.stumble > 0 ? Math.sin((this.stumble / OBS.stumbleTime) * Math.PI) * 0.3 : 0)
       - (this.rearT > 0 ? Math.sin((this.rearT / RU.time) * Math.PI) * RU.pitch : 0); // (rearing up: nose up)
-    const graze = this.mode === MODES.IDLE ? Math.max(0, Math.sin(this.time * 0.8)) : 0;
+    const graze = this.mode === MODES.IDLE || this.eating ? Math.max(0, Math.sin(this.time * 0.8)) : 0;
     neck.rotation.x = graze * 0.9 + Math.sin(ph) * 0.12 * s;
     tail.rotation.x = -0.2 - s * 0.6 + Math.sin(this.time * 3) * 0.08;
 
@@ -796,6 +815,7 @@ export class Horse {
       galloping: this.galloping,
       grounded: this.grounded,
       ridden: this.mode !== MODES.IDLE,
+      eating: this.eating,
       hopVelocity: HC.hopVelocity,
       vy: this.velocity.y,
     });

@@ -11,12 +11,15 @@ export class UI {
       <div class="quest" style="display:none"><span class="quest-text"></span><span class="quest-dist"></span></div>
       <div class="hud-hint">${DIALOGUE.controlsHint}</div>
       <div class="vitals"><div class="hearts"></div><div class="lives"></div></div>
+      <div class="horse-energy" style="display:none"><span>${DIALOGUE.energy.label}</span><b><i></i></b></div>
       <div class="gems" style="display:none"></div>
       <div class="boss-bar" style="display:none"><span class="boss-name"></span><div class="boss-hp"><i></i></div></div>
       <div class="banner"></div>
       <div class="toast"></div>`;
     this.heartsEl = this.hud.querySelector('.hearts');
     this.livesEl = this.hud.querySelector('.lives');
+    this.energyEl = this.hud.querySelector('.horse-energy');
+    this.energyFill = this.energyEl.querySelector('i');
     this.bossBar = this.hud.querySelector('.boss-bar');
     this.bossFill = this.hud.querySelector('.boss-hp i');
     this.bannerEl = this.hud.querySelector('.banner');
@@ -196,6 +199,15 @@ export class UI {
   showGameOver(on, onRetry) {
     this.gameover.style.display = on ? '' : 'none';
     this.retryBtn.onclick = on && onRetry ? onRetry : null;
+  }
+
+  /** The horse's energy (0..1) as a thin bar under the hearts; red and pulsing while it is tired. */
+  setHorseEnergy(frac, visible, tired = false) {
+    const d = visible ? '' : 'none';
+    if (this.energyEl.style.display !== d) this.energyEl.style.display = d;
+    if (!visible) return;
+    this.energyFill.style.transform = `scaleX(${Math.max(0, Math.min(1, frac)).toFixed(3)})`;
+    this.energyEl.classList.toggle('tired', tired);
   }
 
   /** Hearts (filled / empty) and remaining respawns as life icons. */

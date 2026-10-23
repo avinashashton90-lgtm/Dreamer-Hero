@@ -476,7 +476,8 @@ export class Input {
    * Gallop button: shown while riding. `stamina` 0..1 fills the bar; `active` lights it up;
    * low stamina greys it out.
    */
-  setGallopButton(visible, label, stamina = 1, active = false) {
+  /** `tired`: the horse is out of energy (energy.js) — greyed out, it can't gallop. */
+  setGallopButton(visible, label, stamina = 1, active = false, tired = false) {
     const display = visible ? '' : 'none';
     if (this.gallopBtn.style.display !== display) this.gallopBtn.style.display = display;
     if (!visible) return;
@@ -484,7 +485,7 @@ export class Input {
     if (lbl.textContent !== label) lbl.textContent = label;
     this.staminaFill.style.transform = `scaleX(${stamina.toFixed(3)})`;
     this.gallopBtn.classList.toggle('active', active);
-    this.gallopBtn.classList.toggle('tired', !active && stamina < CONFIG.horse.gallop.minToStart);
+    this.gallopBtn.classList.toggle('tired', tired || (!active && stamina < CONFIG.horse.gallop.minToStart));
   }
 
   /**

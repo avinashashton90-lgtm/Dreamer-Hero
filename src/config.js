@@ -624,7 +624,7 @@ export const CONFIG = {
       spotMargin: 0.04,      // its waiting spot is kept a little further inside still (so it arrives there)
       marker: { size: 0.2, up: 0.35, color: 0xff2a2a }, // the red telegraph marker over it
       despawnFar: 70,
-      horseEnergy: 5,        // a bite costs the horse this much energy (if it has an energy system)
+      horseEnergy: 5,        // a bite costs the horse this much energy (horse.drainEnergy, energy.js)
     },
     // Cave: every boss slam opens a crack and slimes emerge from it, hopping at the hero.
     slimes: {
@@ -1160,6 +1160,29 @@ export const CONFIG = {
 
   // Forest hurdles (hurdles.js): an obstacle director places giant walls, sliding thorn bushes
   // and stones along the forest trail, mixed with the bat attacks (never at the same time).
+  // Horse energy (energy.js): separate from AJ's hearts, a thin bar under them. Galloping drains
+  // it, trotting / cantering drains it very slowly, walking or standing (or waiting dismounted)
+  // lets it recover; nothing changes in cutscenes. At 0 the horse can't gallop and slows to a
+  // tired walk until `recoverAt` — a tired horse still walks, so progress is never blocked.
+  energy: {
+    horseEnergyMax: 100,
+    gallopDrain: 3.5,        // per second while galloping (~29 s of gallop from full)
+    trotDrain: 0.35,         // per second above a walk (trot, canter, the normal top speed)
+    regenRate: 3,            // per second while walking, standing or waiting dismounted
+    walkMax: 4.5,            // up to this speed counts as walking (between the walk and trot gait anchors)
+    tiredSpeed: 3,           // tired: a walk at most...
+    recoverAt: 0.3,          // ...until energy is back to this share of the max
+    // Potions on the forest trail (on the safe line; never on a gem, a hurdle or a high wall).
+    potions: { start: 0.15, every: 300, end: 0.9, search: 60, refill: 0.4, height: 1.2, reach: 1.9, gemClear: 6, hurdleClear: 30, wallClear: 6, color: 0x46e0ff, capColor: 0xc8a060, glow: 0x7af0ff },
+    // Grass patches beside the trail line: riding over one slowly (a trot or a walk) the horse
+    // eats and refills `rate` per second; galloping gives nothing. Standing still it grazes.
+    grass: { at: [0.2, 0.47, 0.72], search: 60, lateral: 3.6, radius: 2.8, rate: 12, eatSpeed: 1.5, hurdleClear: 35, wallClear: 40, color: 0x4fa83a, tuftColor: 0x6cc24a },
+    // Desert oases (a small pond with palm trees): before the Lazarus Pit, so never on the
+    // skeleton chase or in the sandstorm's clear corridor. Riding through the pond refills 60%.
+    oases: { at: [0.22, 0.45], lateral: 3.8, radius: 2.6, refill: 0.6, palms: [[8.2, -3], [9.4, 2.5]], waterColor: 0x2f8fc4, rimColor: 0xd6b07a, trunkColor: 0x8a6a42, leafColor: 0x3f8a3a },
+    splash: { count: 14, speed: 3.5, up: 4, life: 0.6, size: 0.12, color: 0xbff4ff },
+  },
+
   hurdles: {
     obstacleSpacingMin: 90,  // trail distance between two hurdles...
     obstacleSpacingMax: 150, // ...at least / at most (plus `search` when a spot isn't fair)
@@ -1324,6 +1347,7 @@ export const DIALOGUE = {
   title: 'Dreamer Hero',
   rotatePhone: 'Please rotate your phone to landscape',
   hurdles: { wallHint: 'Gallop and jump!' },
+  energy: { tired: 'Horse is tired', label: 'Horse' },
   testMenu: {
     open: 'TEST', close: 'Close', hurdles: 'Forest hurdles',
     forest: 'Forest start', cave: 'Cave entrance', boss: 'Boss fight', afterBoss: 'After boss (Amy rescued)',

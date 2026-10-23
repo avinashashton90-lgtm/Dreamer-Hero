@@ -6,7 +6,8 @@
 // into / out of the river), 'stumble' (horse hits an obstacle), 'gallopStart', 'eerie' (witch
 // hint), 'paralyze' (Smoke Bomb), 'hum' (the Lazarus Pit wakes), 'heal' (the hero drinks),
 // 'gateSlam' (the castle gates slam shut), 'bossRoar' (the boss snaps out of a paralysis),
-// 'wallThud' (the horse runs into a giant forest wall).
+// 'wallThud' (the horse runs into a giant forest wall), 'potion' (an energy potion picked up),
+// 'oasisSplash' (riding into a desert oasis pond).
 
 export class Sound {
   constructor() {
