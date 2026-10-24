@@ -24,6 +24,14 @@ The horse (`public/models/horse/horse.gltf`) is from the **Ultimate Animated Ani
 
 The bat, skeleton and slime (`public/models/monsters/bat.fbx`, `skeleton.fbx`, `slime.fbx`) are from the **Animated Monster Pack** by [Quaternius](https://quaternius.com), licensed [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) (public domain). They are used as they come (flat material colours, no textures), with their own clips: Bat_Flying / Attack / Attack2 / Hit / Death, Skeleton_Idle / Running / Attack / Spawn / Death, Slime_Idle / Walk / Attack / Death. (`dragon.fbx` from the same pack is in the folder but not used yet.)
 
+## Tick — Quaternius
+
+Tick, the brass guide robot (`public/models/gearhaven/tick/tick.glb`), is the **Animated Robot** by [Quaternius](https://quaternius.com), licensed [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) (public domain), with its own clips (Robot_Idle, Walking, Running, Jump, WalkJump, Punch, Wave, Yes, No, ThumbsUp, Dance, Sitting, Standing, Death). Converted from `tick.fbx` to a meshopt glb (`scripts/gearhaven-models.mjs`; the source is in `models-src/gearhaven/tick/`); in the game its yellow body is tinted brass and copper, its goggles kept dark.
+
+## Gearhaven robots — Quaternius
+
+The four mech robots **George, Leela, Mike and Stan** (`public/models/gearhaven/robots/*.glb`) are from the **Animated Mech Pack** by [Quaternius](https://quaternius.com), licensed [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) (public domain), with their own clips (Idle, Walk, Run, SwordSlash, Punch, Kick, Shoot, HitRecieve, Death and more). Converted from the pack's glTF files to meshopt glb with 1024 px textures (512 px for Leela) by `scripts/gearhaven-models.mjs` (the sources are in `models-src/gearhaven/robots/`); in the game their textures are tinted brass, copper and rust. Leela is the scout, Mike and Stan the sword robots, George the armoured mech boss.
+
 ## Sound and music
 
 Every sound effect, music track and voice blip is currently **synthesized in code** with the Web

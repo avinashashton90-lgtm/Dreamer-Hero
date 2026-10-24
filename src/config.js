@@ -645,13 +645,44 @@ export const CONFIG = {
       steam: { vents: 5, puffs: 36, life: 2.6, rise: 2.2, size: [0.5, 1.3], color: 0xfff6ea, opacity: 0.28, every: 4, hiss: 0.25 },
       doors: { radius: 20.5, height: 4.4, width: 2.8, reach: 1.8 }, // the element doors round the courtyard
     },
-    // Tick: a small floating brass robot guide with a glowing eye (loadTickModel()).
+    // Tick: a small floating brass robot guide (loadTickModel(): the Quaternius Animated Robot,
+    // public/models/gearhaven/tick/tick.glb — its yellow body tinted brass and copper, the goggles
+    // kept dark — fitted to `height`, centred on its middle, playing its idle; else placeholder shapes).
     tick: {
+      file: 'models/gearhaven/tick/tick.glb', height: 0.95,
+      tint: { Main: 0xc9a23a, Grey: 0xa45a32, Black: 0x141210 }, // material name → colour (brass body, copper limbs, dark goggles)
+      clips: { idle: ['Robot_Idle', 'Idle'], wave: ['Robot_Wave'], yes: ['Robot_Yes'], no: ['Robot_No'] },
+      crossfade: 0.3,
       size: 0.42, color: 0xc89b45, dark: 0x6b4a22, eye: 0x7ff3ff, eyeGlow: 0.9,
       float: 1.75, bob: 0.12, bobRate: 1.6, follow: { side: 1.3, back: -0.4, rate: 2.5 },
       prop: 14,                // propeller spin (rad/s)
       nervous: { yaw: 1.6, rate: 9, time: 1.8 }, // "I cannot say." — he looks over his shoulder, jittery
     },
+    // The robots (robots.js loadRobotModel(kind); Quaternius Animated Mech Pack, CC0, in
+    // public/models/gearhaven/robots/ — meshopt glb, 1024 px textures, 512 for the scout).
+    // Picked by size: Leela (the smallest) the scout, Mike and Stan (the middle two) the sword
+    // robots, George (the biggest) the armoured mech boss. Each is fitted to `height`, its
+    // texture tinted through a luminance ramp (`palette`: dark → mid → light, `keep` of the
+    // original colour so the detail reads) in a Lambert material (cheap on phones); clips by
+    // role (first name found wins). A file that fails → a code-built placeholder robot.
+    robots: {
+      path: 'models/gearhaven/robots/',
+      crossfade: 0.2,
+      kinds: {
+        scout: { file: 'leela.glb', name: 'Leela', role: 'scout', height: 1.55, palette: [0x4a2a18, 0xb0643a, 0xd9b25a], keep: 0.18 },
+        swordA: { file: 'mike.glb', name: 'Mike', role: 'sword robot', height: 2.7, palette: [0x3a2414, 0x9c5a2e, 0xc9a23a], keep: 0.15 },
+        swordB: { file: 'stan.glb', name: 'Stan', role: 'sword robot', height: 2.7, palette: [0x40241a, 0x8a3f22, 0xc0874a], keep: 0.15 },
+        boss: { file: 'george.glb', name: 'George', role: 'armoured mech boss', height: 6.5, palette: [0x2e1c12, 0x7a3b1e, 0xb8893e], keep: 0.12 },
+      },
+      clips: {
+        idle: ['Idle'], walk: ['Walk', 'Walk_Tall', 'Run'], run: ['Run', 'Run_Tall'],
+        attack: ['SwordSlash', 'Punch', 'Kick', 'Shoot'], hit: ['HitRecieve_1', 'HitRecieve_2'], death: ['Death'],
+      },
+      attackFor: { scout: ['Kick', 'Punch'], swordA: ['SwordSlash'], swordB: ['SwordSlash'], boss: ['Punch', 'Shoot', 'SwordSlash'] },
+      placeholder: { brass: 0xc9a23a, copper: 0xa45a32, rust: 0x6e3a1e, eye: 0xffb050 },
+    },
+    // "Robots test" (?debug): all five in a row in the courtyard, each going through its clips.
+    showcase: { z: -8, gap: 1.2, clipTime: 2.6, roleOrder: ['idle', 'walk', 'run', 'attack', 'hit', 'wave', 'yes', 'no', 'death'], orbit: { radius: 17, height: 5.5, speed: 0.12, look: 2.6 }, labelScale: 1.6 },
     // The horse in Gearhaven: a small brass key on its back and brass armour plates (loadGearhavenHorseUpgrade()).
     horseUpgrade: { brass: 0xc9a23a, copper: 0xb0643a, key: { at: [0, 1.95, -0.72], size: 0.34, spin: 1.2 } },
     // The arrival scene: AJ and the horse drop out of the light into the courtyard.
@@ -680,6 +711,7 @@ export const CONFIG = {
       stub: { radius: 9, gap: 120, crystal: 0.8, back: 6.5 }, // a platform per level this far apart; a crystal; the door back
     },
     music: 'gearhaven',
+    arrivalTick: { ahead: 1.1, toward: 0.9 }, // in the arrival Tick floats beside the horse's shoulder, on AJ's side
   },
 
   // Small enemies (minions.js / minionModels.js): Quaternius Animated Monster Pack FBX files
@@ -1630,7 +1662,7 @@ export const DIALOGUE = {
     audio: 'Audio test',
     part1: 'Part 1', part2: 'Part 2',
     portal: 'Portal scene', arrival: 'Gearhaven arrival', fire: 'Fire level', lightning: 'Lightning level', steam: 'Steam level',
-    magnet: 'Magnet level', time: 'Time level', final: "Amy's final fight", part2Ending: 'Part 2 ending',
+    magnet: 'Magnet level', time: 'Time level', final: "Amy's final fight", part2Ending: 'Part 2 ending', robots: 'Robots test',
     on: 'Test menu on', off: 'Test menu off',
   },
   skip: 'Skip ▶▶',
@@ -1659,6 +1691,7 @@ export const DIALOGUE = {
     levelNames: { fire: 'Fire Element', lightning: 'Lightning Element', steam: 'Steam Element', magnet: 'Magnet Element', time: 'Time Element', final: "Amy's final fight" },
     comingSoon: (name) => `${name} — coming soon`,
     back: 'Back to Gearhaven',
+    robotsTest: 'Robots test — Tick, Leela, Mike, Stan, George',
     toBeContinued: 'To be continued... Part 3',
     summaryTitle: 'Part 2 complete',
     nextPart: 'Part 3 (Coming soon)',

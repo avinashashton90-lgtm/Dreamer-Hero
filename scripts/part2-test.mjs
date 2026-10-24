@@ -5,7 +5,10 @@
 // glance, Skip), the courtyard (the gear sky, cogs, the clock's hands and steam moving, walking
 // around inside its wall, "Find the Fire Element" with its distance), walking into the Fire door
 // → its "coming soon" stub and back, every level's stub and Amy's final fight, the Part 2 ending;
-// and a draw budget for the courtyard.
+// a draw budget for the courtyard; Tick's model (the Animated Robot glb: brass and copper, dark
+// goggles, its idle playing, floating beside the horse in the arrival) and the four mech robots
+// (sizes by role, clips by role, the brass / copper / rust tint, animating, the placeholder
+// fallback), and the "Robots test" showcase.
 // Usage: npm run test:part2   (exits non-zero on failure)
 import { heroAssets } from './node-assets.mjs';
 import * as THREE from 'three';
@@ -19,6 +22,8 @@ import { Cinematic } from '../src/cinematic.js';
 import { Sound } from '../src/audio.js';
 import { characterBodies } from '../src/fade.js';
 import { LevelManager } from '../src/levelManager.js';
+import { loadRobotModel, forgetRobotTemplates } from '../src/part2/robots.js';
+import { loadTickModel } from '../src/part2/tick.js';
 
 const P2 = CONFIG.part2, D2 = DIALOGUE.part2, S = DIALOGUE.speakers;
 const dt = 1 / 60;
@@ -49,7 +54,7 @@ state.onEnter(STATES.CUTSCENE, () => input.setEnabled(false));
 const part1 = { id: 'part1', scene: world.scene, enter: () => { for (const o of [hero.model, hero.shadow, horse.model, horse.shadow]) world.scene.add(o); }, exit() {} };
 const levels = new LevelManager({
   part1: async () => part1,
-  part2: async () => (await import('../src/part2/index.js')).createPart2({ state, STATES, ui, input, cam, cinematic, sound, soundscape, hero, horse, abilities: null, lives: null }),
+  part2: async () => (await import('../src/part2/index.js')).createPart2({ state, STATES, ui, input, cam, cinematic, sound, soundscape, hero, horse, abilities: null, lives: null, assets: heroAssets }),
 });
 levels.chapters.set('part1', part1);
 levels.current = part1; levels.id = 'part1';
@@ -76,16 +81,26 @@ const scale0 = horse.model.scale.x;
   const up = p2.upgrade;
   check(up.parent === horse.model && up.userData.key && up.userData.plates.length >= 4, `the horse has a brass key on its back and ${up.userData.plates.length} brass armour plates`);
   const tick = p2.tick;
-  check(tick.model.parent === p2.scene && tick.model.userData.eye && tick.model.userData.prop, 'Tick: a floating brass robot with a glowing eye and a propeller');
+  const tu = tick.model.userData;
+  const tickOk = heroAssets.placeholder
+    ? tu.placeholder && tu.eye && tu.prop
+    : !tu.placeholder && tu.animator?.clipName && /Idle/.test(tu.animator.clipName) && tu.materials.Main.color.getHex() === P2.tick.tint.Main && tu.materials.Black.color.getHex() === P2.tick.tint.Black;
+  const tbox = new THREE.Box3().setFromObject(tick.model, true);
+  check(tick.model.parent === p2.scene && tickOk && Math.abs(tbox.max.y - tbox.min.y - (heroAssets.placeholder ? tbox.max.y - tbox.min.y : P2.tick.height)) < P2.tick.height * 0.12, // (its idle pose stands a little taller than the fitted bind pose)
+    `Tick: ${heroAssets.placeholder ? 'the placeholder (shapes)' : `the Animated Robot glb, ${(tbox.max.y - tbox.min.y).toFixed(2)} tall, brass body / copper limbs / dark goggles, playing ${tu.animator?.clipName}`}`);
   // Play it through.
-  let dropped = false, landedOnFoot = false, nervousSeen = 0, tickNear = Infinity, glanceMax = 0, chime = sound.counts.clock_chime ?? 0;
+  let dropped = false, landedOnFoot = false, nervousSeen = 0, tickNear = Infinity, tickHorse = Infinity, tickBob = [Infinity, -Infinity], glanceMax = 0, chime = sound.counts.clock_chime ?? 0;
   const gear = p2.gearhaven.userData.skyGears[0].mesh, gearRot = gear.rotation.z;
   const yawRel = () => Math.abs(wrap(tick.model.rotation.y - Math.atan2(hero.position.x - tick.position.x, hero.position.z - tick.position.z)));
   for (let t = 0; t < 90 && cinematic.active; t += dt) {
     await frame();
     if (horse.position.y < 0.05 && horse.grounded) dropped = true;
     if (dropped && !hero.riding && horse.mode === 'idle') landedOnFoot = true;
-    if (landedOnFoot) tickNear = Math.min(tickNear, tick.position.distanceTo(hero.position));
+    if (landedOnFoot) {
+      tickNear = Math.min(tickNear, tick.position.distanceTo(hero.position));
+      tickHorse = Math.min(tickHorse, Math.hypot(tick.position.x - horse.position.x, tick.position.z - horse.position.z));
+      if (tick.target && tick.position.distanceTo(tick.target) < 0.3) { const b = tick.model.position.y - tick.position.y; tickBob = [Math.min(tickBob[0], b), Math.max(tickBob[1], b)]; }
+    }
     if (tick.nervousT > 0) { nervousSeen++; glanceMax = Math.max(glanceMax, yawRel()); }
     if (view.complete && (readFor += dt) > 0.3) { readFor = 0; cinematic.tap(); }
   }
@@ -94,7 +109,8 @@ const scale0 = horse.model.scale.x;
   const want = [`${S.tick}: ${L.welcome}`, `${S.hero}: ${L.where}`, `${S.tick}: ${L.stops}`, `${S.tick}: ${L.witch}`, `${S.hero}: ${L.amy}`, `${S.tick}: ${L.cannot}`];
   check(JSON.stringify(view.lines) === JSON.stringify(want), `the arrival's lines in order:\n       ${view.lines.join('\n       ')}`);
   check(dropped && landedOnFoot && (sound.counts.clock_chime ?? 0) > chime && sound.counts.tick_whir >= 1, 'AJ and the horse drop into the courtyard (a chime far away), he gets down, Tick whirs in');
-  check(tickNear < 2.8 && nervousSeen > 20 && glanceMax > 0.8, `Tick floats in beside him (${tickNear.toFixed(2)}) and says "${L.cannot}" nervously, glancing over his shoulder (${glanceMax.toFixed(2)} rad)`);
+  check(tickNear < 2.8 && tickHorse < 1.8 && tickBob[1] - tickBob[0] > P2.tick.bob && tickBob[1] - tickBob[0] < P2.tick.bob * 2.5 && nervousSeen > 20 && glanceMax > 0.8,
+    `Tick floats in beside the horse (${tickHorse.toFixed(2)} from it, ${tickNear.toFixed(2)} from AJ) with a gentle bob (${(tickBob[1] - tickBob[0]).toFixed(2)}) and says "${L.cannot}" nervously, glancing over his shoulder (${glanceMax.toFixed(2)} rad)`);
   check(state.is(STATES.PLAY) && p2.at === 'courtyard' && ui.quest === D2.objectives.fire && ui.dist > 5 && ui.toasts.includes(D2.objectives.fire),
     `then the courtyard in play: "${ui.quest}" (${ui.dist} away)`);
   check(Math.abs(gear.rotation.z - gearRot) > 1e-3 && !ui.gemsShown && input.combatHidden, 'the gear sky turns; no gems or fighting buttons in Gearhaven');
@@ -173,7 +189,62 @@ const scale0 = horse.model.scale.x;
   check(back && levels.id === 'part1' && Math.abs(horse.model.scale.x - scale0) < 1e-9, 'back to Part 1: the hero, horse and camera back in its world, the upgrade off the horse, the music handed back');
 }
 
-// 6) A chapter that fails to load leaves the game where it is.
+// 6) The robots: Leela the scout (smallest), Mike and Stan the sword robots, George the mech boss.
+{
+  const RB = P2.robots;
+  const models = {};
+  for (const kind of Object.keys(RB.kinds)) models[kind] = await loadRobotModel(kind, heroAssets);
+  const rows = [];
+  let ok = true;
+  for (const [kind, m] of Object.entries(models)) {
+    const u = m.userData;
+    m.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(m, true);
+    const h = box.max.y - box.min.y;
+    const want = RB.kinds[kind].height;
+    // Animating: a pose changes after the walk clip runs a moment.
+    u.animator.play('walk');
+    const snap = () => { const v = []; m.traverse((o) => { if (o.isBone || o.isMesh) v.push(o.position.y, o.rotation.x, o.rotation.z); }); return v.join(','); };
+    const a = snap();
+    for (let i = 0; i < 12; i++) { u.animator.update(1 / 30); m.updateMatrixWorld(true); }
+    const moved = snap() !== a;
+    const roles = ['idle', 'walk', 'attack'].every((r) => u.roles[r]);
+    let tinted = u.placeholder;
+    m.traverse((o) => { if (o.isMesh && o.material.userData?.ramp) tinted = true; });
+    const fine = Math.abs(h - want) < want * 0.06 && roles && moved && tinted && (heroAssets.placeholder || !u.placeholder);
+    ok &&= fine;
+    rows.push(`${u.name} (${kind}) ${h.toFixed(2)} tall, idle ${u.roles.idle?.name} / walk ${u.roles.walk?.name} / attack ${u.roles.attack?.name}${u.placeholder ? ' [placeholder]' : ''}${fine ? '' : ' ✗'}`);
+  }
+  const H = (k) => RB.kinds[k].height;
+  check(ok && H('scout') < H('swordA') && H('swordA') === H('swordB') && H('swordB') < H('boss') && (heroAssets.placeholder || models.swordA.userData.roles.attack?.name.includes('SwordSlash')),
+    `the robots by size and role, tinted brass / copper / rust, animating:\n       ${rows.join('\n       ')}`);
+  // A file that fails → the placeholder robot (and Tick's placeholder).
+  forgetRobotTemplates();
+  const warn = console.warn; console.warn = () => {};
+  const fail = { readFile: async () => { throw new Error('missing'); } };
+  const ph = await loadRobotModel('boss', fail);
+  const tph = await loadTickModel(fail);
+  console.warn = warn;
+  forgetRobotTemplates();
+  check(ph.userData.placeholder && ph.userData.animator.play('attack') && tph.userData.placeholder, 'a robot or Tick file that fails to load → the placeholder model');
+}
+
+// 7) The "Robots test" (?debug): all five in a row, each going through its clips.
+{
+  await levels.load('part2', { start: 'robots' });
+  for (let i = 0; i < 30; i++) await frame();
+  const S = levels.current.showcase;
+  const first = S.items.map((it) => it.clip);
+  for (let t = 0; t < P2.showcase.clipTime + 0.2; t += dt) await frame();
+  const xs = S.items.map((it) => it.x);
+  const advanced = S.items.every((it, i) => it.clip > first[i] && it.clips.length >= (heroAssets.placeholder ? 0 : 5));
+  check(levels.current.at === 'robots' && S.items.length === 5 && xs.every((x, i) => i === 0 || x > xs[i - 1]) && advanced && ui.quest === D2.robotsTest && S.group.visible,
+    `the Robots test: ${S.items.map((it) => `${it.name} (${it.clips.length} clips)`).join(', ')} in a row, each on to its next clip`);
+  await levels.load('part2', { start: 'courtyard' });
+  check(!S.group.visible, 'and gone again elsewhere');
+}
+
+// 8) A chapter that fails to load leaves the game where it is.
 {
   const bad = new LevelManager({ part1: async () => part1, broken: async () => { throw new Error('boom'); } });
   bad.chapters.set('part1', part1); bad.current = part1; bad.id = 'part1';

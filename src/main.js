@@ -259,7 +259,7 @@ async function boot() {
   };
   const levels = new LevelManager({
     part1: async () => part1,
-    part2: async () => (await import('./part2/index.js')).createPart2({ state, STATES, ui, input, cam, cinematic, sound, soundscape, hero, horse, abilities, lives }),
+    part2: async () => (await import('./part2/index.js')).createPart2({ state, STATES, ui, input, cam, cinematic, sound, soundscape, hero, horse, abilities, lives, assets: {} }),
   });
   levels.chapters.set('part1', part1);
   levels.current = part1;
@@ -548,6 +548,7 @@ async function boot() {
       ...Object.fromEntries(CONFIG.part2.levels.order.map((id) => [id, () => goToPart2(id, { white: false })])),
       final: () => goToPart2('final', { white: false }),
       part2Ending: () => goToPart2('ending', { white: false }),
+      robots: () => goToPart2('robots', { white: false }), // (Tick and the four mech robots in a row, each playing its clips)
     };
     const item = ([key, jump]) => ({
       label: DIALOGUE.testMenu[key],

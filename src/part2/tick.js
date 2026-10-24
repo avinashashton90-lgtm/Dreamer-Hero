@@ -1,14 +1,53 @@
 import * as THREE from 'three';
 import { CONFIG } from '../config.js';
+import { loadGlb, fitModel, findClip, ClipAnimator } from './robots.js';
 
-// Tick: a small floating brass robot, AJ's guide in Gearhaven — a round brass body with a band
-// of rivets, a dark visor with one glowing eye, two little arms, a propeller on top and an
-// antenna with a glowing tip. Placeholder shapes (swap loadTickModel() for a real model later).
+// Tick: a small floating brass robot, AJ's guide in Gearhaven — the Quaternius Animated Robot
+// (public/models/gearhaven/tick/tick.glb, CC0): its yellow body tinted brass, its limbs copper,
+// its goggles kept dark, fitted to `height` and centred on its middle (it floats), playing its
+// idle. If the file fails: placeholder shapes (a brass ball with a rivet band, a dark visor with
+// one glowing eye, two little arms, a propeller and an antenna).
 
 const T = CONFIG.part2.tick;
 
-/** `userData` = { body, head, eye, eyeGlow, prop, arms }. Faces +Z. */
-export async function loadTickModel() {
+/**
+ * @param {{ readFile?: Function, placeholder?: boolean }} [opts]
+ * @returns {Promise<THREE.Group>}  `userData` = { body, animator?, eyeGlow?, prop?, arms?, placeholder }. Faces +Z.
+ */
+export async function loadTickModel(opts = {}) {
+  if (!opts.placeholder) {
+    try {
+      return await loadTickGlb(opts);
+    } catch (e) {
+      console.warn('Tick model failed to load; using the placeholder Tick.', e);
+    }
+  }
+  return buildPlaceholderTick();
+}
+
+async function loadTickGlb(opts) {
+  const gltf = await loadGlb(T.file, opts);
+  // Materials by name: the yellow body → brass, the grey limbs → copper, the goggles stay dark.
+  const mats = new Map();
+  gltf.scene.traverse((o) => {
+    if (!o.isMesh) return;
+    const name = o.material.name;
+    const color = T.tint[name] ?? T.tint.Grey;
+    if (!mats.has(name)) mats.set(name, new THREE.MeshLambertMaterial({ color, name }));
+    o.material = mats.get(name);
+  });
+  const group = new THREE.Group();
+  group.name = 'tick';
+  const body = fitModel(gltf.scene, T.height, { centre: true });
+  group.add(body);
+  const roles = Object.fromEntries(Object.entries(T.clips).map(([role, names]) => [role, findClip(gltf.animations, names)]));
+  const animator = new ClipAnimator(gltf.scene, gltf.animations, roles, T.crossfade);
+  animator.play('idle');
+  group.userData = { body, animator, placeholder: false, materials: Object.fromEntries(mats) };
+  return group;
+}
+
+function buildPlaceholderTick() {
   const s = T.size;
   const group = new THREE.Group();
   group.name = 'tick';
@@ -55,7 +94,7 @@ export async function loadTickModel() {
   // A soft blob shadow below (it floats).
   body.add(shell, band, visor, eye, eyeGlow, mast, prop, antenna, tip);
   group.add(body);
-  group.userData = { body, eye, eyeGlow, prop, arms };
+  group.userData = { body, eye, eyeGlow, prop, arms, placeholder: true };
   return group;
 }
 
@@ -115,8 +154,9 @@ export class Tick {
     // (nervous: a look back over his shoulder, then back, a little shiver)
     const glance = n * Math.sin(Math.min(1, (N.time - this.nervousT) / N.time) * Math.PI) * N.yaw;
     this.model.rotation.set(0, this.yaw + glance + Math.sin(this.time * N.rate) * 0.08 * n, Math.sin(this.time * 1.3) * 0.06);
-    u.prop.rotation.y += T.prop * dt;
-    u.eyeGlow.material.opacity = T.eyeGlow * (0.35 + 0.1 * Math.sin(this.time * 3));
-    u.arms.forEach((a, i) => (a.rotation.x = Math.sin(this.time * 2 + i) * 0.25 - n * 0.6));
+    u.animator?.update(dt); // (the robot's idle)
+    if (u.prop) u.prop.rotation.y += T.prop * dt;
+    if (u.eyeGlow) u.eyeGlow.material.opacity = T.eyeGlow * (0.35 + 0.1 * Math.sin(this.time * 3));
+    u.arms?.forEach((a, i) => (a.rotation.x = Math.sin(this.time * 2 + i) * 0.25 - n * 0.6));
   }
 }

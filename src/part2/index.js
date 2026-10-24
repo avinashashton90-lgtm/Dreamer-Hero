@@ -3,13 +3,15 @@ import { CONFIG, DIALOGUE } from '../config.js';
 import { GearhavenWorld, loadGearhavenModel, makeDoor } from './gearhaven.js';
 import { Tick, loadTickModel } from './tick.js';
 import { loadGearhavenHorseUpgrade, spinHorseKey } from './horseUpgrade.js';
+import { loadRobotModel } from './robots.js';
 
 // Part 2 — Gearhaven (STORY.md): a chapter for levelManager.js with its own scene, floors and
 // loop; it borrows the shared systems (state machine, HUD, input, camera, cutscene player,
 // sound, the hero and the horse) and hands them back on exit. Today: the arrival scene (AJ and
 // the horse drop out of the light into a brass courtyard; Tick), the courtyard with its five
 // element doors (the first objective: "Find the Fire Element"), a "coming soon" stub platform
-// per element level and for Amy's final fight, and the Part 2 ending screen.
+// per element level and for Amy's final fight, the Part 2 ending screen, and (?debug) the
+// "Robots test" showcase of Tick and the four mech robots.
 
 const P2 = CONFIG.part2;
 const GH = P2.gearhaven;
@@ -17,7 +19,7 @@ const D2 = DIALOGUE.part2;
 
 /**
  * @param {object} shared  { state, STATES, ui, input, cam, cinematic, sound, soundscape, hero,
- *   horse, abilities, lives, onEnding? }
+ *   horse, abilities, lives, assets? ({ readFile, placeholder }: how models load — tests) }
  */
 export async function createPart2(shared) {
   const part = new Part2(shared);
@@ -47,7 +49,7 @@ class Part2 {
     this.gearhaven = await loadGearhavenModel();
     scene.add(this.gearhaven);
     for (const p of this.gearhaven.userData.pillars) this.world.cylinders.push({ ...p, bottom: 0, top: GH.pillars.height });
-    this.tick = new Tick(await loadTickModel());
+    this.tick = new Tick(await loadTickModel(this.assets ?? {}));
     scene.add(this.tick.model);
     this.upgrade = await loadGearhavenHorseUpgrade();
     this.#buildStubs();
@@ -98,12 +100,14 @@ class Part2 {
     this.soundscape && (this.soundscape.musicPhase = P2.music);
     this.tweens.length = 0;
     this.tick.target = this.tick.lookAt = null;
+    if (this.showcase) this.showcase.group.visible = false;
     if (start === 'arrival') {
       this.playArrival(); // (not awaited: the level manager's switch is done; the scene plays on)
       return;
     }
     if (start === 'courtyard') return this.toCourtyard();
     if (start === 'ending') return this.ending();
+    if (start === 'robots') return this.showRobots();
     return this.enterLevel(start);
   }
 
@@ -118,6 +122,7 @@ class Part2 {
       this.saved = null;
     }
     this.upgrade.removeFromParent();
+    if (this.showcase) this.showcase.group.visible = false;
     if (this.soundscape) this.soundscape.musicPhase = null;
     this.tweens.length = 0;
     this.at = null;
@@ -228,12 +233,16 @@ class Part2 {
     return this.#tween(() => horse.mode === 'idle');
   }
 
+  /** Tick floats in beside the horse's shoulder, on AJ's side (his idle playing, a gentle bob). */
   #tickFloatsIn() {
-    const { tick, hero } = this;
+    const { tick, hero, horse } = this;
+    const T = P2.arrivalTick;
     this.sound?.play('tick_whir');
-    tick.target = null; // (to his shoulder)
+    const f = new THREE.Vector3(Math.sin(horse.heading), 0, Math.cos(horse.heading));
+    const toAJ = hero.position.clone().sub(horse.position).setY(0).normalize();
+    tick.target = horse.position.clone().addScaledVector(f, T.ahead).addScaledVector(toAJ, T.toward).setY(horse.position.y + P2.tick.float);
     tick.lookAt = hero.position;
-    return this.#tween(() => tick.position.distanceTo(hero.position) < 2.6);
+    return this.#tween(() => tick.position.distanceTo(tick.target) < 0.4);
   }
 
   /** The scene is over (also on Skip): on foot in the courtyard, the first objective. */
@@ -301,8 +310,98 @@ class Part2 {
     state.set(STATES.ENDING); // (from play or a cutscene)
   }
 
+  // --- the robots test (?debug) ------------------------------------------------
+
+  /**
+   * Tick and the four mech robots in a row in the courtyard (smallest to biggest), each going
+   * through its clips (`showcase.clipTime` each), a name / role / clip label over each (in the
+   * browser), the camera slowly orbiting the row (a swipe turns it). AJ stands at the end for scale.
+   */
+  async showRobots() {
+    const SC = P2.showcase;
+    const { state, STATES } = this;
+    this.at = 'robots';
+    if (!state.is(STATES.PLAY)) state.set(STATES.PLAY);
+    if (!this.showcase) {
+      const group = new THREE.Group();
+      const kinds = Object.keys(P2.robots.kinds);
+      const robots = await Promise.all(kinds.map((k) => loadRobotModel(k, this.assets ?? {})));
+      if (this.at !== 'robots') return;
+      const items = [{ name: 'Tick', role: 'guide', height: P2.tick.height, tick: true, animator: this.tick.model.userData.animator ?? null }];
+      robots.forEach((m) => {
+        group.add(m);
+        items.push({ name: m.userData.name, role: m.userData.role, height: m.userData.height, model: m, animator: m.userData.animator });
+      });
+      // In a row along x, spaced by size.
+      const width = (h) => Math.max(1.2, h * 0.6);
+      let x = 0;
+      for (const it of items) {
+        it.x = x + width(it.height) / 2;
+        x += width(it.height) + SC.gap;
+      }
+      const shift = x / 2;
+      for (const it of items) {
+        it.x -= shift;
+        it.model?.position.set(it.x, 0, SC.z);
+        // (its role clips first — idle, walk, run, attack… — then the rest of its clips)
+        const all = it.animator?.clips?.map((c) => c.name) ?? (it.model ? it.model.userData.clipNames : []);
+        const roles = it.animator?.roles ?? it.model?.userData.roles ?? {};
+        const first = SC.roleOrder.map((r) => roles[r]?.name).filter(Boolean);
+        it.clips = [...new Set([...first, ...all])];
+        it.clip = 0;
+        it.t = 0;
+        it.label = makeLabel(it);
+        if (it.label) {
+          it.label.position.set(it.x, (it.tick ? P2.tick.float : 0) + it.height + 0.6, SC.z);
+          group.add(it.label);
+        }
+      }
+      this.scene.add(group);
+      this.showcase = { group, items, angle: 0, width: x };
+    }
+    const S = this.showcase;
+    S.group.visible = true;
+    // AJ for scale at the near end; the horse by him; Tick in his slot.
+    const first = S.items[0];
+    this.#onFoot(new THREE.Vector3(first.x - 2.4, 0, SC.z + 1.5), 0);
+    this.#horseAt(new THREE.Vector3(first.x - 5, 0, SC.z + 3), 0);
+    this.tick.place(new THREE.Vector3(first.x, P2.tick.float, SC.z), 0);
+    this.tick.target = new THREE.Vector3(first.x, P2.tick.float, SC.z);
+    this.tick.lookAt = new THREE.Vector3(first.x, P2.tick.float, SC.z + 20);
+    for (const it of S.items) this.#playClip(it);
+    this.ui.toast(D2.robotsTest);
+  }
+
+  #playClip(it) {
+    const name = it.clips[it.clip % Math.max(1, it.clips.length)];
+    if (name) it.animator?.play(name, { restart: true });
+    it.label?.userData.draw(`${it.name} — ${it.role}`, name?.split('|').pop() ?? ''); // (no armature prefix)
+  }
+
+  /** Each robot to its next clip every `clipTime` s; the camera orbits the row. */
+  #updateShowcase(dt, realDt, inp) {
+    const SC = P2.showcase;
+    const S = this.showcase;
+    if (!S) return;
+    for (const it of S.items) {
+      if (!it.tick) it.animator?.update(dt);
+      if ((it.t += dt) >= SC.clipTime) {
+        it.t = 0;
+        it.clip++;
+        this.#playClip(it);
+      }
+    }
+    const O = SC.orbit;
+    S.angle += O.speed * realDt - (inp?.lookDX ?? 0) * (inp?.lookSensitivity ?? 0);
+    const r = Math.max(O.radius, S.width * 0.75);
+    const c = this.cam.camera;
+    c.position.set(Math.sin(S.angle) * r, O.height, SC.z + Math.cos(S.angle) * r);
+    c.lookAt(0, O.look, SC.z);
+  }
+
   /** The quest panel: the objective with its distance, or a level's "coming soon". */
   get questText() {
+    if (this.at === 'robots') return D2.robotsTest;
     if (this.at === 'courtyard') return D2.objectives[this.objective];
     if (this.stubs[this.at]) return D2.comingSoon(D2.levelNames[this.at]);
     return null;
@@ -327,10 +426,12 @@ class Part2 {
         tw.resolve();
       }
     }
+    let inp = null;
     if (playing) {
       if (!input.enabled) input.setEnabled(true);
-      const inp = input.read();
-      cam.rotate(inp.lookDX, inp.lookDY, inp.lookSensitivity);
+      inp = input.read();
+      if (this.at === 'robots') inp.moveX = inp.moveY = 0; // (AJ stands for scale; a swipe turns the view)
+      else cam.rotate(inp.lookDX, inp.lookDY, inp.lookSensitivity);
       inp.attackPressed = inp.dodgePressed = false; // (no fighting here yet: the elements will bring abilities)
       inp.ability = null;
       hero.lastDt = dt;
@@ -351,7 +452,8 @@ class Part2 {
     spinHorseKey(this.upgrade, live ? dt : 0);
     this.tick.update(live ? dt : 0, { position: hero.position, facing: hero.facing }); // (beside AJ, unless sent somewhere)
     this.#animate(live ? realDt : 0);
-    if (cinematic.active) cinematic.update(paused ? 0 : realDt);
+    if (this.at === 'robots') this.#updateShowcase(live ? dt : 0, live ? realDt : 0, inp);
+    else if (cinematic.active) cinematic.update(paused ? 0 : realDt);
     else cam.update(realDt, hero.position, { mounted: horse.mounted, speed: 0, gallop: false, heading: horse.heading });
     if (!cinematic.active) hero.cameraOpacity = cam.heroOpacity;
   }
@@ -433,4 +535,36 @@ class Part2 {
   #tween(step) {
     return new Promise((resolve) => this.tweens.push({ t: 0, step, resolve }));
   }
+}
+
+/** A name / role / clip label over a robot (browser only: a canvas sprite; none headless). */
+function makeLabel(it) {
+  if (typeof document === 'undefined') return null;
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 128;
+  const g = canvas.getContext('2d');
+  if (!g) return null;
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, fog: false }));
+  const k = P2.showcase.labelScale * Math.max(1, it.height / 3);
+  sprite.scale.set(k * 2, k / 2, 1);
+  sprite.renderOrder = 20;
+  sprite.userData.draw = (title, clip) => {
+    g.clearRect(0, 0, 512, 128);
+    g.fillStyle = 'rgba(20,14,8,0.72)';
+    g.beginPath();
+    g.roundRect?.(8, 8, 496, 112, 22);
+    g.fill();
+    g.fillStyle = '#ffd88a';
+    g.font = '700 40px system-ui, sans-serif';
+    g.textAlign = 'center';
+    g.fillText(title, 256, 56);
+    g.fillStyle = '#ffffff';
+    g.font = '500 34px system-ui, sans-serif';
+    g.fillText(clip, 256, 100);
+    tex.needsUpdate = true;
+  };
+  return sprite;
 }
