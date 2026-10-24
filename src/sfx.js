@@ -413,6 +413,29 @@ export const RECIPES = {
     [98, 196, 293.7].forEach((f, i) => k.tone(o, t, { type: 'sine', f: f * p, a: 0.01, d: 2.6 - i * 0.5, v: 0.18 / (i + 1) }));
     return 2.7;
   },
+  rail_grind: (k, o, t, p) => k.noise(o, t, { filter: 'bandpass', f: 2600 * p, q: 4, a: 0.05, d: 0.6, v: 0.18 }) - t, // (a drone when looped)
+  rail_land: (k, o, t, p) => {
+    k.tone(o, t, { type: 'square', f: 520 * p, f2: 380 * p, d: 0.12, v: 0.08 });
+    k.tone(o, t, { type: 'triangle', f: 1240 * p, d: 0.25, v: 0.06 });
+    k.noise(o, t, { filter: 'bandpass', f: 3000 * p, q: 2, d: 0.12, v: 0.12 });
+    return 0.3;
+  },
+  steam_launch: (k, o, t, p) => {
+    k.noise(o, t, { filter: 'highpass', f: 1800 * p, a: 0.02, d: 0.5, v: 0.22 });
+    k.noise(o, t, { filter: 'bandpass', f: 400 * p, f2: 2400 * p, q: 1.2, a: 0.08, d: 0.6, v: 0.25 });
+    return 0.7;
+  },
+  hammer_hit: (k, o, t, p) => {
+    k.tone(o, t, { f: 90 * p, f2: 50, d: 0.4, v: 0.5 });
+    k.tone(o, t, { type: 'triangle', f: 740 * p, d: 0.5, v: 0.08 });
+    k.noise(o, t, { filter: 'lowpass', f: 1800, f2: 200, d: 0.25, v: 0.35 });
+    return 0.6;
+  },
+  gear_pickup: (k, o, t, p) => {
+    k.tone(o, t, { type: 'triangle', f: 1320 * p, d: 0.12, v: 0.08 });
+    k.tone(o, t + 0.06, { type: 'triangle', f: 1760 * p, d: 0.18, v: 0.07 });
+    return 0.3;
+  },
   tick_whir: (k, o, t, p) => {
     k.tone(o, t, { type: 'square', f: 880 * p, f2: 1320 * p, a: 0.02, d: 0.18, v: 0.04 });
     k.noise(o, t, { filter: 'bandpass', f: 1800 * p, q: 3, a: 0.05, d: 0.35, v: 0.06 });
@@ -487,6 +510,8 @@ export const DRONES = {
   sandstorm_wind: (k, out, p) => windDrone(k, out, p, { f: 300, q: 0.6, lfo: 0.12, depth: 160 }), // (a soft low breeze)
   // The river while the horse is in it: a quiet, slowly moving wash.
   river_flow: (k, out, p) => windDrone(k, out, p, { f: 1000, q: 0.5, lfo: 0.3, depth: 250 }),
+  // A rail grind: a bright, wobbling steel scrape.
+  rail_grind: (k, out, p) => windDrone(k, out, p, { f: 2600, q: 3, lfo: 9, depth: 700 }),
   boss_fire_breath: (k, out, p) => {
     const ctx = k.ctx;
     const g = ctx.createGain();

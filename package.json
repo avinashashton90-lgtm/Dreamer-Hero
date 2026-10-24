@@ -22,7 +22,8 @@
     "test:arena": "node scripts/arena-test.mjs",
     "test:audio": "node scripts/audio-test.mjs",
     "test:part2": "node scripts/part2-test.mjs",
-    "audio:readme": "node scripts/audio-readme.mjs"
+    "audio:readme": "node scripts/audio-readme.mjs",
+    "test:ride": "node scripts/ride-test.mjs"
   },
   "dependencies": {
     "three": "^0.186.1"

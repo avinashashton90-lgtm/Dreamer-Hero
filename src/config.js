@@ -771,6 +771,77 @@ export const CONFIG = {
       stub: { radius: 9, gap: 120, crystal: 0.8, back: 6.5 }, // a platform per level this far apart; a crystal; the door back
     },
     music: 'gearhaven',
+    // The first playable section (part2/ride.js; behind the courtyard's Fire door): a ride
+    // through a brass city on the trail / spline system — copper rooftops, turning cogs on the
+    // building fronts, steam vents, gears floating in a warm gold sky, the Dream Clock far off —
+    // with rails to grind, steam vents that launch the horse, swinging hammers, turning cog
+    // platforms and conveyor belts (a hit staggers the horse: no hearts — hearts are only lost to
+    // enemies), brass gears to collect (the currency, like gems in Part 1), checkpoints, and the
+    // Fire Element's door at the end (its stub: "coming soon"). Positions along the trail are
+    // `s` (from its start) and `lat` (signed, + = right of travel).
+    ride: {
+      points: [[260, 110], [260, 300], [360, 380], [360, 540], [500, 600], [660, 600]], // the trail (~779 long), corners rounded at track.cornerRadius
+      wall: { offset: 7.3, height: 7 }, // invisible side walls along the whole ride (the horse rails along them)
+      checkpoints: [0, 205, 335, 495, 625], // s of each (the first is the start)
+      checkpointRadius: 9, checkpointSide: 8.6, // reached within this of the trail point; the flag stands this far right of the centre
+      sky: { background: 0xe9b866, fog: { color: 0xe2ad5c, near: 45, far: 260 } }, // a warm gold sky, a gentle fog
+      ground: { color: 0x7a5a2e, size: [900, 760] },
+      street: { color: 0x9a6a3a, edge: 0x5e3f22, curb: 0xb8893e, curbHeight: 0.35 },
+      city: {
+        step: 9, rows: [[12, 22], [26, 40]], height: [6, 20], depth: [7, 11], width: [6, 9], // buildings either side, outside the corridor
+        colors: [0x8c5a34, 0x7a4a2e, 0x9a6a40, 0x6e4a32, 0xa0784a], roof: 0xb8683a, patina: 0x6aa58a, patinaShare: 0.3,
+        windows: 0xffd98a, seed: 7,
+      },
+      cogs: { every: 26, lat: 11.6, radius: [1.6, 3], height: [3, 9], speed: [0.4, 1.1], color: 0xc9a23a, dark: 0x6b4a22 }, // turning cogs on the building fronts
+      skyGears: { count: 9, radius: [10, 26], height: [45, 75], spread: 140, speed: [0.03, 0.09], color: 0x9c7a3a },
+      clock: { at: [720, 70, 900], radius: 46, face: 0xf3e6c4, rim: 0x9c7432, hand: 0x3a2a1c, slow: 0.015 }, // the Dream Clock, far off past the end
+      // Rails: grind along automatically (`grind.speed`, faster than the street) with sparks and a
+      // steel scrape; steer to hop to the next rail of the group; Jump to leave; off the end the
+      // horse hops down. Low rails rise from the street on a short ramp (ride or jump onto them);
+      // the upper rail is reached only from a steam vent. Low rails are fences on the street.
+      rails: [
+        { group: 'a', s: [100, 160], lat: -4, h: 1.1 }, { group: 'a', s: [100, 160], lat: 0, h: 1.1 }, { group: 'a', s: [100, 160], lat: 4, h: 1.1 },
+        { group: 'u', s: [362, 436], lat: 0, h: 4.2, upper: true },
+        { group: 'b', s: [642, 735], lat: -2.6, h: 1.1 }, { group: 'b', s: [642, 735], lat: 2.6, h: 1.1 },
+      ],
+      grind: {
+        speed: 22, maxSpeed: 30,  // grinding speed (at least this, at most maxSpeed)
+        ramp: 6,                  // low rails rise from the street over this length
+        capture: 1.3, above: 0.7, // landing on a rail: within this of its line, from up to this above it
+        switchTime: 0.32, switchArc: 0.9, switchStick: 0.55, // hopping across to the next rail
+        hopOff: 7,                // the hop when leaving a rail (Jump or its end)
+        radius: 0.11, color: 0xd8dde2, post: 0x5a4a3a, postEvery: 6, gantryEvery: 12, gantryHalf: 8.6,
+      },
+      sparks: { max: 90, perSecond: 70, life: 0.35, speed: 4, size: 0.09, color: 0xffc24a, hot: 0xfff2c0 },
+      grindVolume: 0.5,
+      // Steam vents on the street: stepping on one launches the horse high (a puff, a whoosh).
+      vents: [{ s: 50, lat: 3.5 }, { s: 350, lat: 0 }, { s: 580, lat: -3 }],
+      vent: { radius: 1.6, launch: 16, cooldown: 1, color: 0x3a2c22, grate: 0x8a6a3a, glow: 0xfff0d0, puff: 14 },
+      steam: { puffs: 70, life: 1.6, rise: 3.2, size: [0.6, 1.6], color: 0xfff6ea, opacity: 0.32, idleEvery: 1.3 },
+      // A floating gear deck, reached from the first steam vent (its gears on top).
+      decks: [{ s: [62, 92], lat: 3.5, width: 5, top: 4.0, color: 0x9a7a3a, trim: 0xc9a23a }],
+      deckFade: { opacity: 0.18, above: 1.2, rate: 6 }, // the deck fades while the camera is under it (or within `above` over its top)
+      // Hazards (a hit staggers the horse, never costs a heart).
+      hammers: [{ s: 225, phase: 0 }, { s: 250, phase: 1.6 }, { s: 540, phase: 0.8 }],
+      hammer: { pivot: 7.6, arm: 6, amp: 1.05, period: 3.0, head: [1.6, 1.3, 1.6], reach: 1.6, push: 7, gantryHalf: 8.6, color: 0x5a4632, headColor: 0x8a8f96, band: 0xc9a23a },
+      cogPlatforms: [{ s: 388, lat: -3, dir: 1 }, { s: 412, lat: 3, dir: -1 }, { s: 565, lat: 0, dir: 1 }],
+      cogPlatform: { radius: 3.6, speed: 0.9, height: 0.12, teeth: 14, color: 0xb08030, hub: 0x6b4a22 },
+      conveyors: [{ s: [265, 281], dir: 1 }, { s: [505, 521], dir: -1 }],
+      conveyor: { speed: 6, slat: 0.9, color: 0x2e2620, slatColor: 0x8a6a3a, stripe: 0xc9a23a },
+      stagger: 0.9,               // seconds of stagger (slower) after a hit
+      hitCooldown: 1.2,
+      // Brass gears: the currency (like Part 1's gems), on the rails, the deck and above the vents.
+      gears: {
+        size: 0.42, color: 0xe2b23c, halo: 0xffe7a0, spin: 2.4, bob: 0.12, reach: 1.7, pop: 0.35,
+        rows: [[28, 44, 0, 4]], // street rows: [s0, s1, lat, count]
+        railRows: [['a', 0, 108, 124, 3], ['a', 1, 126, 140, 3], ['a', 2, 142, 156, 3], ['u', 0, 372, 428, 6], ['b', 0, 652, 676, 3], ['b', 1, 684, 708, 3], ['b', 0, 714, 730, 2]], // [group, index in the group, s0, s1, count]
+        deckRows: [[0, 66, 88, 3]], // [deck, s0, s1, count]
+        ventArc: [2, 5, 8, 11],     // above each vent: gears along the launch arc this far ahead
+      },
+      // The end: the Fire Element's door across the trail (its stub: "coming soon").
+      door: { s: 765, scale: 2.4, reach: 4.5 },
+      quest: 'fire',
+    },
   },
 
   // Small enemies (minions.js / minionModels.js): Quaternius Animated Monster Pack FBX files
@@ -1721,7 +1792,7 @@ export const DIALOGUE = {
     audio: 'Audio test',
     part1: 'Part 1', part2: 'Part 2',
     portal: 'Portal scene', arrival: 'Gearhaven arrival', fire: 'Fire level', lightning: 'Lightning level', steam: 'Steam level',
-    magnet: 'Magnet level', time: 'Time level', final: "Amy's final fight", part2Ending: 'Part 2 ending', robots: 'Robots test',
+    magnet: 'Magnet level', time: 'Time level', final: "Amy's final fight", part2Ending: 'Part 2 ending', robots: 'Robots test', ride: 'Gearhaven ride',
     on: 'Test menu on', off: 'Test menu off',
   },
   skip: 'Skip ▶▶',
@@ -1751,6 +1822,7 @@ export const DIALOGUE = {
     comingSoon: (name) => `${name} — coming soon`,
     back: 'Back to Gearhaven',
     robotsTest: 'Robots test — Tick, Leela, Mike, Stan, George',
+    ride: { quest: 'Ride to the Fire Element', start: 'Grind the rails, ride the steam!', gears: '⚙' }, // the Gearhaven ride (ride.js)
     toBeContinued: 'To be continued... Part 3',
     summaryTitle: 'Part 2 complete',
     nextPart: 'Part 3 (Coming soon)',

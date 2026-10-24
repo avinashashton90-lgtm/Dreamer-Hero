@@ -4,6 +4,7 @@
 // gets down, the horse's brass key and plates, Tick floats in, the lines in order, Tick's nervous
 // glance, Skip), the courtyard (the gear sky, cogs, the clock's hands and steam moving, walking
 // around inside its wall, "Find the Fire Element" with its distance), walking into the Fire door
+// → the Gearhaven ride (test:ride plays it), its end → the Fire Element's stub
 // → its "coming soon" stub and back, every level's stub and Amy's final fight, the Part 2 ending;
 // a draw budget for the courtyard; Tick's model (the Animated Robot glb: brass and copper, dark
 // goggles, its idle playing, floating beside the horse in the arrival) and the four mech robots
@@ -184,8 +185,13 @@ const scale0 = horse.model.scale.x;
   const door = u.doors.fire.at;
   hero.puppet(door.clone().multiplyScalar(0.97), 0, 0);
   await frame(); await frame();
-  check(p2.at === 'fire' && ui.quest === D2.comingSoon(D2.levelNames.fire) && ui.toasts.at(-1) === D2.comingSoon(D2.levelNames.fire) && Math.abs(hero.position.x - p2.stubs.fire.x) < P2.levels.stub.radius,
-    `walking into the Fire door: "${ui.quest}" on its own platform`);
+  check(p2.at === 'ride' && ui.quest === D2.ride.quest && horse.mode === 'riding' && hero.world === p2.rideWorld,
+    `walking into the Fire door: the Gearhaven ride ("${ui.quest}", on the horse; npm run test:ride plays it)`);
+  // (its end: the Fire Element's door → the stub)
+  p2.ride.onFinish();
+  await frame(); await frame();
+  check(p2.at === 'fire' && ui.quest === D2.comingSoon(D2.levelNames.fire) && ui.toasts.at(-1) === D2.comingSoon(D2.levelNames.fire) && Math.abs(hero.position.x - p2.stubs.fire.x) < P2.levels.stub.radius && hero.world === p2.world && !hero.riding,
+    `at the ride's end, the Fire Element's door: "${ui.quest}" on its own platform, AJ on foot`);
   hero.puppet(p2.stubs.fire.door.clone(), 0, 0);
   await frame(); await frame();
   check(p2.at === 'courtyard' && Math.hypot(hero.position.x, hero.position.z) < P2.gearhaven.floor.radius, 'its door back leads to the courtyard');

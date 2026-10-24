@@ -52,6 +52,7 @@ chase | hurdles | energy | arena`). All of them pass.
 | Forest start | 254 → 216 | 560k → 416k | 673 → 570 ms |
 | Boss fight | 73 → 63 | 328k → 197k | 516 → 471 ms |
 | Sandstorm | 197 → 73 | 477k → 185k | 674 → 189 ms |
+| Gearhaven ride (added later) | 107 | 73k | 98 ms |
 
 The absolute frame times are from software rendering, which is far slower than a phone GPU;
 only the before/after ratio matters.

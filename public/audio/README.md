@@ -98,6 +98,11 @@ Layer files only play over a music file of their track (they start together, so 
 | portal_whoosh | portal_whoosh.ogg | The portal pulls AJ and the horse in: a long rising whoosh |
 | steam_hiss | steam_hiss.ogg | Gearhaven: a steam vent hisses (Part 2) |
 | clock_chime | clock_chime.ogg | Gearhaven: the Dream Clock’s deep, slow chime far away (Part 2 arrival) |
+| rail_grind ↻ | rail_grind.ogg | Gearhaven ride: the horse grinding along a rail — a steel scrape (loop) |
+| rail_land | rail_land.ogg | Gearhaven ride: landing on a rail (or hopping across to the next one) — a metal clank |
+| steam_launch | steam_launch.ogg | Gearhaven ride: a steam vent launches the horse — a puff and a rising whoosh |
+| hammer_hit | hammer_hit.ogg | Gearhaven ride: a swinging hammer knocks the horse — a heavy clang |
+| gear_pickup | gear_pickup.ogg | Gearhaven ride: a brass gear collected — a bright little tick-chime |
 | sandstorm_wind ↻ | sandstorm_wind.ogg | The sandstorm’s wind (loop, follows its strength) |
 | thunder_soft | thunder_soft.ogg | Distant soft thunder (the witch hint) |
 | heart_lost | heart_lost.ogg | A heart lost |

@@ -41,6 +41,12 @@ export class UI {
       this.gemPills[color] = pill;
     }
 
+    // Gearhaven's brass gears (the ride's currency): a pill where the gems sit in Part 1.
+    this.gearsEl = this.#el('div', 'gear-pill');
+    this.gearsEl.style.display = 'none';
+    this.gearsEl.innerHTML = `<b>${DIALOGUE.part2.ride.gears}</b><span></span>`;
+    this.hud.appendChild(this.gearsEl);
+
     // Exhaustion: a faint red vignette that breathes (strength set by setExhaustion).
     this.vignette = this.#el('div', 'vignette');
     this.exhaustion = 0;
@@ -186,6 +192,21 @@ export class UI {
   showGems(on) {
     const display = on ? '' : 'none';
     if (this.gemsEl.style.display !== display) this.gemsEl.style.display = display;
+  }
+
+  /** The brass gear counter ("⚙ 12 / 42"), shown on the Gearhaven ride; `pulse` on a pickup. */
+  setGears(count, total, show = true, pulse = false) {
+    const el = this.gearsEl;
+    const display = show ? '' : 'none';
+    if (el.style.display !== display) el.style.display = display;
+    const text = `${count} / ${total}`;
+    const span = el.lastElementChild;
+    if (span.textContent !== text) span.textContent = text;
+    if (pulse) {
+      el.classList.remove('pulse');
+      void el.offsetWidth;
+      el.classList.add('pulse');
+    }
   }
 
   /** Briefly pulses a gem counter (used when a colour's set completes). */

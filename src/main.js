@@ -545,6 +545,7 @@ async function boot() {
     const part2Jumps = {
       portal: () => story.debugPortal(),
       arrival: () => goToPart2('arrival', { white: false }),
+      ride: () => goToPart2('ride', { white: false }), // (the first playable section: rails, steam, hazards, gears → the Fire door)
       ...Object.fromEntries(CONFIG.part2.levels.order.map((id) => [id, () => goToPart2(id, { white: false })])),
       final: () => goToPart2('final', { white: false }),
       part2Ending: () => goToPart2('ending', { white: false }),

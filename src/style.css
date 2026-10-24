@@ -303,6 +303,18 @@ html, body {
   100% { transform: scale(1); }
 }
 .gem-pill.pulse { animation: gem-pulse 1.4s ease-out 1; }
+/* Gearhaven's brass gear counter (the ride) */
+.gear-pill {
+  position: absolute;
+  top: max(10px, env(safe-area-inset-top));
+  right: calc(max(12px, env(safe-area-inset-right)) + 38px); /* (where the gem counters sit in Part 1) */
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 12px; border-radius: 12px;
+  background: rgba(40, 26, 10, 0.6); color: #ffd36a;
+  font-weight: bold; font-size: clamp(11px, 3vh, 15px);
+}
+.gear-pill b { font-size: 1.25em; line-height: 1; }
+.gear-pill.pulse { animation: gem-pulse 0.7s ease-out 1; }
 
 /* Rotate */
 .rotate { background: #1b1638; z-index: 100; }

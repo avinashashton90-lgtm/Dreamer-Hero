@@ -4,18 +4,22 @@ import { GearhavenWorld, loadGearhavenModel, makeDoor } from './gearhaven.js';
 import { Tick, loadTickModel } from './tick.js';
 import { loadGearhavenHorseUpgrade, spinHorseKey } from './horseUpgrade.js';
 import { loadRobotModel } from './robots.js';
+import { RideWorld, Ride, loadRide } from './ride.js';
+import { trackPoint } from './rideModel.js';
 
 // Part 2 — Gearhaven (STORY.md): a chapter for levelManager.js with its own scene, floors and
 // loop; it borrows the shared systems (state machine, HUD, input, camera, cutscene player,
 // sound, the hero and the horse) and hands them back on exit. Today: the arrival scene (AJ and
 // the horse drop out of the light into a brass courtyard; Tick), the courtyard with its five
-// element doors (the first objective: "Find the Fire Element"), a "coming soon" stub platform
-// per element level and for Amy's final fight, the Part 2 ending screen, and (?debug) the
-// "Robots test" showcase of Tick and the four mech robots.
+// element doors (the first objective: "Find the Fire Element"), the Gearhaven ride behind the
+// Fire door (ride.js: rails, steam vents, hazards, gears, checkpoints) to the Fire Element's
+// door, a "coming soon" stub platform per element level and for Amy's final fight, the Part 2
+// ending screen, and (?debug) the "Robots test" showcase of Tick and the four mech robots.
 
 const P2 = CONFIG.part2;
 const GH = P2.gearhaven;
 const D2 = DIALOGUE.part2;
+const RD = P2.ride;
 
 /**
  * @param {object} shared  { state, STATES, ui, input, cam, cinematic, sound, soundscape, hero,
@@ -55,6 +59,15 @@ class Part2 {
     this.#buildStubs();
     this.steam = Array.from({ length: GH.steam.puffs }, () => ({ age: Infinity }));
     this.steamT = 0;
+    // The Gearhaven ride (its own world and models; hidden until it starts).
+    this.rideWorld = new RideWorld();
+    this.rideParts = await loadRide(scene, this.rideWorld);
+    this.ride = new Ride({ parts: this.rideParts, world: this.rideWorld, horse: this.horse, hero: this.hero, sound: this.sound, cam: this.cam, ui: this.ui });
+    this.ride.onGear = (n) => {
+      this.gears = (this.gears ?? 0) + 1; // (the currency, kept across rides)
+      this.ui.setGears?.(n, this.ride.total, true, true);
+    };
+    this.ride.onFinish = () => this.#travel(() => this.enterLevel(RD.quest)); // (the Fire Element's door: its stub)
   }
 
   /** A platform per element level (and Amy's fight): floating far off, a crystal, a door back. */
@@ -88,6 +101,7 @@ class Part2 {
   async enter({ start = 'arrival' } = {}) {
     const { hero, horse, cam } = this;
     // (what Part 1 lent us: kept from the first entry only — re-entering at another start keeps it)
+    this.#leaveRide();
     if (hero.world !== this.world) this.saved = { heroWorld: hero.world, horseWorld: horse.world, camWorld: cam.world, bodies: this.cinematic.bodies };
     hero.world = horse.world = cam.world = this.world;
     for (const o of [hero.model, hero.shadow, horse.model, horse.shadow]) this.scene.add(o);
@@ -108,12 +122,14 @@ class Part2 {
     if (start === 'courtyard') return this.toCourtyard();
     if (start === 'ending') return this.ending();
     if (start === 'robots') return this.showRobots();
+    if (start === 'ride') return this.enterRide();
     return this.enterLevel(start);
   }
 
   /** Back out (to Part 1): everything borrowed is handed back. */
   exit() {
     const { hero, horse, cam } = this;
+    this.#leaveRide();
     if (this.saved) {
       hero.world = this.saved.heroWorld;
       horse.world = this.saved.horseWorld;
@@ -302,6 +318,7 @@ class Part2 {
 
   /** On foot in the courtyard; the objective is the next element (the Fire Element first). */
   toCourtyard({ keepPlace = false, from = null } = {}) {
+    this.#leaveRide();
     const { hero, horse, state, STATES } = this;
     this.at = 'courtyard';
     if (!keepPlace) {
@@ -319,8 +336,81 @@ class Part2 {
     this.ui.toast(D2.objectives[this.objective]);
   }
 
+  // --- the Gearhaven ride ---------------------------------------------------------
+
+  /**
+   * The ride behind the Fire door: AJ on the horse at its start in the brass city (its own
+   * world: the street, walls, rails, deck), the gold sky; gears from 0; checkpoints; the Fire
+   * Element's door at its end (ride.onFinish → its stub).
+   */
+  enterRide() {
+    const { hero, horse, state, STATES, ui, ride } = this;
+    this.#leaveRide();
+    this.at = 'ride';
+    this.stats.rides = (this.stats.rides ?? 0) + 1;
+    this.#useWorld(this.rideWorld, RD.sky);
+    this.gearhaven.visible = false;
+    this.rideParts.root.visible = true;
+    ride.reset();
+    // (the horse's own trail, checkpoints and callbacks, handed back after the ride)
+    this.horseSaved = { route: horse.route, checkpoints: horse.checkpoints, last: horse.lastCheckpoint, onCheckpoint: horse.onCheckpoint, onRespawn: horse.onRespawn };
+    const track = this.rideWorld.track;
+    horse.setRoute(track, RD.checkpoints.map((s) => s / track.length));
+    horse.onCheckpoint = (i) => {
+      this.rideParts.flags[i - 1]?.userData.flag.material.color.setHex(CONFIG.checkpoints.reachedColor);
+      ui.toast(DIALOGUE.checkpoint);
+    };
+    horse.onRespawn = () => ride.stop();
+    const start = trackPoint(track, 2);
+    this.#horseAt(start.pos, start.heading);
+    horse.scripted = horse.hold = false;
+    horse.galloping = false;
+    horse.stamina = 1;
+    horse.mountNow(hero);
+    this.tick.place(start.pos.clone().setY(P2.tick.float), start.heading);
+    this.#behind(start.heading);
+    if (!state.is(STATES.PLAY)) state.set(STATES.PLAY);
+    ui.setGears?.(0, ride.total, true);
+    ui.toast(D2.ride.start);
+  }
+
+  /** Out of the ride (to a stub, the courtyard, anywhere): back to Gearhaven's floors and sky. */
+  #leaveRide() {
+    if (!this.rideParts?.root.visible) return;
+    const { hero, horse } = this;
+    this.ride.stop();
+    this.rideParts.root.visible = false;
+    this.gearhaven.visible = true;
+    this.#useWorld(this.world, GH);
+    if (this.horseSaved) {
+      horse.route = this.horseSaved.route;
+      horse.checkpoints = this.horseSaved.checkpoints;
+      horse.lastCheckpoint = this.horseSaved.last;
+      horse.onCheckpoint = this.horseSaved.onCheckpoint;
+      horse.onRespawn = this.horseSaved.onRespawn;
+      this.horseSaved = null;
+    }
+    horse.galloping = false;
+    horse.speed = 0;
+    if (horse.mode !== 'idle') {
+      horse.mode = 'idle';
+      hero.stopRiding?.(hero.position.clone(), horse.heading);
+    }
+    this.ui.setGears?.(0, 0, false);
+  }
+
+  /** The hero, horse and camera on `world`; the sky and fog of `look` ({ background, fog }). */
+  #useWorld(world, look) {
+    this.hero.world = this.horse.world = this.cam.world = world;
+    this.scene.background.set(look.background);
+    this.scene.fog.color.set(look.fog.color);
+    this.scene.fog.near = look.fog.near;
+    this.scene.fog.far = look.fog.far;
+  }
+
   /** A level: today a stub platform ("coming soon") with its crystal and the door back. */
   enterLevel(id) {
+    this.#leaveRide();
     const { state, STATES, ui } = this;
     const s = this.stubs[id];
     if (!s) return this.toCourtyard();
@@ -337,6 +427,7 @@ class Part2 {
 
   /** The Part 2 ending: "To be continued... Part 3" and the summary (main.js shows it). */
   ending() {
+    this.#leaveRide();
     const { state, STATES } = this;
     this.at = 'ending';
     state.set(STATES.ENDING); // (from play or a cutscene)
@@ -350,6 +441,7 @@ class Part2 {
    * browser), the camera slowly orbiting the row (a swipe turns it). AJ stands at the end for scale.
    */
   async showRobots() {
+    this.#leaveRide();
     const SC = P2.showcase;
     const { state, STATES } = this;
     this.at = 'robots';
@@ -434,6 +526,7 @@ class Part2 {
   /** The quest panel: the objective with its distance, or a level's "coming soon". */
   get questText() {
     if (this.at === 'robots') return D2.robotsTest;
+    if (this.at === 'ride') return D2.ride.quest;
     if (this.at === 'courtyard') return D2.objectives[this.objective];
     if (this.stubs[this.at]) return D2.comingSoon(D2.levelNames[this.at]);
     return null;
@@ -459,6 +552,7 @@ class Part2 {
       }
     }
     let inp = null;
+    const riding = this.at === 'ride'; // (the Gearhaven ride: on the horse, ride.js)
     if (playing) {
       if (!input.enabled) input.setEnabled(true);
       inp = input.read();
@@ -466,28 +560,35 @@ class Part2 {
       else cam.rotate(inp.lookDX, inp.lookDY, inp.lookSensitivity);
       inp.attackPressed = inp.dodgePressed = false; // (no fighting here yet: the elements will bring abilities)
       inp.ability = null;
-      hero.lastDt = dt;
-      hero.update(dt, inp, cam.yaw);
-      // The HUD: no gems (the elements replace them), no horse energy, no boss bar; only Jump.
-      input.setCombatButtons(false, this.abilities, true);
+      if (riding) this.ride.update(dt, inp); // (the horse carries him: rails, conveyors, cogs)
+      else {
+        hero.lastDt = dt;
+        hero.update(dt, inp, cam.yaw);
+      }
+      // The HUD: no gems (the elements replace them; the ride counts brass gears), no horse
+      // energy, no boss bar; Jump (and Gallop on the ride).
+      input.setCombatButtons(riding, this.abilities, true);
       input.setMountButton(false);
       input.setDismountButton(false, false, realDt, null, 1);
-      input.setGallopButton(false, DIALOGUE.gallop, 1, false, false);
+      input.setGallopButton(riding, DIALOGUE.gallop, horse.stamina, horse.galloping, false);
       ui.showGems(false);
       ui.setHorseEnergy(1, false, false);
       ui.setBossBar(false, 1, '', false);
       this.#checkDoors();
       const goal = this.at === 'courtyard' ? this.gearhaven.userData.doors[this.objective]?.at : null;
-      ui.setQuest(this.questText, goal ? Math.round(Math.hypot(goal.x - hero.position.x, goal.z - hero.position.z)) : null);
+      const dist = riding ? Math.max(0, Math.round(RD.door.s - this.ride.s)) : goal ? Math.round(Math.hypot(goal.x - hero.position.x, goal.z - hero.position.z)) : null;
+      ui.setQuest(this.questText, dist);
     }
     if (!playing && this.ajSpot && horse.mode === 'idle') hero.puppet(this.ajSpot.pos, this.ajSpot.yaw, live ? dt : 0); // (the arrival: AJ to his place)
-    horse.update(live ? dt : 0, null, cam.yaw, hero); // (it stands; never ridden by input here)
+    horse.update(live ? dt : 0, riding && playing ? inp : null, cam.yaw, hero); // (ridden only on the ride; else it stands)
+    if (riding && playing) this.ride.after(dt);
     spinHorseKey(this.upgrade, live ? dt : 0);
     this.tick.update(live ? dt : 0, { position: hero.position, facing: hero.facing }); // (beside AJ, unless sent somewhere)
-    this.#animate(live ? realDt : 0);
+    if (riding) this.ride.animate(live ? dt : 0);
+    else this.#animate(live ? realDt : 0);
     if (this.at === 'robots') this.#updateShowcase(live ? dt : 0, live ? realDt : 0, inp);
     else if (cinematic.active) cinematic.update(paused ? 0 : realDt);
-    else cam.update(realDt, hero.position, { mounted: horse.mounted, speed: 0, gallop: false, heading: horse.heading });
+    else cam.update(realDt, hero.position, { mounted: horse.mounted, speed: riding ? horse.speedRatio : 0, gallop: riding && horse.galloping, heading: horse.heading });
     if (!cinematic.active) hero.cameraOpacity = cam.heroOpacity;
   }
 
@@ -497,7 +598,8 @@ class Part2 {
     const R = GH.doors.reach;
     if (this.at === 'courtyard') {
       const d = this.gearhaven.userData.doors[this.objective];
-      if (d && Math.hypot(h.x - d.at.x, h.z - d.at.z) < R) this.#travel(() => this.enterLevel(this.objective));
+      // (the Fire door opens onto the Gearhaven ride; the others onto their stubs)
+      if (d && Math.hypot(h.x - d.at.x, h.z - d.at.z) < R) this.#travel(() => (this.objective === RD.quest ? this.enterRide() : this.enterLevel(this.objective)));
     } else if (this.stubs[this.at]) {
       const s = this.stubs[this.at];
       if (Math.hypot(h.x - s.door.x, h.z - s.door.z) < R) {

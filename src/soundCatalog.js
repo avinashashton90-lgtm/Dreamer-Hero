@@ -84,6 +84,11 @@ export const SOUNDS = {
   steam_hiss: { group: 'effects', desc: 'Gearhaven: a steam vent hisses (Part 2)' },
   clock_chime: { group: 'effects', desc: 'Gearhaven: the Dream Clock’s deep, slow chime far away (Part 2 arrival)' },
   tick_whir: { group: 'voices', desc: 'Tick, the brass robot, whirs as he floats in (Part 2)' },
+  rail_grind: { group: 'effects', loop: true, desc: 'Gearhaven ride: the horse grinding along a rail — a steel scrape (loop)' },
+  rail_land: { group: 'effects', desc: 'Gearhaven ride: landing on a rail (or hopping across to the next one) — a metal clank' },
+  steam_launch: { group: 'effects', desc: 'Gearhaven ride: a steam vent launches the horse — a puff and a rising whoosh' },
+  hammer_hit: { group: 'effects', desc: 'Gearhaven ride: a swinging hammer knocks the horse — a heavy clang' },
+  gear_pickup: { group: 'effects', desc: 'Gearhaven ride: a brass gear collected — a bright little tick-chime' },
   sandstorm_wind: { group: 'effects', loop: true, desc: 'The sandstorm’s wind (loop, follows its strength)' },
   thunder_soft: { group: 'effects', desc: 'Distant soft thunder (the witch hint)' },
   // Hearts
