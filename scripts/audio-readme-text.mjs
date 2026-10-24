@@ -67,9 +67,9 @@ function speakerMap() {
   const G = DIALOGUE.girlScene;
   const P = DIALOGUE.pitScene;
   const P2 = DIALOGUE.part2;
-  const aj = [G.safe, G.safety, P.keepGoing, P.ok, P.who, P2.portal.amy, P2.arrival.where, P2.arrival.amy];
-  const amy = [G.thanks, G.castle, P.stop, P.notWell, P.water, P.drink, P2.portal.thanks, P2.portal.wait];
-  const tick = [P2.arrival.welcome, P2.arrival.stops, P2.arrival.witch, P2.arrival.cannot];
+  const aj = [G.safe, G.safety, P.keepGoing, P.ok, P.who, P2.portal.whoa, P2.portal.happening, P2.arrival.where, P2.arrival.clock, P2.arrival.amy];
+  const amy = [G.thanks, G.castle, P.stop, P.notWell, P.water, P.drink, P2.portal.thanks, P2.portal.no];
+  const tick = [P2.arrival.welcome, P2.arrival.dreamClock, P2.arrival.stops, P2.arrival.took, P2.arrival.cannot];
   for (const t of aj) who.set(t, 'aj');
   for (const t of amy) who.set(t, 'amy');
   for (const t of tick) who.set(t, 'tick');

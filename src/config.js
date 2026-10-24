@@ -671,7 +671,12 @@ export const CONFIG = {
       hold: 0.8,               // s after the slam; then the horse walks on into the courtyard...
       walkIn: { speed: 2.6, depth: 8, shutAt: 5.6 }, // ...at this speed, stopping this far in from the inner gates (they swing shut once it is `shutAt` in)
       dismount: { ahead: 1.0, side: 3.0, walkSpeed: 1.5 }, // she gets down on the horse's left and stands this far to its side (a little ahead), then turns to AJ
-      eyeColor: 0x9a4dff, eyeHalo: 0xe0d4ff, eyeGlow: 0.5, // her eyes: a violet core in a white-violet halo (magic, not pink, not plain white), through her line, fading this long after it
+      eyeColor: 0x9a4dff, eyeHalo: 0xe0d4ff, // (girl.awaken's colours — a violet core in a white-violet halo; unused for now: nothing about Amy is revealed in this scene, her eyes never glow)
+      // The lines' timing (typewriter `pace`; `auto`: seconds after a line is typed before the next
+      // starts by itself — the portal interrupts them, so they run straight on): AJ's "Whoa..." (the
+      // portal tears open mid-line, at DIALOGUE's `whoaCue`) → at once "What's happening?!" (the pull
+      // already under way) → Amy's long, trailing "No......" as they vanish into the light.
+      lines: { whoa: { pace: 0.85, auto: 0 }, happening: { pace: 1.2, auto: 0.45 }, no: { pace: 0.12, auto: 0.5 } }, // ("No......": typed slowly, trailing on until they are gone into the light)
       side: 3.4, up: 2.3,      // the portal: in the air this far to the horse's right, this high
       radius: 1.9, openTime: 1.1, spin: 2.2, // grows over openTime, its swirl turning at `spin` rad/s
       ring: { tube: 0.16, color: 0xfff1c8, opacity: 0.95 },
@@ -916,17 +921,26 @@ export const CONFIG = {
       shots: {
         sky: { pos: [10, 3, 18], look: [0, 22, -40], duration: 0.1 },        // the gear sky and the clock first
         land: { pos: [6, 2.6, 14], look: [0, 1.2, 8], duration: 1.6 },       // then them landing
-        // AJ, Tick and the horse talking, from in front of all three (see `stage`): the camera
-        // `dist` toward them from the middle of the group, `up` high, looking at `look` high.
-        talk: { dist: 5.6, up: 1.9, look: 0.65, duration: 1.2 }, // (looking a little down: their feet above the dialogue box)
+        // The talk, from in front (see `stage`): the two-shot — the camera `dist` toward them from
+        // the middle of AJ and Tick, `up` high, looking at `look` high (a little down: their feet
+        // above the dialogue box, the horse behind them).
+        talk: { dist: 5.6, up: 1.9, look: 0.65, duration: 1.2 },
+        // Each line frames its speaker (both kept in the shot): the camera eases `toward` × the way
+        // over to the speaker and `closer` in, looking straight at them (`look` high) — AJ's lines
+        // AJ, Tick's lines Tick in the middle of the screen.
+        aj: { toward: 0.25, closer: 0.5, look: 0.75, duration: 0.7 },
+        tick: { toward: 0.15, closer: 0.5, look: 0.8, duration: 0.7 },
+        // "Am I inside a clock?": AJ looks up (`lookUp` rad of head pitch, turned to the clock) and the
+        // camera tilts up past his shoulder to the Dream Clock's face and the gears turning in the sky:
+        // `back` behind him (away from the clock), `side` to the side away from Tick and the horse (far enough out that Tick shows clear of AJ's head), `up` high.
+        clock: { back: 2.6, side: 2.4, up: 1.15, lookUp: 0.45, duration: 1.3 },
       },
-      // Where they stand for the talk, in the frame of the shot: the camera is `angle`° round from
-      // the horse's nose toward its right, so the horse faces it three-quarter on (its head and
-      // the brass key both in view, its head away from AJ). AJ gets down on its right and steps to
-      // `aj` = [left of the horse on screen, toward the camera]; Tick floats in between them at
-      // head height (`tick` = [left, toward the camera, height]); the group's middle `mid` left
-      // of the horse.
-      stage: { angle: 40, aj: [2.7, 0.6], tick: [1.35, 1.1, 1.9], mid: 1.3, walkSpeed: 1.4 },
+      // Where they stand for the talk, in the frame of the two-shot: the camera is `angle`° round
+      // from the horse's nose toward its right (the horse three-quarter on, behind them). AJ gets
+      // down on its right and steps to `aj` = [across the screen (− = left), toward the camera]
+      // from the horse; Tick floats in to `tick` = [across (+ = right), toward the camera, height]
+      // — AJ on the left, Tick on the right at head height, the horse behind them.
+      stage: { angle: 40, aj: [-1.1, 3.6], tick: [1.1, 4.6, 1.9], walkSpeed: 1.4 },
       landHold: 0.6,
     },
     // After the arrival: the courtyard; walk into the Fire door (the first level, a stub for now).
@@ -1611,6 +1625,7 @@ export const CONFIG = {
     gait: { walkMax: 4.5, trotMax: 19, gallopMin: 19, rateRef: { hoof_walk: 3, hoof_trot: 12, hoof_gallop: 26 }, rateClamp: [0.6, 1.7] },
     voice: {
       charsPerBlip: 2,       // one blip every this many typed letters (spaces and punctuation skipped)
+      pan: 0.8,              // a speaker whose place is known (Part 2: Tick, AJ) is panned toward where they stand, this much of the full pan
       characters: {          // the synthesized "talking" blip per character
         aj: { freq: 330, jitter: 0.12, type: 'square', volume: 0.22, length: 0.06, formant: 1400 },
         amy: { freq: 440, jitter: 0.08, type: 'sine', volume: 0.2, length: 0.075, formant: 2200 },
@@ -2064,17 +2079,21 @@ export const DIALOGUE = {
   // Part 2 — Gearhaven (src/part2/; the portal scene at the end of Part 1).
   part2: {
     portal: {
-      thanks: 'Thank you for bringing me home.',
-      amy: 'Amy?',               // (AJ, confused)
-      wait: 'No, wait!',         // (Amy, shocked, reaching for him as the portal pulls him in)
+      thanks: 'Thank you for bringing me home.', // (Amy, in the close-up)
+      whoa: "Whoa... what's this place?",        // (AJ, looking round — the portal tears open mid-line)
+      whoaCue: "what's this place",              // (the portal opens as the typewriter reaches this)
+      happening: "What's happening?!",            // (AJ, as the portal already pulls him and the horse in)
+      no: 'No......',                            // (Amy, long and trailing, reaching out to him as they vanish into the light)
     },
     arrival: {
-      welcome: 'Welcome to Gearhaven. The Dream Clock is slowing.',
       where: 'Where am I?',
+      welcome: 'Welcome to Gearhaven.',
+      clock: 'Am I inside a clock?',              // (AJ looks up: the camera tilts up to the Dream Clock and the gears)
+      dreamClock: "It's the Dream Clock. And it's slowing down.",
       stops: 'If it stops, your dream ends. Five elements can restart it.',
-      witch: 'But a witch took them. And only one person can stop her.',
+      took: "But someone took them. It's her doing.",
       amy: 'Amy?',
-      cannot: 'I cannot say.',   // (Tick, nervously, looking over his shoulder)
+      cannot: "I can't say.",                    // (Tick, nervously, looking over his shoulder)
     },
     objectives: {
       fire: 'Find the Fire Element', lightning: 'Find the Lightning Element', steam: 'Find the Steam Element',

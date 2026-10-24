@@ -12,6 +12,7 @@ const PIT = DS.pit;
 const CH = DS.chase;
 const GT = DS.gate;
 const PO = CONFIG.part2.portal;
+const PL = PO.lines; // the portal scene's line timing (interrupted lines run straight on)
 const { smoothstep, clamp } = THREE.MathUtils;
 /** From angle a to b the short way round, by k (0..1). */
 const lerpAngle = (a, b, k) => a + Math.atan2(Math.sin(b - a), Math.cos(b - a)) * clamp(k, 0, 1);
@@ -68,6 +69,7 @@ export class Story {
     this.portalStarted = false; // the end of Part 1: Amy, the portal (after the gates shut)
     this.portalDone = false;
     this.pull = null; // the portal pulling AJ and the horse in
+    this.portalPlaced = null; // (a promise: the portal in place, opened mid-line)
     this.part1Done = false;
   }
 
@@ -790,11 +792,13 @@ export class Story {
   /**
    * After the gates shut: the horse walks on into the courtyard and the inner gates swing shut
    * behind it. A wide shot from in front — the gate wall, the closed gates and the torches behind
-   * them, the dusk sky above; Amy gets down beside the horse and turns to AJ; a cut to her face,
-   * her eyes glowing white-violet through "Thank you for bringing me home."; back to wide —
-   * "Amy?" — a portal opens in the air beside AJ (a swirling ring, gears flying in, a rumble);
-   * shocked, she reaches for him — "No, wait!" — as it pulls AJ and the horse in; the camera
-   * flies on into its light; white (essential `finishPortal()`: Part 2).
+   * them, the dusk sky above; Amy gets down beside the horse and turns to AJ; a cut to her face
+   * (she looks just as she always has: nothing revealed yet) — "Thank you for bringing me home."
+   * — back to wide: AJ, "Whoa... what's this place?", and mid-line a portal tears open in the air
+   * beside him (a swirling ring, gears flying in, a rumble); his line runs straight on into
+   * "What's happening?!" as it already pulls him and the horse in; shocked, she reaches out to
+   * him and stays there, her hand held out — "No......" — as they vanish into its light; the
+   * camera flies on into it; white (essential `finishPortal()`: Part 2).
    */
   portalSteps() {
     const L = DIALOGUE.part2.portal;
@@ -819,16 +823,16 @@ export class Story {
       { camera: { pos: () => wide(S.wide).pos, look: () => wide(S.wide).look, duration: S.wide.duration, wait: false, fov: S.wide.fov } },
       { call: () => this.#tween(() => this.portalStage.walked) },
       { call: () => this.#amyGetsDown() },
-      // The cut to her face: her eyes glow white-violet (not pink) through her line.
-      { call: () => { this.portalCloseUp = this.#portalCloseUp(); girl.awaken(Infinity); this.sound?.play('eerie'); } },
+      // The cut to her face (no glow, nothing revealed: she looks normal all through the scene).
+      { call: () => { this.portalCloseUp = this.#portalCloseUp(); } },
       { camera: { pos: () => this.portalCloseUp.pos, look: () => this.portalCloseUp.look, duration: S.closeUp.duration, wait: false, fov: S.closeUp.fov, subject: 'girl', soften: ['hero', 'horse'] } },
       { say: 'girl', text: L.thanks },
-      { call: () => girl.awaken(PO.eyeGlow) }, // (fading as the camera pulls back)
       { camera: { pos: () => wide(S.wideBack).pos, look: () => wide(S.wideBack).look, duration: S.wideBack.duration, wait: false, fov: S.wideBack.fov } },
-      { say: 'aj', text: L.amy, pace: 0.75 }, // (confused)
-      { call: () => this.#openPortal() },
-      { call: () => this.#startPull() },
-      { say: 'girl', text: L.wait },
+      // Mid-line the portal tears open (no pause): his line runs straight on into the next as it pulls him in.
+      { say: 'aj', text: L.whoa, pace: PL.whoa.pace, auto: PL.whoa.auto, cues: [{ at: L.whoaCue, call: () => this.#openPortal() }] },
+      { call: () => { this.#startPull(); } }, // (not awaited: "What's happening?!" plays while it pulls)
+      { say: 'aj', text: L.happening, pace: PL.happening.pace, auto: PL.happening.auto },
+      { say: 'girl', text: L.no, pace: PL.no.pace, auto: PL.no.auto }, // (long and trailing, as they vanish into the light)
       { call: () => this.#tween(() => this.pull?.done) },
       { camera: { pos: () => light().pos, look: () => light().look, duration: S.light.duration } },
       { call: () => this.finishPortal(), essential: true },
@@ -920,20 +924,33 @@ export class Story {
     girl.frightened = false;
   }
 
-  /** A portal opens in the air beside AJ: a swirling ring of light, gears flying in, a rumble. */
-  async #openPortal() {
-    await this.portal.ready;
-    const st = this.portalStage;
-    const at = st.horse.clone().addScaledVector(st.right, PO.side).setY(st.floor + PO.up);
-    const toCam = this.cam.camera.position.clone().sub(at).setY(0).normalize();
-    this.portal.openAt(at, toCam.lengthSq() > 0 ? toCam : st.inward.clone()); // (its face toward the camera)
-    this.sound?.play('portal_open');
-    this.cinematic.shake(PO.shake, PO.shakeTime);
-    await this.#tween(() => this.portal.open >= 1);
+  /**
+   * A portal tears open in the air beside AJ, suddenly (mid-line): a swirling ring of light,
+   * gears flying in, a rumble. `this.portalPlaced` resolves once it is in place (the pull waits
+   * for that, not for it to finish opening).
+   */
+  #openPortal() {
+    if (this.portalPlaced) return this.portalPlaced;
+    this.portalPlaced = (async () => {
+      await this.portal.ready;
+      const st = this.portalStage;
+      const at = st.horse.clone().addScaledVector(st.right, PO.side).setY(st.floor + PO.up);
+      const toCam = this.cam.camera.position.clone().sub(at).setY(0).normalize();
+      this.portal.openAt(at, toCam.lengthSq() > 0 ? toCam : st.inward.clone()); // (its face toward the camera)
+      this.sound?.play('portal_open');
+      this.cinematic.shake(PO.shake, PO.shakeTime);
+    })();
+    return this.portalPlaced;
   }
 
-  /** It pulls AJ and the horse in (accelerating, a little spiral, shrinking); Amy reaches for him. */
-  #startPull() {
+  /**
+   * It pulls AJ and the horse in (accelerating, a little spiral, shrinking); Amy reaches for him
+   * and holds her hand out, standing still, her eyes on him. Starts as soon as the portal is in
+   * place (opened mid-line just before).
+   */
+  async #startPull() {
+    await this.#openPortal();
+    if (!this.cinematic.active || this.pull) return; // (skipped meanwhile)
     const { horse, hero, girl } = this;
     const from = horse.position.clone();
     const scale = { horse: horse.model.scale.clone(), hero: hero.model.scale.clone() };
@@ -990,7 +1007,6 @@ export class Story {
     if (this.portalDone) return;
     this.portalDone = this.part1Done = true;
     this.portalStarted = true;
-    this.girl.awaken(0); // (skipped in the close-up: the glow goes)
     if (this.pull) this.pull.done = true;
     this.phase = 'done';
     if (this.onPart1Complete) this.onPart1Complete();

@@ -232,6 +232,11 @@ function MU() { return CONFIG.audio.music; }
   // Voices: no file → blips; visibility pause.
   check(audio.playVoice('aj', 'girlScene_safe') === false, 'a voice line without a file → blips');
   audio.voiceBlip('amy');
+  // A speaker whose place is known (Part 2's Tick): the blip pans toward him.
+  audio.voiceBlip('tick', { x: 6, y: 0, z: 0 });
+  const tickPan = audio.lastBlipPan;
+  audio.voiceBlip('tick', { x: -6, y: 0, z: 0 });
+  check(tickPan > 0.1 && audio.lastBlipPan < -0.1, `a speaker's blips come from where they stand (Tick on the right pans ${tickPan.toFixed(2)}, on the left ${audio.lastBlipPan.toFixed(2)})`);
   listeners['doc:visibilitychange'].forEach((fn) => { document.hidden = true; fn(); });
   check(ctx.state === 'suspended', 'a hidden tab suspends the audio');
   listeners['doc:visibilitychange'].forEach((fn) => { document.hidden = false; fn(); });

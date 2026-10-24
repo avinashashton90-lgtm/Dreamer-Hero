@@ -131,6 +131,8 @@ class Part2 {
     this.#applyRewards();
     hero.model.visible = horse.model.visible = true;
     this.soundscape && (this.soundscape.musicPhase = P2.music);
+    // (the talking blips come from where each speaker is: Tick's from Tick, AJ's from AJ)
+    if (this.soundscape) this.soundscape.speakerAt = (who) => (who === 'tick' ? this.tick.position : who === 'aj' ? this.hero.position : null);
     this.tweens.length = 0;
     this.tick.target = this.tick.lookAt = null;
     if (this.showcase) this.showcase.group.visible = false;
@@ -164,7 +166,10 @@ class Part2 {
     horse.damageScale = horse.stumbleScale = 1;
     if (this.showcase) this.showcase.group.visible = false;
     if (this.props) this.props.group.visible = false;
-    if (this.soundscape) this.soundscape.musicPhase = null;
+    if (this.soundscape) {
+      this.soundscape.musicPhase = null;
+      this.soundscape.speakerAt = null;
+    }
     this.tweens.length = 0;
     this.at = null;
   }
@@ -255,8 +260,10 @@ class Part2 {
 
   /**
    * AJ and the horse drop out of the light into the courtyard (the gear sky and the clock face
-   * first), he gets down; the horse has its brass key and plates; Tick floats in. Then the lines,
-   * Tick's nervous "I cannot say.", and the first objective.
+   * first), he gets down; the horse has its brass key; Tick floats in. Then the talk — each line
+   * framing its speaker (AJ on the left, Tick on the right, the horse behind them), AJ looking up
+   * at the Dream Clock for "Am I inside a clock?", Tick's nervous "I can't say." — and the first
+   * objective.
    */
   async playArrival() {
     const A = P2.arrival;
@@ -274,8 +281,8 @@ class Part2 {
     const L = D2.arrival;
     const S = A.shots;
     const v = (a) => new THREE.Vector3(...a);
-    // AJ, Tick and the horse talking: from in front of all three, nobody hidden.
-    const talk = () => this.#talkStage().camera;
+    // The talk: the two-shot, then each line framing its speaker (AJ / Tick), nobody hidden.
+    const shot = (who) => ({ pos: () => this.#talkShot(who).pos, look: () => this.#talkShot(who).look, duration: S[who === 'two' ? 'talk' : who].duration, wait: false });
     const steps = [
       { camera: { pos: v(S.sky.pos), look: v(S.sky.look), duration: S.sky.duration } },
       { call: () => this.sound?.play('clock_chime') },
@@ -285,12 +292,23 @@ class Part2 {
       { wait: A.landHold },
       { call: () => this.#getDown() },
       { call: () => { this.#ajToSpot(); return this.#tickFloatsIn(); } },
-      { camera: { pos: () => talk().pos, look: () => talk().look, duration: S.talk.duration, wait: false } },
-      { say: 'tick', text: L.welcome },
+      { camera: shot('two') },
+      { camera: shot('aj') },
       { say: 'aj', text: L.where },
+      { camera: shot('tick') },
+      { say: 'tick', text: L.welcome },
+      // He looks up: the camera tilts up past his shoulder to the Dream Clock and the gears.
+      { call: () => this.#lookUp(true) },
+      { camera: { pos: () => this.#clockShot().pos, look: () => this.#clockShot().look, duration: S.clock.duration } }, // (the tilt up, then his line)
+      { say: 'aj', text: L.clock },
+      { call: () => this.#lookUp(false) },
+      { camera: shot('tick') },
+      { say: 'tick', text: L.dreamClock },
       { say: 'tick', text: L.stops },
-      { say: 'tick', text: L.witch },
+      { say: 'tick', text: L.took },
+      { camera: shot('aj') },
       { say: 'aj', text: L.amy },
+      { camera: shot('tick') },
       { call: () => tick.nervous() }, // (nervously, looking over his shoulder)
       { say: 'tick', text: L.cannot, pace: 0.8 },
       { call: () => this.#arrived(), essential: true },
@@ -324,28 +342,73 @@ class Part2 {
   }
 
   /**
-   * The talk's places, from where the horse stands (`arrival.stage`): the camera in front,
-   * `angle`° round from the horse's nose to its right; AJ left of the horse on screen, Tick
-   * between them at head height; AJ turned to Tick and a little toward the camera.
+   * The talk's places, from where the horse stands (`arrival.stage`), in the frame of the
+   * two-shot: the camera in front, `angle`° round from the horse's nose to its right (the horse
+   * three-quarter on, behind them); AJ on the left, Tick on the right at head height (`mid`
+   * between them); AJ turned to Tick and a little toward the camera.
    */
   #talkStage() {
     const { horse } = this;
     const ST = P2.arrival.stage;
-    const T = P2.arrival.shots.talk;
     const h = horse.position.clone().setY(0);
     const f = new THREE.Vector3(Math.sin(horse.heading), 0, Math.cos(horse.heading));
     const right = new THREE.Vector3(-f.z, 0, f.x); // (its right: a side −1 dismount lands here)
     const a = THREE.MathUtils.degToRad(ST.angle);
     const toCam = f.clone().multiplyScalar(Math.cos(a)).addScaledVector(right, Math.sin(a));
     const screenRight = new THREE.Vector3(toCam.z, 0, -toCam.x);
-    const aj = h.clone().addScaledVector(screenRight, -ST.aj[0]).addScaledVector(toCam, ST.aj[1]);
-    const tick = h.clone().addScaledVector(screenRight, -ST.tick[0]).addScaledVector(toCam, ST.tick[1]).setY(ST.tick[2]);
+    const aj = h.clone().addScaledVector(screenRight, ST.aj[0]).addScaledVector(toCam, ST.aj[1]);
+    const tick = h.clone().addScaledVector(screenRight, ST.tick[0]).addScaledVector(toCam, ST.tick[1]).setY(ST.tick[2]);
     const face = tick.clone().setY(0).sub(aj).normalize().addScaledVector(toCam, 0.8);
-    const mid = h.clone().addScaledVector(screenRight, -ST.mid);
-    return {
-      aj, ajYaw: Math.atan2(face.x, face.z), tick, tickLook: aj.clone().addScaledVector(toCam, 1.5),
-      camera: { pos: mid.clone().addScaledVector(toCam, T.dist).setY(T.up), look: mid.clone().setY(T.look) },
-    };
+    const mid = aj.clone().add(tick.clone().setY(0)).multiplyScalar(0.5);
+    return { aj, ajYaw: Math.atan2(face.x, face.z), tick, tickLook: aj.clone().addScaledVector(toCam, 1.5).setY(ST.tick[2]), mid, toCam, screenRight };
+  }
+
+  /**
+   * The talk's camera: `who` 'two' (the two-shot from in front of the group's middle), 'aj' or
+   * 'tick' (eased over toward the speaker and a little closer, looking straight at them — both
+   * still in the shot).
+   */
+  #talkShot(who) {
+    const S = P2.arrival.shots;
+    const st = this.#talkStage();
+    const T = S.talk;
+    const base = st.mid.clone().addScaledVector(st.toCam, T.dist).setY(T.up);
+    if (who === 'two') return { pos: base, look: st.mid.clone().setY(T.look) };
+    const C = S[who];
+    const at = (who === 'tick' ? this.tick.target ?? st.tick : this.ajSpot?.pos ?? st.aj).clone().setY(0);
+    const pos = base.addScaledVector(at.clone().sub(st.mid), C.toward).addScaledVector(st.toCam, -C.closer).setY(T.up);
+    return { pos, look: at.setY(C.look) };
+  }
+
+  /**
+   * "Am I inside a clock?": past AJ's shoulder (behind him, away from the clock, away from
+   * Tick and the horse, far enough out that Tick shows clear of AJ's head) tilting up to the Dream Clock's face and the gears in the sky.
+   */
+  #clockShot() {
+    const C = P2.arrival.shots.clock;
+    const aj = (this.ajSpot?.pos ?? this.#talkStage().aj).clone().setY(0);
+    const clock = new THREE.Vector3(...GH.clock.at);
+    const away = aj.clone().sub(clock).setY(0).normalize();
+    let side = new THREE.Vector3(-away.z, 0, away.x);
+    const tick = this.tick.target ?? this.#talkStage().tick;
+    if (side.dot(tick.clone().sub(aj).setY(0)) > 0) side.negate(); // (away from Tick and the horse: the clock clear, Tick off past AJ's shoulder)
+    return { pos: aj.clone().addScaledVector(away, C.back).addScaledVector(side, C.side).setY(C.up), look: clock };
+  }
+
+  /** AJ looks up at the Dream Clock (turned to it, head tilted back), or back to Tick. */
+  #lookUp(up) {
+    const { hero } = this;
+    const C = P2.arrival.shots.clock;
+    if (!this.ajSpot) return;
+    const clock = new THREE.Vector3(...GH.clock.at);
+    this.ajSpot.yaw = up ? Math.atan2(clock.x - this.ajSpot.pos.x, clock.z - this.ajSpot.pos.z) : this.#talkStage().ajYaw;
+    const from = hero.facePitch;
+    const to = up ? -C.lookUp : 0;
+    this.#tween((t) => {
+      const k = Math.min(1, t / 0.5);
+      hero.facePitch = from + (to - from) * THREE.MathUtils.smoothstep(k, 0, 1);
+      return k >= 1;
+    });
   }
 
   /** AJ steps from where he got down to his place beside the horse and turns to Tick. */
@@ -389,6 +452,7 @@ class Part2 {
       hero.stopRiding?.(hero.position.clone(), st.ajYaw);
     }
     this.ajSpot = null;
+    hero.facePitch = 0; // (skipped while he looked up at the clock)
     if (horse.position.y > 0.01) horse.position.y = 0;
     this.tick.place(this.hero.position.clone().add(new THREE.Vector3(-1.3, P2.tick.float, 0)), A.heading);
     this.tick.target = null;

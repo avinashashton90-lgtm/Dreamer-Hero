@@ -105,9 +105,12 @@ const scale0 = horse.model.scale.x;
   const gear = p2.gearhaven.userData.decor.sets.flatMap((st) => st.items).find((it) => it.sky), gearRot = gear.angle;
   const tower = p2.gearhaven.userData.tower, minute0 = tower.userData.clock.minute;
   const yawRel = () => Math.abs(wrap(tick.model.rotation.y - Math.atan2(hero.position.x - tick.position.x, hero.position.z - tick.position.z)));
-  // The talk's framing: the horse right of AJ, three-quarter on to the camera, its head and the
-  // brass key in view; Tick between them at head height; nobody hidden (vertical capsules).
-  const fr = { frames: 0, order: 0, threeQ: 0, seen: 0, tickHead: 0, angle: [Infinity, -Infinity] };
+  // The talk's framing: each line frames its speaker — AJ's lines AJ, Tick's lines Tick in the
+  // middle — with AJ on the left, Tick on the right at head height, the horse behind them; both
+  // in the shot, nobody hidden behind the horse or the dialogue box (vertical capsules); for "Am I
+  // inside a clock?" the camera tilts up past AJ (looking up) to the Dream Clock and the gears.
+  const fr = { frames: 0, speaker: 0, tickCentred: 0, tickFrames: 0, both: 0, order: 0, behind: 0, tickHead: 0, clock: 0, clockFrames: 0, ajUp: 0, blipsFromTick: 0 };
+  const clockAt = new THREE.Vector3(...P2.gearhaven.clock.at);
   const proj = (v) => v.clone().project(cam.camera);
   const inView = (v) => { const q = proj(v); return q.z < 1 && Math.abs(q.x) <= 0.95 && q.y > -0.3 && q.y < 0.8; }; // (under the letterbox, above the dialogue box)
   const hidden = (p, self) => {
@@ -129,24 +132,36 @@ const scale0 = horse.model.scale.x;
     await frame();
     const step = cinematic.current?.step;
     if (step?.say && cinematic.moves.length === 0) {
-      fr.frames++;
-      const f = new THREE.Vector3(Math.sin(horse.heading), 0, Math.cos(horse.heading));
-      const head = horse.position.clone().addScaledVector(f, 1.15).setY(horse.position.y + 1.75);
-      const key = p2.upgrade.userData.key.getWorldPosition(new THREE.Vector3());
       const ajHead = hero.position.clone().setY(hero.position.y + CONFIG.heroModel.height * 0.9);
-      if (proj(hero.position).x < proj(tick.position).x && proj(tick.position).x < proj(horse.position).x) fr.order++;
-      const toCam = cam.camera.position.clone().sub(horse.position).setY(0).normalize();
-      const ang = THREE.MathUtils.radToDeg(Math.acos(THREE.MathUtils.clamp(toCam.dot(f), -1, 1)));
-      fr.angle = [Math.min(fr.angle[0], ang), Math.max(fr.angle[1], ang)];
-      if (ang > 25 && ang < 60) fr.threeQ++;
-      if ([ajHead, tick.position, head, key, hero.position.clone().setY(hero.position.y + 0.05), horse.position.clone().setY(horse.position.y + 0.05)].every(inView) && !hidden(ajHead, 'hero') && !hidden(tick.position, 'tick') && !hidden(head, 'horse') && !hidden(key, 'horse')) fr.seen++;
-      if (Math.abs(tick.position.y - ajHead.y) < 0.35) fr.tickHead++;
+      const ajFeet = hero.position.clone().setY(hero.position.y + 0.05);
+      const c = cam.camera.position;
+      if (step.text === D2.arrival.clock) {
+        // Looking up at the Dream Clock past AJ's shoulder: the clock's face in the shot, AJ's head too, his head tilted back.
+        fr.clockFrames++;
+        const q = proj(clockAt);
+        if (q.z < 1 && Math.abs(q.x) < 0.9 && q.y > -0.2 && q.y < 0.9 && inView(ajHead) && !hidden(ajHead, 'hero')) fr.clock++;
+        if (hero.facePitch < -0.2) fr.ajUp++;
+      } else {
+        fr.frames++;
+        const ajSeen = inView(ajHead) && inView(ajFeet) && !hidden(ajHead, 'hero');
+        const tickSeen = inView(tick.position) && !hidden(tick.position, 'tick');
+        if (step.say === 'aj' ? ajSeen : tickSeen) fr.speaker++;
+        if (step.say === 'tick') {
+          fr.tickFrames++;
+          if (Math.abs(proj(tick.position).x) < 0.2) fr.tickCentred++;
+          if (soundscape.speakerAt?.('tick') === tick.position) fr.blipsFromTick++;
+        }
+        if (ajSeen && tickSeen) fr.both++;
+        if (proj(hero.position).x < proj(tick.position).x) fr.order++;
+        if (horse.position.distanceTo(c) > hero.position.distanceTo(c) + 0.5 && horse.position.distanceTo(c) > tick.position.distanceTo(c) + 0.5) fr.behind++;
+        if (Math.abs(tick.position.y - ajHead.y) < 0.35) fr.tickHead++;
+      }
     }
     if (horse.position.y < 0.05 && horse.grounded) dropped = true;
     if (dropped && !hero.riding && horse.mode === 'idle') landedOnFoot = true;
     if (landedOnFoot) {
       tickNear = Math.min(tickNear, tick.position.distanceTo(hero.position));
-      tickHorse = Math.min(tickHorse, Math.hypot(tick.position.x - horse.position.x, tick.position.z - horse.position.z));
+      tickHorse = Math.min(tickHorse, Math.hypot(tick.position.x - hero.position.x, tick.position.z - hero.position.z));
       if (tick.target && tick.position.distanceTo(tick.target) < 0.3) { const b = tick.model.position.y - tick.position.y; tickBob = [Math.min(tickBob[0], b), Math.max(tickBob[1], b)]; }
     }
     if (tick.nervousT > 0) { nervousSeen++; glanceMax = Math.max(glanceMax, yawRel()); }
@@ -154,13 +169,16 @@ const scale0 = horse.model.scale.x;
   }
   for (let i = 0; i < 3; i++) await frame(); // (the scene's end settles: into play)
   const L = D2.arrival;
-  const want = [`${S.tick}: ${L.welcome}`, `${S.aj}: ${L.where}`, `${S.tick}: ${L.stops}`, `${S.tick}: ${L.witch}`, `${S.aj}: ${L.amy}`, `${S.tick}: ${L.cannot}`];
+  const want = [`${S.aj}: ${L.where}`, `${S.tick}: ${L.welcome}`, `${S.aj}: ${L.clock}`, `${S.tick}: ${L.dreamClock}`, `${S.tick}: ${L.stops}`, `${S.tick}: ${L.took}`, `${S.aj}: ${L.amy}`, `${S.tick}: ${L.cannot}`];
   check(JSON.stringify(view.lines) === JSON.stringify(want), `the arrival's lines in order:\n       ${view.lines.join('\n       ')}`);
   check(dropped && landedOnFoot && (sound.counts.clock_chime ?? 0) > chime && sound.counts.tick_whir >= 1, 'AJ and the horse drop into the courtyard (a chime far away), he gets down, Tick whirs in');
-  check(fr.frames > 60 && fr.order === fr.frames && fr.threeQ === fr.frames && fr.seen === fr.frames && fr.tickHead === fr.frames,
-    `the talk from in front: the horse right of AJ with Tick between them (${fr.order}/${fr.frames}), three-quarter on to the camera (${fr.angle[0].toFixed(0)}–${fr.angle[1].toFixed(0)}°), AJ (feet to head), Tick, the horse (hooves, head and its brass key) all in view above the dialogue box and none hidden (${fr.seen}), Tick at head height (${fr.tickHead})`);
-  check(tickNear < 2.8 && tickHorse < 2.2 && tickBob[1] - tickBob[0] > P2.tick.bob && tickBob[1] - tickBob[0] < P2.tick.bob * 2.5 && nervousSeen > 20 && glanceMax > 0.8,
-    `Tick floats in between AJ and the horse (${tickHorse.toFixed(2)} from it, ${tickNear.toFixed(2)} from AJ) with a gentle bob (${(tickBob[1] - tickBob[0]).toFixed(2)}) and says "${L.cannot}" nervously, glancing over his shoulder (${glanceMax.toFixed(2)} rad)`);
+  check(!Object.values(L).some((t) => /witch/i.test(t)), 'no "witch" anywhere in the arrival\'s lines');
+  check(fr.frames > 60 && fr.speaker === fr.frames && fr.tickCentred === fr.tickFrames && fr.both === fr.frames && fr.order === fr.frames && fr.behind === fr.frames && fr.tickHead === fr.frames && fr.blipsFromTick === fr.tickFrames,
+    `the talk: each line frames its speaker (${fr.speaker}/${fr.frames}) — Tick in the middle of the screen for his (${fr.tickCentred}/${fr.tickFrames}), his blips from where he floats — both in the shot above the dialogue box and never hidden behind the horse (${fr.both}), AJ on the left, Tick on the right (${fr.order}), the horse behind them (${fr.behind}), Tick at head height (${fr.tickHead})`);
+  check(fr.clockFrames > 10 && fr.clock === fr.clockFrames && fr.ajUp === fr.clockFrames,
+    `"${L.clock}": AJ looks up and the camera tilts up past him to the Dream Clock's face and the turning gears (${fr.clock}/${fr.clockFrames})`);
+  check(tickNear < 3.2 && tickHorse < 2.8 && tickBob[1] - tickBob[0] > P2.tick.bob && tickBob[1] - tickBob[0] < P2.tick.bob * 2.5 && nervousSeen > 20 && glanceMax > 0.8,
+    `Tick floats in beside AJ (${tickHorse.toFixed(2)} across from him) with a gentle bob (${(tickBob[1] - tickBob[0]).toFixed(2)}) and says "${L.cannot}" nervously, glancing over his shoulder (${glanceMax.toFixed(2)} rad)`);
   check(state.is(STATES.PLAY) && p2.at === 'courtyard' && ui.quest === D2.objectives.fire && ui.dist > 5 && ui.toasts.includes(D2.objectives.fire),
     `then the courtyard in play: "${ui.quest}" (${ui.dist} away)`);
   check(Math.abs(gear.angle - gearRot) > 1e-3 && !ui.gemsShown && input.combatHidden, 'the gear sky turns; no gems or fighting buttons in Gearhaven');

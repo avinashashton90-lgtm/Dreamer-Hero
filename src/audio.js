@@ -498,29 +498,35 @@ export class AudioManager {
    * A dialogue line starts: its file voice/<characterId>_<lineId> if there is one (then no
    * blips), else the typewriter's blips (voiceBlip). True if a file plays.
    */
-  playVoice(characterId, lineId) {
+  playVoice(characterId, lineId, position = null) {
     const key = `voice/${characterId}_${lineId}`;
     const buf = this.ready && this.hasFile(key) ? this.#buffer(key) : null;
     this.voiceLine = { characterId, lineId, file: !!buf };
     if (buf) {
       const src = this.ctx.createBufferSource();
       src.buffer = buf;
-      src.connect(this.#route('voices', 1, 0));
+      src.connect(this.#route('voices', 1, this.#voicePan(position)));
       src.start();
       return true;
     }
     return false;
   }
 
-  /** One synthesized "talking" blip for a character (unless a voice file is speaking the line). */
-  voiceBlip(characterId) {
+  /** A speaker's pan: from where they stand (`position`; dialogue stays full volume), else centred. */
+  #voicePan(position) {
+    return position ? (this.spatial(position)?.pan ?? 0) * AU.voice.pan : 0;
+  }
+
+  /** One synthesized "talking" blip for a character (unless a voice file is speaking the line), panned from `position` if given. */
+  voiceBlip(characterId, position = null) {
     if (!this.ready || !this.ctx || this.voiceLine?.file) return;
     const c = AU.voice.characters[characterId];
     if (!c) return;
     try {
       this.#purge(this.ctx.currentTime);
       if (this.active.length >= AU.maxVoices) return;
-      const out = this.#route('voices', 1, 0);
+      const out = this.#route('voices', 1, this.#voicePan(position));
+      this.lastBlipPan = out.panner?.pan.value ?? 0; // (tests)
       const t = this.ctx.currentTime;
       this.active.push({ eff: c.volume, out, end: t + voiceBlip(this.kit, out, t, c) + 0.1 });
     } catch {

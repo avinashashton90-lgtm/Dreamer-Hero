@@ -22,9 +22,10 @@ const { smoothstep } = THREE.MathUtils;
  * Every frame the camera is guarded (see CONFIG.cinematic.guard and `bodies`): it keeps
  * `minDist` from every character, stays above the ground and out of solids, and characters
  * too close or in front of the subject fade.
- *   { say: speakerKey, text, cues? }  dialogue box with a typewriter; tap completes the line,
- *       tap again continues. cues: [{ at: 'substring', call }] fire as the typewriter reaches
- *       the substring (or when the line is completed by a tap).
+ *   { say: speakerKey, text, cues?, pace?, auto? }  dialogue box with a typewriter; tap completes
+ *       the line, tap again continues. cues: [{ at: 'substring', call }] fire as the typewriter
+ *       reaches the substring (or when the line is completed by a tap). `auto`: seconds after the
+ *       line is fully shown it continues by itself (an interrupted line; 0 = at once).
  *   { wait: seconds }
  *   { call: fn, essential? }  callback (may return a Promise, which is awaited). Essential
  *       callbacks also run when the cutscene is skipped (they carry the story forward).
@@ -163,7 +164,7 @@ export class Cinematic {
         for (let i = before; i < Math.floor(c.shown); i++) this.onType?.(step.say, step.text[i], step.voice);
         this.#fireCues(c);
         this.#showLine(c);
-      }
+      } else if (step.auto != null && dt > 0 && (c.t += dt) >= step.auto) this.#next(); // (it runs straight on)
     } else if (step.wait !== undefined && !step.camera) {
       c.t += dt;
       if (c.t >= step.wait) this.#next();
@@ -205,6 +206,11 @@ export class Cinematic {
         follow: C.follow ? { pos: C.pos, look: C.look, resolve } : null,
       };
       this.moves = this.moves.filter((m) => !m.follow); // (a new shot ends a tracking one)
+      // (the latest wins: an earlier move that would outlast this one would take the camera
+      // back at the end — it goes; this one starts from where it has the camera now, and keeps
+      // easing its fov if this one sets none)
+      for (const m of this.moves) if (m.duration - m.t > move.duration && m.toFov !== null && move.toFov === null) move.toFov = m.toFov;
+      this.moves = this.moves.filter((m) => m.duration - m.t <= move.duration);
       this.shot = { subject: C.subject ?? null, soften: C.soften ?? [] };
       this.moves.push(move);
       this.log.push('camera');

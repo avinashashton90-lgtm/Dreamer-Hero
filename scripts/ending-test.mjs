@@ -1,7 +1,7 @@
 // Headless end-of-Part-1 test: the girl's cutscene (trigger, camera, typewriter, taps, witch
 // hint, Skip mid-typewriter), exhaustion on 1 heart and the Lazarus Pit scene, the desert (layout, a bot riding the whole trail at normal speed
 // and galloping, walls), the castle-gate cinematic, then Amy and the portal (the end of Part 1:
-// she gets down, walks ahead, turns to AJ, her eyes glow white-violet, the lines, a portal opens
+// she gets down, walks ahead, turns to AJ — no glow on her, nothing revealed —, the lines, a portal tears open mid-line
 // beside AJ and pulls him and the horse in, the camera following; Skip), the ending state
 // (without Part 2 loaded), and Play Again resetting everything.
 // Usage: npm run test:ending   (exits non-zero on failure)
@@ -437,7 +437,10 @@ for (const at of ['second line, mid-typewriter', 'first line']) {
   const scale0 = { horse: horse.model.scale.x, hero: hero.model.scale.x };
   view.lines = [];
   const pr = { shut: false, innerShut: false, down: false, ahead: -Infinity, side: 0, faces: Infinity, glowColor: true, opened: false, portalSide: Infinity, reach: false, pulledTo: Infinity, minScale: 1,
-    camToCore: Infinity, wideIn: 0, wideFrames: 0, gateIn: 0, bigFrames: 0, big: 0, span: [Infinity, 0], closeFrames: 0, closeGood: 0, closeGlow: 0, closeDist: [Infinity, 0], amySeen: 0, amyFrames: 0, glowAtOpen: false };
+    camToCore: Infinity, wideIn: 0, wideFrames: 0, gateIn: 0, bigFrames: 0, big: 0, span: [Infinity, 0], closeFrames: 0, closeGood: 0, closeDist: [Infinity, 0], amySeen: 0, amyFrames: 0, glowFrames: 0,
+    openAt: null, whoaDoneAt: null, happeningAt: null, happeningFrames: 0, pulling: 0, goneInNo: false, noFrames: 0, noStill: 0, noReach: 0, noFrom: null };
+  // (any glow on Amy: the awakening / witch flags, the eye overlay on her model, the placeholder's eyes)
+  const amyGlows = () => girl.eyesGlowing || !!boss.girl.userData.eyes?.visible || (boss.girl.userData.eyeMat && !boss.girl.userData.eyeMat.color.equals(new THREE.Color(0x222222)));
   const onScreen = (v) => { const q = v.clone().project(cam.camera); return q.z < 1 && Math.abs(q.x) <= 1 && Math.abs(q.y) <= 1; };
   // Inside the frame a phone shows: under the letterbox (top ~9%) and above the dialogue box (the bottom ~33%).
   const BOX = -0.3, LETTERBOX = 0.8;
@@ -479,10 +482,26 @@ for (const at of ['second line, mid-typewriter', 'first line']) {
         if (onScreen(amyEyes()) && !blocked(amyEyes()) && !blocked(boss.girl.position.clone().setY(boss.girl.position.y + 1))) pr.amySeen++;
       }
     }
-    if (girl.eyesGlowing && girl.eyeColor !== PO.eyeColor) pr.glowColor = false;
+    if (story.portalStarted && amyGlows()) pr.glowFrames++;
+    // The timing: the portal tears open mid-line in AJ's "Whoa...", his "What's happening?!"
+    // follows at once while it already pulls him in, and Amy's "No......" as they vanish.
+    const st0 = cinematic.current?.step;
+    if (story.portal.open > 0 && pr.openAt === null) pr.openAt = { line: st0?.text, typed: view.typed?.length ?? 0, complete: view.complete };
+    if (st0?.text === PL2.whoa && view.complete && pr.whoaDoneAt === null) pr.whoaDoneAt = t;
+    if (st0?.text === PL2.happening) {
+      if (pr.happeningAt === null) pr.happeningAt = t;
+      pr.happeningFrames++;
+      if (story.pull && !story.pull.done) pr.pulling++;
+    }
+    if (st0?.text === PL2.no && story.actors.girl) {
+      pr.noFrames++;
+      pr.noFrom ??= story.actors.girl.pos.clone();
+      if (story.actors.girl.pos.distanceTo(pr.noFrom) < 1e-6 && !story.actors.girl.moving) pr.noStill++;
+      if (girl.pointing && girl.frightened) pr.noReach++;
+      if (story.pull?.done) pr.goneInNo = true;
+    }
     if (story.portal.open >= 1 && !pr.opened) {
       pr.opened = true;
-      pr.glowAtOpen = girl.eyesGlowing;
       pr.portalSide = story.portal.center.distanceTo(horse.position.clone().setY(story.portal.center.y));
     }
     if (story.pull && girl.pointing) pr.reach = true;
@@ -494,16 +513,12 @@ for (const at of ['second line, mid-typewriter', 'first line']) {
     const step = cinematic.current?.step;
     if (story.portalStarted && cinematic.moves.length === 0 && !story.pull?.done && story.portalStage) {
       if (step?.text === PL2.thanks) {
-        // The close-up: her face in the middle of the frame, her eyes glowing white-violet.
+        // The close-up: her face in the middle of the frame (she looks normal: no glow).
         pr.closeFrames++;
         const q = amyEyes().project(cam.camera);
         const d = cam.camera.position.distanceTo(amyEyes());
         pr.closeDist = [Math.min(pr.closeDist[0], d), Math.max(pr.closeDist[1], d)];
         if (q.z < 1 && Math.abs(q.x) < 0.3 && q.y > 0.1 && q.y < 0.65 && d < 2.6 && d > 1.4) pr.closeGood++; // (her face in the upper half, clear of the dialogue box)
-        // (a violet core in a white-violet halo, on the model too)
-        const eyeParts = boss.girl.userData.eyes?.children ?? [];
-        const partsOk = eyeParts.every((e) => e.material.color.getHex() === (e.userData.eyePart === 'halo' ? PO.eyeHalo : PO.eyeColor));
-        if (girl.eyesGlowing && girl.eyeColor === PO.eyeColor && girl.eyeHalo === PO.eyeHalo && partsOk) pr.closeGlow++;
       } else {
         // The wide shots: AJ, Amy and the horse (feet to heads) clear of the letterbox and the
         // dialogue box, the closed inner gates and the wall top with the sky over it behind them.
@@ -527,14 +542,18 @@ for (const at of ['second line, mid-typewriter', 'first line']) {
   }
   const stats = story.stats();
   check(tEnd > 0 && pr.shut && story.gateRide?.done, `the gate cinematic: the horse rides into the castle, the gates shut (${tEnd.toFixed(1)} s to the end)`);
-  check(JSON.stringify(view.lines) === JSON.stringify([`${S2.girl}: ${PL2.thanks}`, `${S2.aj}: ${PL2.amy}`, `${S2.girl}: ${PL2.wait}`]), `the portal scene's lines in order (AJ named "AJ"):\n       ${view.lines.join('\n       ')}`);
+  check(JSON.stringify(view.lines) === JSON.stringify([`${S2.girl}: ${PL2.thanks}`, `${S2.aj}: ${PL2.whoa}`, `${S2.aj}: ${PL2.happening}`, `${S2.girl}: ${PL2.no}`]) && S2.aj === 'AJ', `the portal scene's lines in order (AJ named "AJ"):\n       ${view.lines.join('\n       ')}`);
+  check(pr.openAt?.line === PL2.whoa && !pr.openAt.complete && pr.openAt.typed > 0 && pr.whoaDoneAt !== null && pr.happeningAt !== null && pr.happeningAt - pr.whoaDoneAt <= 2 * dt + 1e-9,
+    `the portal tears open mid-line (${pr.openAt?.typed} of "${PL2.whoa}" typed) and "${PL2.happening}" follows with no pause (${pr.happeningAt !== null && pr.whoaDoneAt !== null ? (pr.happeningAt - pr.whoaDoneAt).toFixed(3) : '?'} s)`);
+  check(pr.happeningFrames > 5 && pr.pulling >= pr.happeningFrames - 1, `"${PL2.happening}" plays while the portal already pulls AJ and the horse in (${pr.pulling}/${pr.happeningFrames} frames)`);
+  check(pr.goneInNo && pr.noFrames > 10 && pr.noStill === pr.noFrames && pr.noReach === pr.noFrames, `Amy's "${PL2.no}" as they vanish into the light: she stands still, her hand held out to him all through it (${pr.noStill}/${pr.noFrames})`);
   check(pr.innerShut && sound.counts.gateSlam >= 2 && world.castle.userData.torches.length === 4, `the horse walks into the courtyard; the inner gates swing shut behind it (a thud); torches either side of the gate`);
   check(pr.down && pr.side >= PO.dismount.side - 0.5 && pr.ahead >= PO.dismount.ahead - 0.5 && pr.faces < 0.35,
     `Amy gets down beside the horse (${pr.side.toFixed(1)} to its left, ${pr.ahead.toFixed(1)} ahead) and turns to face AJ (${pr.faces.toFixed(2)} rad off)`);
   check(pr.wideFrames > 60 && pr.wideIn === pr.wideFrames && pr.gateIn === pr.wideFrames && pr.bigFrames > 20 && pr.big === pr.bigFrames,
     `the wide shots: AJ, Amy and the horse in frame between the letterbox and the dialogue box (${pr.wideIn}/${pr.wideFrames}), big (hooves to AJ's head ${pr.span[0].toFixed(2)}–${pr.span[1].toFixed(2)} of the screen's half-height, ${pr.big}/${pr.bigFrames}), the closed gates behind them (${pr.gateIn})`);
-  check(pr.closeFrames > 10 && pr.closeGood === pr.closeFrames && pr.closeGlow === pr.closeFrames && pr.glowColor && !pr.glowAtOpen && !girl.eyesGlowing,
-    `"${PL2.thanks}": a close-up on her face (eyes centred ${pr.closeGood}/${pr.closeFrames}, ${pr.closeDist[0].toFixed(2)}–${pr.closeDist[1].toFixed(2)} from them), her eyes glowing all through it, a violet core in a white-violet halo (${pr.closeGlow}), gone by the portal`);
+  check(pr.closeFrames > 10 && pr.closeGood === pr.closeFrames && pr.glowFrames === 0 && !girl.eyesGlowing,
+    `"${PL2.thanks}": a close-up on her face (eyes centred ${pr.closeGood}/${pr.closeFrames}, ${pr.closeDist[0].toFixed(2)}–${pr.closeDist[1].toFixed(2)} from them); no glow on her anywhere in the scene (${pr.glowFrames} frames) — she looks normal`);
   check(pr.amyFrames > 60 && pr.amySeen === pr.amyFrames, `Amy is never hidden behind AJ or the horse (${pr.amySeen}/${pr.amyFrames} frames)`);
   check(pr.opened && Math.abs(pr.portalSide - PO.side) < 0.6 && sound.counts.portal_open === 1 && sound.counts.portal_whoosh === 1 && story.portal.model.userData.gears.count === PO.gears.count,
     `a portal opens in the air beside AJ (${pr.portalSide.toFixed(1)} to his side), gears flying in, a rumble and a whoosh`);

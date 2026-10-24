@@ -143,10 +143,14 @@ Without a file, each line plays a short synthesized "talking" blip per character
 | voice/amy_pitScene_drink.ogg | amy | Drink it. |
 | voice/aj_pitScene_who.ogg | aj | Thank you. But... who are you? |
 | voice/amy_part2Portal_thanks.ogg | amy | Thank you for bringing me home. |
-| voice/aj_part2Arrival_amy.ogg | aj | Amy? |
-| voice/amy_part2Portal_wait.ogg | amy | No, wait! |
-| voice/tick_part2Arrival_welcome.ogg | tick | Welcome to Gearhaven. The Dream Clock is slowing. |
+| voice/aj_part2Portal_whoa.ogg | aj | Whoa... what's this place? |
+| voice/aj_part2Portal_happening.ogg | aj | What's happening?! |
+| voice/amy_part2Portal_no.ogg | amy | No...... |
 | voice/aj_part2Arrival_where.ogg | aj | Where am I? |
+| voice/tick_part2Arrival_welcome.ogg | tick | Welcome to Gearhaven. |
+| voice/aj_part2Arrival_clock.ogg | aj | Am I inside a clock? |
+| voice/tick_part2Arrival_dreamClock.ogg | tick | It's the Dream Clock. And it's slowing down. |
 | voice/tick_part2Arrival_stops.ogg | tick | If it stops, your dream ends. Five elements can restart it. |
-| voice/tick_part2Arrival_witch.ogg | tick | But a witch took them. And only one person can stop her. |
-| voice/tick_part2Arrival_cannot.ogg | tick | I cannot say. |
+| voice/tick_part2Arrival_took.ogg | tick | But someone took them. It's her doing. |
+| voice/aj_part2Arrival_amy.ogg | aj | Amy? |
+| voice/tick_part2Arrival_cannot.ogg | tick | I can't say. |

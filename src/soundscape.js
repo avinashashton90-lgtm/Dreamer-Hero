@@ -49,6 +49,7 @@ export class Soundscape {
     this.seen = new Map(); // minion → { alive }
     this.clock = 0; // seconds of sound time (for the horse's call gap)
     this.musicPhase = null; // a chapter's own music section (Part 2: CONFIG.part2.music), set by its chapter
+    this.speakerAt = null; // (speaker key) → where they stand, or null: their voice / blips pan from there (set by a chapter: Part 2)
     this.lastCall = null; // the horse's last call (never the same twice in a row)
     this.lastCallAt = -Infinity;
     this.gallopCallT = this.#nextCall(); // seconds of galloping to the next call
@@ -163,7 +164,7 @@ export class Soundscape {
   onLine(speaker, text, voice) {
     const id = AU.voice.speakers[speaker] ?? speaker;
     this.blipCount = 0;
-    this.audio.playVoice(id, LINE_IDS.get(text) ?? 'line'); // (the file is the speaker's own: voice/aj_…)
+    this.audio.playVoice(id, LINE_IDS.get(text) ?? 'line', this.speakerAt?.(speaker) ?? null); // (the file is the speaker's own: voice/aj_…)
   }
 
   /** The typewriter showed one more letter (cinematic.onType): a blip every few letters. */
@@ -171,7 +172,7 @@ export class Soundscape {
     if (!/[\p{L}\p{N}]/u.test(ch)) return;
     const id = voice ?? AU.voice.speakers[speaker] ?? speaker;
     if (this.blipCount++ % (AU.voice.characters[id]?.charsPerBlip ?? AU.voice.charsPerBlip)) return;
-    this.audio.voiceBlip(id);
+    this.audio.voiceBlip(id, this.speakerAt?.(speaker) ?? null); // (from where the speaker stands, if known)
   }
 
   /** A menu / panel button tapped. */
