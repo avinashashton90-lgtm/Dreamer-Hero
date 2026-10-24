@@ -2,6 +2,7 @@
 
 > **Claude: read this file at the start of every session before changing anything.**
 > Keep it up to date when rules, architecture or progress change.
+> Read STORY.md before building any Part 2 or Part 3 content.
 
 ## Platform
 - Three.js + Vite browser game. Target: **phones in landscape**. Desktop works via keyboard/mouse fallback.
