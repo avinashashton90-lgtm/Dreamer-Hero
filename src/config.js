@@ -631,7 +631,7 @@ export const CONFIG = {
       hold: 0.8,               // s after the slam; then the horse walks on into the courtyard...
       walkIn: { speed: 2.6, depth: 8, shutAt: 5.6 }, // ...at this speed, stopping this far in from the inner gates (they swing shut once it is `shutAt` in)
       dismount: { ahead: 1.0, side: 3.0, walkSpeed: 1.5 }, // she gets down on the horse's left and stands this far to its side (a little ahead), then turns to AJ
-      eyeColor: 0xcbb6ff, eyeGlow: 0.5,  // white-violet (not pink): glowing through her line, fading this long after it
+      eyeColor: 0x9a4dff, eyeHalo: 0xe0d4ff, eyeGlow: 0.5, // her eyes: a violet core in a white-violet halo (magic, not pink, not plain white), through her line, fading this long after it
       side: 3.4, up: 2.3,      // the portal: in the air this far to the horse's right, this high
       radius: 1.9, openTime: 1.1, spin: 2.2, // grows over openTime, its swirl turning at `spin` rad/s
       ring: { tube: 0.16, color: 0xfff1c8, opacity: 0.95 },
@@ -645,17 +645,16 @@ export const CONFIG = {
       shots: {
         // Wide shots inside the courtyard, looking back at the gate: the camera `ahead` of where the
         // horse stops and `side` to its left (Amy's side), `up` high, looking `back` past the horse
-        // and `lookSide` to its left at `look` high (the gate, the torches, the wall top and the sky).
+        // and `lookSide` to its left at `look` high — close enough that AJ, Amy and the horse fill
+        // the frame between the letterbox and the dialogue box, the closed gates and torches behind.
         // The first from the front-left (the horse walking in, Amy behind AJ and getting down in view)...
-        // (low and wide, tilted up: the riders above the dialogue box, the wall top and the dusk sky
-        // inside the letterbox)
-        wide: { ahead: 11, side: 9, up: 0.6, back: 2.5, lookSide: 1.0, look: 2.9, fov: 72, duration: 1.4 },
+        wide: { ahead: 6, side: 6, up: 1.4, back: 2.5, lookSide: 1.0, look: 0.6, fov: null, duration: 1.4 },
         // Her face for "Thank you for bringing me home.": `angle`° round from the line to AJ (to
         // the open side), `dist` from her, just below eye level; she turns `cheat` of the way to it.
         // (looking `lookBelow` under her eyes: her face in the upper half, clear of the dialogue box)
         closeUp: { angle: 50, dist: 1.9, eye: 0.93, below: 0.05, lookBelow: 0.32, cheat: 0.35, fov: 40, duration: 0.2 },
         // ...then from in front, for "Amy?" and the portal (it opens to the horse's right: screen left).
-        wideBack: { ahead: 14, side: -0.2, up: 0.6, back: 1.0, lookSide: -0.1, look: 2.85, fov: 72, duration: 1.1 },
+        wideBack: { ahead: 9, side: -0.2, up: 1.4, back: 1.0, lookSide: -0.1, look: 1.3, fov: null, duration: 1.1 },
         light: { duration: 1.1, into: 0.6 },                     // then on into its light
       },
       whiteOutMs: 650,         // fade to white, then Part 2 loads...
@@ -1317,7 +1316,7 @@ export const CONFIG = {
     lookAtHero: { yaw: 0.5, pitch: 0.12 }, // riding, turning to look at him (head + upper spine)
     glanceBack: { yaw: -1.7, rate: 7 },    // a nervous glance back over her shoulder (the castle gates)
     // Witch hint: a faint purple glow over each eye (on the head bone), flickering.
-    eyes: { up: 0.091, apart: 0.042, back: 0.0, size: 0.018, color: 0xb04dff, opacity: 0.75, halo: 2.3, haloOpacity: 0.3, refHeight: 1.62 }, // (offsets measured with her 1.62 tall; scaled to her height)
+    eyes: { up: 0.091, apart: 0.042, back: 0.0, size: 0.018, color: 0xb04dff, opacity: 0.75, coreOpacity: 0.95, halo: 2.3, haloOpacity: 0.4, refHeight: 1.62 }, // (offsets measured with her 1.62 tall; scaled to her height)
   },
   girlHeightRatio: 0.9,      // Amy is 90% of AJ's height (girlModel.height, the placeholder girl too)
   girlWitchForm: false,      // hook for her later transformation: eyes glow and the wall shadow keeps the hat and staff

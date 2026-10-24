@@ -202,6 +202,11 @@ export class Girl {
     return this.awakenT > 0 ? CONFIG.part2.portal.eyeColor : CI.hintColor;
   }
 
+  /** The glow's halo: white-violet round the violet core while awakening, else the hint's colour. */
+  get eyeHalo() {
+    return this.awakenT > 0 ? CONFIG.part2.portal.eyeHalo : CI.hintColor;
+  }
+
   update(dt, groundY = 0) {
     this.time += dt;
     this.hintT = Math.max(0, this.hintT - dt);

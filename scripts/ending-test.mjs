@@ -428,7 +428,7 @@ for (const at of ['second line, mid-typewriter', 'first line']) {
   const scale0 = { horse: horse.model.scale.x, hero: hero.model.scale.x };
   view.lines = [];
   const pr = { shut: false, innerShut: false, down: false, ahead: -Infinity, side: 0, faces: Infinity, glowColor: true, opened: false, portalSide: Infinity, reach: false, pulledTo: Infinity, minScale: 1,
-    camToCore: Infinity, wideIn: 0, wideFrames: 0, gateIn: 0, skyIn: 0, closeFrames: 0, closeGood: 0, closeGlow: 0, closeDist: [Infinity, 0], amySeen: 0, amyFrames: 0, glowAtOpen: false };
+    camToCore: Infinity, wideIn: 0, wideFrames: 0, gateIn: 0, bigFrames: 0, big: 0, span: [Infinity, 0], closeFrames: 0, closeGood: 0, closeGlow: 0, closeDist: [Infinity, 0], amySeen: 0, amyFrames: 0, glowAtOpen: false };
   const onScreen = (v) => { const q = v.clone().project(cam.camera); return q.z < 1 && Math.abs(q.x) <= 1 && Math.abs(q.y) <= 1; };
   // Inside the frame a phone shows: under the letterbox (top ~9%) and above the dialogue box (the bottom ~33%).
   const BOX = -0.3, LETTERBOX = 0.8;
@@ -491,7 +491,10 @@ for (const at of ['second line, mid-typewriter', 'first line']) {
         const d = cam.camera.position.distanceTo(amyEyes());
         pr.closeDist = [Math.min(pr.closeDist[0], d), Math.max(pr.closeDist[1], d)];
         if (q.z < 1 && Math.abs(q.x) < 0.3 && q.y > 0.1 && q.y < 0.65 && d < 2.6 && d > 1.4) pr.closeGood++; // (her face in the upper half, clear of the dialogue box)
-        if (girl.eyesGlowing && girl.eyeColor === PO.eyeColor) pr.closeGlow++;
+        // (a violet core in a white-violet halo, on the model too)
+        const eyeParts = boss.girl.userData.eyes?.children ?? [];
+        const partsOk = eyeParts.every((e) => e.material.color.getHex() === (e.userData.eyePart === 'halo' ? PO.eyeHalo : PO.eyeColor));
+        if (girl.eyesGlowing && girl.eyeColor === PO.eyeColor && girl.eyeHalo === PO.eyeHalo && partsOk) pr.closeGlow++;
       } else {
         // The wide shots: AJ, Amy and the horse (feet to heads) clear of the letterbox and the
         // dialogue box, the closed inner gates and the wall top with the sky over it behind them.
@@ -500,7 +503,14 @@ for (const at of ['second line, mid-typewriter', 'first line']) {
         if (body(hero.position, story.pull ? 0.5 : 1.5) && body(boss.girl.position, CONFIG.girlModel.height) && (story.pull || body(horse.position, 1.6))) pr.wideIn++;
         const st = story.portalStage;
         if (clear(st.gate.clone().setY(st.floor + CONFIG.desert.castle.gate.height * 0.5))) pr.gateIn++;
-        if (clear(st.gate.clone().setY(st.floor + CONFIG.desert.castle.height * 0.38))) pr.skyIn++; // (above the wall top: the sky)
+        // (big in the frame: from the horse's hooves to AJ's head, and Amy, before the pull)
+        if (!story.pull && story.portalStage.walked) {
+          const y = (p, h) => p.clone().setY(p.y + h).project(cam.camera).y;
+          const span = y(hero.position, 1.5) - y(horse.position, 0);
+          pr.span = [Math.min(pr.span[0], span), Math.max(pr.span[1], span)];
+          pr.bigFrames++;
+          if (span > 0.45 && y(boss.girl.position, CONFIG.girlModel.height) - y(boss.girl.position, 0) > 0.28) pr.big++;
+        }
       }
     }
     if (view.complete && (readFor += dt) > 0.3) { readFor = 0; cinematic.tap(); }
@@ -512,10 +522,10 @@ for (const at of ['second line, mid-typewriter', 'first line']) {
   check(pr.innerShut && sound.counts.gateSlam >= 2 && world.castle.userData.torches.length === 4, `the horse walks into the courtyard; the inner gates swing shut behind it (a thud); torches either side of the gate`);
   check(pr.down && pr.side >= PO.dismount.side - 0.5 && pr.ahead >= PO.dismount.ahead - 0.5 && pr.faces < 0.35,
     `Amy gets down beside the horse (${pr.side.toFixed(1)} to its left, ${pr.ahead.toFixed(1)} ahead) and turns to face AJ (${pr.faces.toFixed(2)} rad off)`);
-  check(pr.wideFrames > 60 && pr.wideIn === pr.wideFrames && pr.gateIn === pr.wideFrames && pr.skyIn === pr.wideFrames,
-    `the wide shots: AJ, Amy and the horse in frame above the dialogue box (${pr.wideIn}/${pr.wideFrames}), the closed gates behind them (${pr.gateIn}) and the sky over the wall (${pr.skyIn})`);
+  check(pr.wideFrames > 60 && pr.wideIn === pr.wideFrames && pr.gateIn === pr.wideFrames && pr.bigFrames > 20 && pr.big === pr.bigFrames,
+    `the wide shots: AJ, Amy and the horse in frame between the letterbox and the dialogue box (${pr.wideIn}/${pr.wideFrames}), big (hooves to AJ's head ${pr.span[0].toFixed(2)}–${pr.span[1].toFixed(2)} of the screen's half-height, ${pr.big}/${pr.bigFrames}), the closed gates behind them (${pr.gateIn})`);
   check(pr.closeFrames > 10 && pr.closeGood === pr.closeFrames && pr.closeGlow === pr.closeFrames && pr.glowColor && !pr.glowAtOpen && !girl.eyesGlowing,
-    `"${PL2.thanks}": a close-up on her face (eyes centred ${pr.closeGood}/${pr.closeFrames}, ${pr.closeDist[0].toFixed(2)}–${pr.closeDist[1].toFixed(2)} from them), her eyes glowing white-violet all through it (${pr.closeGlow}), gone by the portal`);
+    `"${PL2.thanks}": a close-up on her face (eyes centred ${pr.closeGood}/${pr.closeFrames}, ${pr.closeDist[0].toFixed(2)}–${pr.closeDist[1].toFixed(2)} from them), her eyes glowing all through it, a violet core in a white-violet halo (${pr.closeGlow}), gone by the portal`);
   check(pr.amyFrames > 60 && pr.amySeen === pr.amyFrames, `Amy is never hidden behind AJ or the horse (${pr.amySeen}/${pr.amyFrames} frames)`);
   check(pr.opened && Math.abs(pr.portalSide - PO.side) < 0.6 && sound.counts.portal_open === 1 && sound.counts.portal_whoosh === 1 && story.portal.model.userData.gears.count === PO.gears.count,
     `a portal opens in the air beside AJ (${pr.portalSide.toFixed(1)} to his side), gears flying in, a rumble and a whoosh`);
