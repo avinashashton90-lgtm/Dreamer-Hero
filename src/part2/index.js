@@ -176,16 +176,8 @@ class Part2 {
     const L = D2.arrival;
     const S = A.shots;
     const v = (a) => new THREE.Vector3(...a);
-    // AJ and Tick talking: from the side, both in frame.
-    const talk = () => {
-      const h = hero.position;
-      const t = tick.position;
-      const mid = h.clone().lerp(t, 0.5);
-      const f = new THREE.Vector3(Math.sin(hero.facing), 0, Math.cos(hero.facing));
-      const r = new THREE.Vector3(-f.z, 0, f.x);
-      if (r.dot(horse.position.clone().sub(mid)) > 0) r.negate(); // (from the side away from the horse: nobody hidden)
-      return { pos: mid.clone().addScaledVector(r, S.talk.side).addScaledVector(f, S.talk.back).setY(h.y + S.talk.up), look: mid.clone().setY(h.y + 1.4) };
-    };
+    // AJ, Tick and the horse talking: from in front of all three, nobody hidden.
+    const talk = () => this.#talkStage().camera;
     const steps = [
       { camera: { pos: v(S.sky.pos), look: v(S.sky.look), duration: S.sky.duration } },
       { call: () => this.sound?.play('clock_chime') },
@@ -194,13 +186,13 @@ class Part2 {
       { call: () => this.#drop(land) },
       { wait: A.landHold },
       { call: () => this.#getDown() },
-      { call: () => this.#tickFloatsIn() },
-      { camera: { pos: () => talk().pos, look: () => talk().look, duration: S.talk.duration, wait: false, subject: 'hero' } },
+      { call: () => { this.#ajToSpot(); return this.#tickFloatsIn(); } },
+      { camera: { pos: () => talk().pos, look: () => talk().look, duration: S.talk.duration, wait: false } },
       { say: 'tick', text: L.welcome },
-      { say: 'hero', text: L.where },
+      { say: 'aj', text: L.where },
       { say: 'tick', text: L.stops },
       { say: 'tick', text: L.witch },
-      { say: 'hero', text: L.amy },
+      { say: 'aj', text: L.amy },
       { call: () => tick.nervous() }, // (nervously, looking over his shoulder)
       { say: 'tick', text: L.cannot, pace: 0.8 },
       { call: () => this.#arrived(), essential: true },
@@ -226,22 +218,61 @@ class Part2 {
     });
   }
 
-  /** He slides off (the horse stands). */
+  /** He slides off on its right (the horse stands). */
   #getDown() {
     const { horse, hero } = this;
-    horse.toggle(hero);
+    horse.toggle(hero, -1);
     return this.#tween(() => horse.mode === 'idle');
   }
 
-  /** Tick floats in beside the horse's shoulder, on AJ's side (his idle playing, a gentle bob). */
-  #tickFloatsIn() {
-    const { tick, hero, horse } = this;
-    const T = P2.arrivalTick;
-    this.sound?.play('tick_whir');
+  /**
+   * The talk's places, from where the horse stands (`arrival.stage`): the camera in front,
+   * `angle`° round from the horse's nose to its right; AJ left of the horse on screen, Tick
+   * between them at head height; AJ turned to Tick and a little toward the camera.
+   */
+  #talkStage() {
+    const { horse } = this;
+    const ST = P2.arrival.stage;
+    const T = P2.arrival.shots.talk;
+    const h = horse.position.clone().setY(0);
     const f = new THREE.Vector3(Math.sin(horse.heading), 0, Math.cos(horse.heading));
-    const toAJ = hero.position.clone().sub(horse.position).setY(0).normalize();
-    tick.target = horse.position.clone().addScaledVector(f, T.ahead).addScaledVector(toAJ, T.toward).setY(horse.position.y + P2.tick.float);
-    tick.lookAt = hero.position;
+    const right = new THREE.Vector3(-f.z, 0, f.x); // (its right: a side −1 dismount lands here)
+    const a = THREE.MathUtils.degToRad(ST.angle);
+    const toCam = f.clone().multiplyScalar(Math.cos(a)).addScaledVector(right, Math.sin(a));
+    const screenRight = new THREE.Vector3(toCam.z, 0, -toCam.x);
+    const aj = h.clone().addScaledVector(screenRight, -ST.aj[0]).addScaledVector(toCam, ST.aj[1]);
+    const tick = h.clone().addScaledVector(screenRight, -ST.tick[0]).addScaledVector(toCam, ST.tick[1]).setY(ST.tick[2]);
+    const face = tick.clone().setY(0).sub(aj).normalize().addScaledVector(toCam, 0.8);
+    const mid = h.clone().addScaledVector(screenRight, -ST.mid);
+    return {
+      aj, ajYaw: Math.atan2(face.x, face.z), tick, tickLook: aj.clone().addScaledVector(toCam, 1.5),
+      camera: { pos: mid.clone().addScaledVector(toCam, T.dist).setY(T.up), look: mid.clone().setY(T.look) },
+    };
+  }
+
+  /** AJ steps from where he got down to his place beside the horse and turns to Tick. */
+  #ajToSpot() {
+    const { hero } = this;
+    const st = this.#talkStage();
+    const from = hero.position.clone();
+    const dist = Math.hypot(st.aj.x - from.x, st.aj.z - from.z);
+    const walkYaw = Math.atan2(st.aj.x - from.x, st.aj.z - from.z);
+    this.ajSpot = { pos: from.clone(), yaw: walkYaw };
+    return this.#tween((t) => {
+      const k = Math.min(1, (t * P2.arrival.stage.walkSpeed) / Math.max(dist, 1e-3));
+      this.ajSpot.pos.lerpVectors(from, st.aj, k).setY(from.y);
+      if (k >= 1) this.ajSpot.yaw = st.ajYaw;
+      return k >= 1;
+    });
+  }
+
+  /** Tick floats in between AJ and the horse at head height (his idle playing, a gentle bob). */
+  #tickFloatsIn() {
+    const { tick } = this;
+    this.sound?.play('tick_whir');
+    const st = this.#talkStage();
+    tick.target = st.tick;
+    tick.lookAt = st.tickLook;
     return this.#tween(() => tick.position.distanceTo(tick.target) < 0.4);
   }
 
@@ -255,10 +286,11 @@ class Part2 {
       // (skipped mid-scene: the horse stands where it lands, AJ on foot beside it)
       this.#horseAt(land, A.heading);
       horse.mode = 'idle';
-      const side = new THREE.Vector3(Math.cos(A.heading), 0, -Math.sin(A.heading)).multiplyScalar(CONFIG.horse.dismountSide);
-      this.#onFoot(land.clone().add(side), A.heading);
-      hero.stopRiding?.(hero.position.clone(), A.heading);
+      const st = this.#talkStage();
+      this.#onFoot(st.aj, st.ajYaw);
+      hero.stopRiding?.(hero.position.clone(), st.ajYaw);
     }
+    this.ajSpot = null;
     if (horse.position.y > 0.01) horse.position.y = 0;
     this.tick.place(this.hero.position.clone().add(new THREE.Vector3(-1.3, P2.tick.float, 0)), A.heading);
     this.tick.target = null;
@@ -448,6 +480,7 @@ class Part2 {
       const goal = this.at === 'courtyard' ? this.gearhaven.userData.doors[this.objective]?.at : null;
       ui.setQuest(this.questText, goal ? Math.round(Math.hypot(goal.x - hero.position.x, goal.z - hero.position.z)) : null);
     }
+    if (!playing && this.ajSpot && horse.mode === 'idle') hero.puppet(this.ajSpot.pos, this.ajSpot.yaw, live ? dt : 0); // (the arrival: AJ to his place)
     horse.update(live ? dt : 0, null, cam.yaw, hero); // (it stands; never ridden by input here)
     spinHorseKey(this.upgrade, live ? dt : 0);
     this.tick.update(live ? dt : 0, { position: hero.position, facing: hero.facing }); // (beside AJ, unless sent somewhere)

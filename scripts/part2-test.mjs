@@ -92,8 +92,43 @@ const scale0 = horse.model.scale.x;
   let dropped = false, landedOnFoot = false, nervousSeen = 0, tickNear = Infinity, tickHorse = Infinity, tickBob = [Infinity, -Infinity], glanceMax = 0, chime = sound.counts.clock_chime ?? 0;
   const gear = p2.gearhaven.userData.skyGears[0].mesh, gearRot = gear.rotation.z;
   const yawRel = () => Math.abs(wrap(tick.model.rotation.y - Math.atan2(hero.position.x - tick.position.x, hero.position.z - tick.position.z)));
+  // The talk's framing: the horse right of AJ, three-quarter on to the camera, its head and the
+  // brass key in view; Tick between them at head height; nobody hidden (vertical capsules).
+  const fr = { frames: 0, order: 0, threeQ: 0, seen: 0, tickHead: 0, angle: [Infinity, -Infinity] };
+  const proj = (v) => v.clone().project(cam.camera);
+  const inView = (v) => { const q = proj(v); return q.z < 1 && Math.abs(q.x) <= 0.95 && q.y > -0.3 && q.y < 0.8; }; // (under the letterbox, above the dialogue box)
+  const hidden = (p, self) => {
+    const c = cam.camera.position;
+    const f = new THREE.Vector3(Math.sin(horse.heading), 0, Math.cos(horse.heading));
+    const R = CONFIG.cinematic.guard.radius;
+    const bodies = [
+      { name: 'hero', at: hero.position, r: R.hero, h: CONFIG.heroModel.height },
+      ...[-0.7, 0.7].map((k) => ({ name: 'horse', at: horse.position.clone().addScaledVector(f, k), r: R.horse * 0.75, h: R.horseHeight })),
+    ];
+    for (let i = 1; i < 40; i++) {
+      const q = c.clone().lerp(p, i / 40);
+      if (self !== 'tick' && q.distanceTo(tick.position) < P2.tick.height * 0.45) return true;
+      for (const b of bodies) if (b.name !== self && q.y > b.at.y && q.y < b.at.y + b.h && Math.hypot(q.x - b.at.x, q.z - b.at.z) < b.r) return true;
+    }
+    return false;
+  };
   for (let t = 0; t < 90 && cinematic.active; t += dt) {
     await frame();
+    const step = cinematic.current?.step;
+    if (step?.say && cinematic.moves.length === 0) {
+      fr.frames++;
+      const f = new THREE.Vector3(Math.sin(horse.heading), 0, Math.cos(horse.heading));
+      const head = horse.position.clone().addScaledVector(f, 1.15).setY(horse.position.y + 1.75);
+      const key = p2.upgrade.userData.key.getWorldPosition(new THREE.Vector3());
+      const ajHead = hero.position.clone().setY(hero.position.y + CONFIG.heroModel.height * 0.9);
+      if (proj(hero.position).x < proj(tick.position).x && proj(tick.position).x < proj(horse.position).x) fr.order++;
+      const toCam = cam.camera.position.clone().sub(horse.position).setY(0).normalize();
+      const ang = THREE.MathUtils.radToDeg(Math.acos(THREE.MathUtils.clamp(toCam.dot(f), -1, 1)));
+      fr.angle = [Math.min(fr.angle[0], ang), Math.max(fr.angle[1], ang)];
+      if (ang > 25 && ang < 60) fr.threeQ++;
+      if ([ajHead, tick.position, head, key, hero.position.clone().setY(hero.position.y + 0.05), horse.position.clone().setY(horse.position.y + 0.05)].every(inView) && !hidden(ajHead, 'hero') && !hidden(tick.position, 'tick') && !hidden(head, 'horse') && !hidden(key, 'horse')) fr.seen++;
+      if (Math.abs(tick.position.y - ajHead.y) < 0.35) fr.tickHead++;
+    }
     if (horse.position.y < 0.05 && horse.grounded) dropped = true;
     if (dropped && !hero.riding && horse.mode === 'idle') landedOnFoot = true;
     if (landedOnFoot) {
@@ -106,11 +141,13 @@ const scale0 = horse.model.scale.x;
   }
   for (let i = 0; i < 3; i++) await frame(); // (the scene's end settles: into play)
   const L = D2.arrival;
-  const want = [`${S.tick}: ${L.welcome}`, `${S.hero}: ${L.where}`, `${S.tick}: ${L.stops}`, `${S.tick}: ${L.witch}`, `${S.hero}: ${L.amy}`, `${S.tick}: ${L.cannot}`];
+  const want = [`${S.tick}: ${L.welcome}`, `${S.aj}: ${L.where}`, `${S.tick}: ${L.stops}`, `${S.tick}: ${L.witch}`, `${S.aj}: ${L.amy}`, `${S.tick}: ${L.cannot}`];
   check(JSON.stringify(view.lines) === JSON.stringify(want), `the arrival's lines in order:\n       ${view.lines.join('\n       ')}`);
   check(dropped && landedOnFoot && (sound.counts.clock_chime ?? 0) > chime && sound.counts.tick_whir >= 1, 'AJ and the horse drop into the courtyard (a chime far away), he gets down, Tick whirs in');
-  check(tickNear < 2.8 && tickHorse < 1.8 && tickBob[1] - tickBob[0] > P2.tick.bob && tickBob[1] - tickBob[0] < P2.tick.bob * 2.5 && nervousSeen > 20 && glanceMax > 0.8,
-    `Tick floats in beside the horse (${tickHorse.toFixed(2)} from it, ${tickNear.toFixed(2)} from AJ) with a gentle bob (${(tickBob[1] - tickBob[0]).toFixed(2)}) and says "${L.cannot}" nervously, glancing over his shoulder (${glanceMax.toFixed(2)} rad)`);
+  check(fr.frames > 60 && fr.order === fr.frames && fr.threeQ === fr.frames && fr.seen === fr.frames && fr.tickHead === fr.frames,
+    `the talk from in front: the horse right of AJ with Tick between them (${fr.order}/${fr.frames}), three-quarter on to the camera (${fr.angle[0].toFixed(0)}–${fr.angle[1].toFixed(0)}°), AJ (feet to head), Tick, the horse (hooves, head and its brass key) all in view above the dialogue box and none hidden (${fr.seen}), Tick at head height (${fr.tickHead})`);
+  check(tickNear < 2.8 && tickHorse < 2.2 && tickBob[1] - tickBob[0] > P2.tick.bob && tickBob[1] - tickBob[0] < P2.tick.bob * 2.5 && nervousSeen > 20 && glanceMax > 0.8,
+    `Tick floats in between AJ and the horse (${tickHorse.toFixed(2)} from it, ${tickNear.toFixed(2)} from AJ) with a gentle bob (${(tickBob[1] - tickBob[0]).toFixed(2)}) and says "${L.cannot}" nervously, glancing over his shoulder (${glanceMax.toFixed(2)} rad)`);
   check(state.is(STATES.PLAY) && p2.at === 'courtyard' && ui.quest === D2.objectives.fire && ui.dist > 5 && ui.toasts.includes(D2.objectives.fire),
     `then the courtyard in play: "${ui.quest}" (${ui.dist} away)`);
   check(Math.abs(gear.rotation.z - gearRot) > 1e-3 && !ui.gemsShown && input.combatHidden, 'the gear sky turns; no gems or fighting buttons in Gearhaven');

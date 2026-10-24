@@ -417,7 +417,22 @@ export const CONFIG = {
       gate: { width: 7, height: 8.5, thickness: 0.45, color: 0x4a3423, bandColor: 0x1d1a1f, passageColor: 0x0c0a10, insideStop: 3 },
       // Behind the gate passage a walled courtyard (where Part 1 ends: the portal scene), its
       // ground levelled (a flat in heightAt: `flat` [r0, r1] round its centre); the keep behind it.
-      courtyard: { depth: 16, halfWidth: 16, wall: 2, floorColor: 0x8a7562, wallColor: 0x4a3c58, flat: [18, 22] },
+      // Its floor is desert sand (low drifts along the walls); the curtain wall's inner face is
+      // lit stone round the passage, with the inner gate leaves (`userData.innerGates`: open as the
+      // horse rides in, they swing shut behind it in the portal scene) and torches either side.
+      courtyard: {
+        depth: 24, halfWidth: 16, wall: 2, floorColor: 0xd9ad72, wallColor: 0x6a5470, flat: [22, 26],
+        drifts: { count: 10, size: [1.6, 3.4], height: [0.25, 0.55], color: 0xe2b97e },
+        innerFace: 0x7d6650, trim: 0x5a4636,
+      },
+      innerGate: { color: 0x5c3f27, bandColor: 0x2a2226, open: 1.45 }, // (Lambert: lit by the dusk)
+      // Torches on both faces of the curtain wall, either side of the passage (additive flames, no lights).
+      torches: {
+        x: 5.2, y: 4.6, out: 0.55,        // this far either side of the passage's centre, this high, standing out from the wall
+        iron: 0x221c1a, bowl: 0x3a2c22,
+        flame: 0xff9a3c, core: 0xffe2a0, halo: 0xff8a3a, haloSize: 1.5, haloOpacity: 0.32,
+        flicker: { rate: [7, 13], amount: 0.18 },
+      },
     },
     checkpoints: [0, 0.33, 0.66],
     // Rolling dunes: value noise (octaves of [wavelength, height]); gentle rolls on the trail.
@@ -549,6 +564,7 @@ export const CONFIG = {
       dust: { count: 10, size: [0.7, 1.6], speed: 3, life: 1.1, color: 0xd9b07c, opacity: 0.5 },
       open: { angle: 1.5, time: 1.3, at: 28 }, // the gates swing open when the horse is this far from them
       slam: { time: 0.32, shake: 0.55, shakeTime: 0.6, dust: 18 },
+      innerShut: { time: 1.4, dust: 10, volume: 0.6 }, // the inner gates swing shut behind the horse in the courtyard (the portal scene)
       glance: 1.5,           // Amy glances back over her shoulder this long, as the gates shut
       hold: 1.2,             // then the "To be continued" title
       // Shots: a low chase camera behind the horse; then from outside the gate as they pass in.
@@ -605,14 +621,17 @@ export const CONFIG = {
   // Part 2 — Gearhaven (src/part2/, loaded by levelManager.js as its own chapter; STORY.md).
   // `portal` is the bridge at the end of Part 1 (story.js + portal.js, in the Part 1 world).
   part2: {
-    // After the castle gates slam shut: a wide shot; Amy gets down, walks a few steps ahead and
-    // turns to AJ; her eyes glow white-violet for a moment; the lines; a portal opens in the air
-    // beside AJ and pulls him and the horse in; the camera follows them into the light; white.
+    // After the castle gates slam shut: the horse walks on into the courtyard and the inner gates
+    // swing shut behind it — the gate wall, the closed gates and the torches are the backdrop,
+    // the sand underfoot, the dusk sky above. A wide shot from in front; Amy gets down beside the
+    // horse and turns to AJ; a cut to her face, her eyes glowing white-violet through "Thank you
+    // for bringing me home."; back to wide for "Amy?", the portal opening beside AJ and pulling
+    // him and the horse in; the camera flies on into its light; white.
     portal: {
       hold: 0.8,               // s after the slam; then the horse walks on into the courtyard...
-      walkIn: { speed: 2.6, stop: 2.5 }, // ...at this speed, stopping this far short of its centre
-      dismount: { ahead: 3.4, side: 1.6, walkSpeed: 1.5 }, // she walks this far ahead of the horse (and to its side), then turns to AJ
-      eyeColor: 0xe9e0ff, eyeGlow: 1.6,  // white-violet (not pink), this long
+      walkIn: { speed: 2.6, depth: 8, shutAt: 5.6 }, // ...at this speed, stopping this far in from the inner gates (they swing shut once it is `shutAt` in)
+      dismount: { ahead: 1.0, side: 3.0, walkSpeed: 1.5 }, // she gets down on the horse's left and stands this far to its side (a little ahead), then turns to AJ
+      eyeColor: 0xcbb6ff, eyeGlow: 0.5,  // white-violet (not pink): glowing through her line, fading this long after it
       side: 3.4, up: 2.3,      // the portal: in the air this far to the horse's right, this high
       radius: 1.9, openTime: 1.1, spin: 2.2, // grows over openTime, its swirl turning at `spin` rad/s
       ring: { tube: 0.16, color: 0xfff1c8, opacity: 0.95 },
@@ -624,9 +643,20 @@ export const CONFIG = {
       pullTime: 2.4,           // the portal pulls AJ and the horse in (accelerating, a little spiral)
       spiral: 0.8, shrink: 0.35, // radians of spiral; their size at the core
       shots: {
-        wide: { dist: 12, up: 3.4, along: 1.2, duration: 1.4 }, // side-on to the horse and Amy, everyone in frame
-        pull: { back: 4.5, up: 1.4, duration: 0.6 },            // following them in...
-        light: { duration: 0.9, into: 0.6 },                     // ...into the light
+        // Wide shots inside the courtyard, looking back at the gate: the camera `ahead` of where the
+        // horse stops and `side` to its left (Amy's side), `up` high, looking `back` past the horse
+        // and `lookSide` to its left at `look` high (the gate, the torches, the wall top and the sky).
+        // The first from the front-left (the horse walking in, Amy behind AJ and getting down in view)...
+        // (low and wide, tilted up: the riders above the dialogue box, the wall top and the dusk sky
+        // inside the letterbox)
+        wide: { ahead: 11, side: 9, up: 0.6, back: 2.5, lookSide: 1.0, look: 2.9, fov: 72, duration: 1.4 },
+        // Her face for "Thank you for bringing me home.": `angle`° round from the line to AJ (to
+        // the open side), `dist` from her, just below eye level; she turns `cheat` of the way to it.
+        // (looking `lookBelow` under her eyes: her face in the upper half, clear of the dialogue box)
+        closeUp: { angle: 50, dist: 1.9, eye: 0.93, below: 0.05, lookBelow: 0.32, cheat: 0.35, fov: 40, duration: 0.2 },
+        // ...then from in front, for "Amy?" and the portal (it opens to the horse's right: screen left).
+        wideBack: { ahead: 14, side: -0.2, up: 0.6, back: 1.0, lookSide: -0.1, look: 2.85, fov: 72, duration: 1.1 },
+        light: { duration: 1.1, into: 0.6 },                     // then on into its light
       },
       whiteOutMs: 650,         // fade to white, then Part 2 loads...
       whiteInMs: 1200,         // ...and the white clears in Gearhaven
@@ -693,8 +723,17 @@ export const CONFIG = {
       shots: {
         sky: { pos: [10, 3, 18], look: [0, 22, -40], duration: 0.1 },        // the gear sky and the clock first
         land: { pos: [6, 2.6, 14], look: [0, 1.2, 8], duration: 1.6 },       // then them landing
-        talk: { side: 3.2, up: 1.5, back: 1.2, duration: 1.2 },              // AJ and Tick talking
+        // AJ, Tick and the horse talking, from in front of all three (see `stage`): the camera
+        // `dist` toward them from the middle of the group, `up` high, looking at `look` high.
+        talk: { dist: 5.6, up: 1.9, look: 0.65, duration: 1.2 }, // (looking a little down: their feet above the dialogue box)
       },
+      // Where they stand for the talk, in the frame of the shot: the camera is `angle`° round from
+      // the horse's nose toward its right, so the horse faces it three-quarter on (its head and
+      // the brass key both in view, its head away from AJ). AJ gets down on its right and steps to
+      // `aj` = [left of the horse on screen, toward the camera]; Tick floats in between them at
+      // head height (`tick` = [left, toward the camera, height]); the group's middle `mid` left
+      // of the horse.
+      stage: { angle: 40, aj: [2.7, 0.6], tick: [1.35, 1.1, 1.9], mid: 1.3, walkSpeed: 1.4 },
       landHold: 0.6,
     },
     // After the arrival: the courtyard; walk into the Fire door (the first level, a stub for now).
@@ -711,7 +750,6 @@ export const CONFIG = {
       stub: { radius: 9, gap: 120, crystal: 0.8, back: 6.5 }, // a platform per level this far apart; a crystal; the door back
     },
     music: 'gearhaven',
-    arrivalTick: { ahead: 1.1, toward: 0.9 }, // in the arrival Tick floats beside the horse's shoulder, on AJ's side
   },
 
   // Small enemies (minions.js / minionModels.js): Quaternius Animated Monster Pack FBX files
@@ -1227,7 +1265,7 @@ export const CONFIG = {
         ajWeak: { freq: 175, jitter: 0.05, type: 'square', volume: 0.2, length: 0.14, formant: 650, charsPerBlip: 3 },
         tick: { freq: 620, jitter: 0.06, type: 'square', volume: 0.14, length: 0.045, formant: 3200 }, // Tick: a small bright robot chirp
       },
-      speakers: { hero: 'aj', girl: 'amy', boss: 'boss', tick: 'tick' }, // cinematic speaker key → character
+      speakers: { hero: 'aj', aj: 'aj', girl: 'amy', boss: 'boss', tick: 'tick' }, // cinematic speaker key → character
     },
     gemPitch: { yellow: 1, blue: 1.26, pink: 1.5 },
     bossStepShake: 0.05,     // the camera shake linked to each heavy boss step (units)
@@ -1279,7 +1317,7 @@ export const CONFIG = {
     lookAtHero: { yaw: 0.5, pitch: 0.12 }, // riding, turning to look at him (head + upper spine)
     glanceBack: { yaw: -1.7, rate: 7 },    // a nervous glance back over her shoulder (the castle gates)
     // Witch hint: a faint purple glow over each eye (on the head bone), flickering.
-    eyes: { up: 0.072, apart: 0.032, back: 0.018, size: 0.028, color: 0xb04dff, opacity: 0.75, refHeight: 1.62 }, // (offsets measured with her 1.62 tall; scaled to her height)
+    eyes: { up: 0.091, apart: 0.042, back: 0.0, size: 0.018, color: 0xb04dff, opacity: 0.75, halo: 2.3, haloOpacity: 0.3, refHeight: 1.62 }, // (offsets measured with her 1.62 tall; scaled to her height)
   },
   girlHeightRatio: 0.9,      // Amy is 90% of AJ's height (girlModel.height, the placeholder girl too)
   girlWitchForm: false,      // hook for her later transformation: eyes glow and the wall shadow keeps the hat and staff
@@ -1740,7 +1778,7 @@ export const DIALOGUE = {
   retryRide: 'Retry',
   bossName: 'Cave Monster',
   // The girl's scene at the cave mouth (she is secretly a witch — only hinted).
-  speakers: { hero: 'Hero', girl: 'Girl', tick: 'Tick' },
+  speakers: { hero: 'Hero', aj: 'AJ', girl: 'Girl', tick: 'Tick' }, // (Part 2's lines name AJ: speaker `aj`)
   girlScene: {
     safe: "You're safe now. The monster is gone.",
     thanks: 'My saviour, you have come at last! I am so thankful to you. My life is yours. Take me.',

@@ -776,42 +776,39 @@ export class Story {
 
   // --- The end of Part 1: Amy and the portal --------------------------------
 
-  /** The courtyard behind the gate: its centre, `inward` (from the gate into it), `right` of that. */
+  /** The courtyard behind the gate: the inner gates (`gate`), `inward` (from them into it), `right` of that. */
   get #courtyard() {
     const c = this.world.castle;
     c.updateMatrixWorld(true);
-    const centre = (c.userData.courtyardLocal ?? c.userData.insideLocal).clone().applyMatrix4(c.matrixWorld);
+    const local = c.userData.innerGateLocal ?? c.userData.insideLocal;
+    const gate = local.clone().applyMatrix4(c.matrixWorld);
     const out = new THREE.Vector3(Math.sin(c.rotation.y), 0, Math.cos(c.rotation.y));
     const inward = out.clone().negate();
-    return { centre, inward, right: new THREE.Vector3(-inward.z, 0, inward.x), floor: c.position.y };
+    return { gate, inward, right: new THREE.Vector3(-inward.z, 0, inward.x), floor: c.position.y };
   }
 
   /**
-   * After the gates shut: the horse walks on into the courtyard; a wide shot; Amy gets down,
-   * walks a few steps ahead and turns to AJ; her eyes glow white-violet for a moment — "Thank you
-   * for bringing me home." — "Amy?" — a portal opens in the air beside AJ (a swirling ring, gears
-   * flying in, a rumble); shocked, she reaches for him — "No, wait!" — as it pulls AJ and the
-   * horse in, the camera following them into the light; white (essential `finishPortal()`: Part 2).
+   * After the gates shut: the horse walks on into the courtyard and the inner gates swing shut
+   * behind it. A wide shot from in front — the gate wall, the closed gates and the torches behind
+   * them, the dusk sky above; Amy gets down beside the horse and turns to AJ; a cut to her face,
+   * her eyes glowing white-violet through "Thank you for bringing me home."; back to wide —
+   * "Amy?" — a portal opens in the air beside AJ (a swirling ring, gears flying in, a rumble);
+   * shocked, she reaches for him — "No, wait!" — as it pulls AJ and the horse in; the camera
+   * flies on into its light; white (essential `finishPortal()`: Part 2).
    */
   portalSteps() {
     const L = DIALOGUE.part2.portal;
     const S = PO.shots;
-    const { horse, girl } = this;
-    // A wide shot from the side (left of the horse: the portal opens on its right), everyone in frame.
-    const wide = () => {
+    const { girl } = this;
+    // Wide: AJ on the horse, Amy beside it, the closed gates behind them.
+    const wide = (W) => {
       const st = this.portalStage;
-      const f = st.inward;
-      const mid = st.horse.clone().addScaledVector(f, PO.dismount.ahead * 0.5);
-      const pos = mid.clone().addScaledVector(st.right, -S.wide.dist).addScaledVector(f, S.wide.along).setY(st.floor + S.wide.up);
-      return { pos, look: mid.clone().addScaledVector(st.right, 1.2).setY(st.floor + 1.7) };
+      const left = st.right.clone().negate();
+      const pos = st.horse.clone().addScaledVector(st.inward, W.ahead).addScaledVector(left, W.side).setY(st.floor + W.up);
+      const look = st.horse.clone().addScaledVector(st.inward, -W.back).addScaledVector(left, W.lookSide).setY(st.floor + W.look);
+      return { pos, look };
     };
-    // Following them in, then on into the light.
-    const follow = () => {
-      const c = this.portal.center;
-      const p = horse.position.clone().setY(horse.position.y + 1.2);
-      const dir = c.clone().sub(p).normalize();
-      return { pos: p.clone().addScaledVector(dir, -S.pull.back).setY(p.y + S.pull.up), look: c.clone() };
-    };
+    // On into the light, along the line from the wide shot to its core.
     const light = () => {
       const c = this.portal.center;
       const from = this.cam.camera.position.clone().sub(c).normalize();
@@ -819,41 +816,68 @@ export class Story {
     };
     return [
       { call: () => this.#stagePortalScene() },
-      { camera: { pos: () => wide().pos, look: () => wide().look, duration: S.wide.duration, wait: false } },
+      { camera: { pos: () => wide(S.wide).pos, look: () => wide(S.wide).look, duration: S.wide.duration, wait: false, fov: S.wide.fov } },
       { call: () => this.#tween(() => this.portalStage.walked) },
       { call: () => this.#amyGetsDown() },
-      { call: () => { girl.awaken(PO.eyeGlow); this.sound?.play('eerie'); } }, // (white-violet, a moment)
+      // The cut to her face: her eyes glow white-violet (not pink) through her line.
+      { call: () => { this.portalCloseUp = this.#portalCloseUp(); girl.awaken(Infinity); this.sound?.play('eerie'); } },
+      { camera: { pos: () => this.portalCloseUp.pos, look: () => this.portalCloseUp.look, duration: S.closeUp.duration, wait: false, fov: S.closeUp.fov, subject: 'girl', soften: ['hero', 'horse'] } },
       { say: 'girl', text: L.thanks },
-      { say: 'hero', text: L.amy, pace: 0.75 }, // (confused)
+      { call: () => girl.awaken(PO.eyeGlow) }, // (fading as the camera pulls back)
+      { camera: { pos: () => wide(S.wideBack).pos, look: () => wide(S.wideBack).look, duration: S.wideBack.duration, wait: false, fov: S.wideBack.fov } },
+      { say: 'aj', text: L.amy, pace: 0.75 }, // (confused)
       { call: () => this.#openPortal() },
       { call: () => this.#startPull() },
       { say: 'girl', text: L.wait },
-      { camera: { pos: () => follow().pos, look: () => follow().look, duration: S.pull.duration, follow: true, wait: false } },
       { call: () => this.#tween(() => this.pull?.done) },
       { camera: { pos: () => light().pos, look: () => light().look, duration: S.light.duration } },
       { call: () => this.finishPortal(), essential: true },
     ];
   }
 
-  /** Where everyone ends up; the horse sets off walking from the passage into the courtyard. */
+  /**
+   * Her face for her line: from her front, just below eye level, `angle`° round from the line to
+   * AJ toward the open courtyard (clear of AJ and the horse); she turns `cheat` of the way to it.
+   */
+  #portalCloseUp() {
+    const C = PO.shots.closeUp;
+    const st = this.portalStage;
+    const g = (this.actors.girl?.pos ?? this.boss.girl.position).clone().setY(st.floor);
+    const toHero = this.hero.position.clone().sub(g).setY(0).normalize();
+    const a = THREE.MathUtils.degToRad(C.angle);
+    const turn = (v, ang) => new THREE.Vector3(v.x * Math.cos(ang) + v.z * Math.sin(ang), 0, -v.x * Math.sin(ang) + v.z * Math.cos(ang));
+    const dir = [turn(toHero, a), turn(toHero, -a)].sort((p, q) => q.dot(st.inward) - p.dot(st.inward))[0];
+    const toHeroYaw = Math.atan2(toHero.x, toHero.z);
+    const yaw = Math.atan2(dir.x, dir.z);
+    if (this.actors.girl) this.actors.girl.yaw = toHeroYaw + Math.atan2(Math.sin(yaw - toHeroYaw), Math.cos(yaw - toHeroYaw)) * C.cheat;
+    const eye = st.floor + C.eye * CONFIG.girlModel.height;
+    return { pos: g.clone().addScaledVector(dir, C.dist).setY(eye - C.below), look: g.clone().setY(eye - C.lookBelow), dir };
+  }
+
+  /** The horse walks on from the passage into the courtyard; the inner gates swing shut behind it. */
   #stagePortalScene() {
     this.portalStarted = true;
-    const { horse } = this;
+    const { horse, gate } = this;
     const C = this.#courtyard;
-    const to = C.centre.clone().addScaledVector(C.inward, -PO.walkIn.stop).setY(C.floor);
+    const to = C.gate.clone().addScaledVector(C.inward, PO.walkIn.depth).setY(C.floor);
     const from = horse.position.clone();
     const dist = Math.hypot(to.x - from.x, to.z - from.z);
-    const stage = { horse: to, inward: C.inward, right: C.right, floor: C.floor, walked: false };
+    const stage = { horse: to, inward: C.inward, right: C.right, floor: C.floor, gate: C.gate, walked: false };
     this.portalStage = stage;
     horse.scripted = true;
     horse.heading = Math.atan2(C.inward.x, C.inward.z);
     const last = from.clone();
+    let shutting = false;
     this.#tween((t, dt) => {
       const k = Math.min(1, (t * PO.walkIn.speed) / Math.max(dist, 1e-3));
       const p = from.clone().lerp(to, THREE.MathUtils.smootherstep(k, 0, 1)).setY(C.floor);
       horse.speed = dt > 0 ? Math.hypot(p.x - last.x, p.z - last.z) / dt : 0;
       horse.position.copy(p);
       last.copy(p);
+      if (!shutting && p.clone().sub(C.gate).dot(C.inward) >= PO.walkIn.shutAt) {
+        shutting = true; // (clear of their swing: the inner gates close behind them)
+        gate.closeInner(() => this.sound?.play('gateSlam', { volume: CONFIG.desert.gate.innerShut.volume }));
+      }
       if (k >= 1) {
         horse.speed = 0;
         stage.walked = true;
@@ -862,7 +886,7 @@ export class Story {
     });
   }
 
-  /** Amy slides down, walks a few steps ahead of the horse and turns to face AJ. */
+  /** Amy slides down on the horse's left, steps out beside it (a little ahead) and turns to face AJ. */
   async #amyGetsDown() {
     const { horse, girl, boss, hero } = this;
     const st = this.portalStage;
@@ -901,7 +925,8 @@ export class Story {
     await this.portal.ready;
     const st = this.portalStage;
     const at = st.horse.clone().addScaledVector(st.right, PO.side).setY(st.floor + PO.up);
-    this.portal.openAt(at, st.right.clone().negate()); // (its face toward the horse and the camera)
+    const toCam = this.cam.camera.position.clone().sub(at).setY(0).normalize();
+    this.portal.openAt(at, toCam.lengthSq() > 0 ? toCam : st.inward.clone()); // (its face toward the camera)
     this.sound?.play('portal_open');
     this.cinematic.shake(PO.shake, PO.shakeTime);
     await this.#tween(() => this.portal.open >= 1);
@@ -965,6 +990,7 @@ export class Story {
     if (this.portalDone) return;
     this.portalDone = this.part1Done = true;
     this.portalStarted = true;
+    this.girl.awaken(0); // (skipped in the close-up: the glow goes)
     if (this.pull) this.pull.done = true;
     this.phase = 'done';
     if (this.onPart1Complete) this.onPart1Complete();

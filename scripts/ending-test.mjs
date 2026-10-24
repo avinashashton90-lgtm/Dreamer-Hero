@@ -427,26 +427,54 @@ for (const at of ['second line, mid-typewriter', 'first line']) {
   const camBefore = cam.camera.position.clone();
   const scale0 = { horse: horse.model.scale.x, hero: hero.model.scale.x };
   view.lines = [];
-  const pr = { shut: false, down: false, ahead: 0, faces: Infinity, glow: 0, glowColor: true, opened: false, side: Infinity, reach: false, pulledTo: Infinity, minScale: 1,
-    camToCore: Infinity, wideIn: 0, wideFrames: 0, shotAt: -1 };
+  const pr = { shut: false, innerShut: false, down: false, ahead: -Infinity, side: 0, faces: Infinity, glowColor: true, opened: false, portalSide: Infinity, reach: false, pulledTo: Infinity, minScale: 1,
+    camToCore: Infinity, wideIn: 0, wideFrames: 0, gateIn: 0, skyIn: 0, closeFrames: 0, closeGood: 0, closeGlow: 0, closeDist: [Infinity, 0], amySeen: 0, amyFrames: 0, glowAtOpen: false };
   const onScreen = (v) => { const q = v.clone().project(cam.camera); return q.z < 1 && Math.abs(q.x) <= 1 && Math.abs(q.y) <= 1; };
+  // Inside the frame a phone shows: under the letterbox (top ~9%) and above the dialogue box (the bottom ~33%).
+  const BOX = -0.3, LETTERBOX = 0.8;
+  const clear = (v) => { const q = v.clone().project(cam.camera); return q.z < 1 && Math.abs(q.x) <= 0.97 && q.y > BOX && q.y < LETTERBOX; };
+  // Is the line from the camera to `p` blocked by AJ or the horse (vertical capsules; the horse as two, nose and tail)?
+  const blocked = (p) => {
+    const c = cam.camera.position;
+    const f = new THREE.Vector3(Math.sin(horse.heading), 0, Math.cos(horse.heading));
+    const R = CONFIG.cinematic.guard.radius;
+    const s = horse.model.scale.x / (story.riderScale?.horse.x ?? horse.model.scale.x);
+    const bodies = [];
+    if (hero.model.visible) bodies.push({ at: hero.position, r: R.hero * s, h: CONFIG.heroModel.height * s });
+    if (horse.model.visible) for (const k of [-0.7, 0.7]) bodies.push({ at: horse.position.clone().addScaledVector(f, k * s), r: R.horse * 0.75 * s, h: R.horseHeight * s });
+    for (let i = 1; i < 40; i++) {
+      const q = c.clone().lerp(p, i / 40);
+      for (const b of bodies) if (q.y > b.at.y && q.y < b.at.y + b.h && Math.hypot(q.x - b.at.x, q.z - b.at.z) < b.r) return true;
+    }
+    return false;
+  };
+  const amyEyes = () => boss.girl.position.clone().setY(boss.girl.position.y + CONFIG.girlModel.height * 0.93);
   let tEnd = -1, readFor = 0;
   for (let t = 0; t < 60; t += dt) {
     await frame();
     if (gate.closed) pr.shut = true;
+    if (story.portalStage?.walked && gate.innerClosed) pr.innerShut = true;
     if (story.portalStarted && !horse.passenger && story.actors.girl) {
       pr.down = true;
       const g = story.actors.girl;
       const f = new THREE.Vector3(Math.sin(horse.heading), 0, Math.cos(horse.heading));
       if (!g.moving && story.portalStage?.walked && !story.pull) {
-        pr.ahead = Math.max(pr.ahead, g.pos.clone().sub(horse.position).dot(f));
-        pr.faces = Math.min(pr.faces, Math.abs(wrap(g.yaw - Math.atan2(hero.position.x - g.pos.x, hero.position.z - g.pos.z))));
+        const d = g.pos.clone().sub(horse.position);
+        pr.ahead = Math.max(pr.ahead, d.dot(f));
+        pr.side = Math.max(pr.side, -d.dot(new THREE.Vector3(-f.z, 0, f.x))); // (to its left)
+        if (!story.portalCloseUp) pr.faces = Math.min(pr.faces, Math.abs(wrap(g.yaw - Math.atan2(hero.position.x - g.pos.x, hero.position.z - g.pos.z))));
+      }
+      // Amy is never hidden behind AJ or the horse (until they are gone into the light).
+      if (!story.pull?.done && cinematic.moves.length === 0) {
+        pr.amyFrames++;
+        if (onScreen(amyEyes()) && !blocked(amyEyes()) && !blocked(boss.girl.position.clone().setY(boss.girl.position.y + 1))) pr.amySeen++;
       }
     }
-    if (girl.eyesGlowing) { pr.glow += dt; if (girl.eyeColor !== PO.eyeColor) pr.glowColor = false; }
+    if (girl.eyesGlowing && girl.eyeColor !== PO.eyeColor) pr.glowColor = false;
     if (story.portal.open >= 1 && !pr.opened) {
       pr.opened = true;
-      pr.side = story.portal.center.distanceTo(horse.position.clone().setY(story.portal.center.y));
+      pr.glowAtOpen = girl.eyesGlowing;
+      pr.portalSide = story.portal.center.distanceTo(horse.position.clone().setY(story.portal.center.y));
     }
     if (story.pull && girl.pointing) pr.reach = true;
     if (story.pull) {
@@ -454,23 +482,44 @@ for (const at of ['second line, mid-typewriter', 'first line']) {
       pr.minScale = Math.min(pr.minScale, horse.model.scale.x / (story.riderScale?.horse.x ?? horse.model.scale.x));
     }
     if (story.portalStarted && story.portal.model?.visible) pr.camToCore = Math.min(pr.camToCore, cam.camera.position.distanceTo(story.portal.center));
-    // The wide shot (while the lines are spoken, before the pull): AJ, Amy and the horse in frame.
-    if (story.portalStarted && cinematic.current?.step?.say && !story.pull && cinematic.moves.length === 0) {
-      pr.wideFrames++;
-      if (onScreen(hero.position.clone().setY(hero.position.y + 0.8)) && onScreen(boss.girl.position.clone().setY(boss.girl.position.y + 1)) && onScreen(horse.position.clone().setY(horse.position.y + 1))) pr.wideIn++;
+    const step = cinematic.current?.step;
+    if (story.portalStarted && cinematic.moves.length === 0 && !story.pull?.done && story.portalStage) {
+      if (step?.text === PL2.thanks) {
+        // The close-up: her face in the middle of the frame, her eyes glowing white-violet.
+        pr.closeFrames++;
+        const q = amyEyes().project(cam.camera);
+        const d = cam.camera.position.distanceTo(amyEyes());
+        pr.closeDist = [Math.min(pr.closeDist[0], d), Math.max(pr.closeDist[1], d)];
+        if (q.z < 1 && Math.abs(q.x) < 0.3 && q.y > 0.1 && q.y < 0.65 && d < 2.6 && d > 1.4) pr.closeGood++; // (her face in the upper half, clear of the dialogue box)
+        if (girl.eyesGlowing && girl.eyeColor === PO.eyeColor) pr.closeGlow++;
+      } else {
+        // The wide shots: AJ, Amy and the horse (feet to heads) clear of the letterbox and the
+        // dialogue box, the closed inner gates and the wall top with the sky over it behind them.
+        pr.wideFrames++;
+        const body = (p, h) => clear(p.clone().setY(p.y + 0.05)) && clear(p.clone().setY(p.y + h));
+        if (body(hero.position, story.pull ? 0.5 : 1.5) && body(boss.girl.position, CONFIG.girlModel.height) && (story.pull || body(horse.position, 1.6))) pr.wideIn++;
+        const st = story.portalStage;
+        if (clear(st.gate.clone().setY(st.floor + CONFIG.desert.castle.gate.height * 0.5))) pr.gateIn++;
+        if (clear(st.gate.clone().setY(st.floor + CONFIG.desert.castle.height * 0.38))) pr.skyIn++; // (above the wall top: the sky)
+      }
     }
     if (view.complete && (readFor += dt) > 0.3) { readFor = 0; cinematic.tap(); }
     if (state.is(STATES.ENDING)) { tEnd = t; break; }
   }
   const stats = story.stats();
   check(tEnd > 0 && pr.shut && story.gateRide?.done, `the gate cinematic: the horse rides into the castle, the gates shut (${tEnd.toFixed(1)} s to the end)`);
-  check(JSON.stringify(view.lines) === JSON.stringify([`${S2.girl}: ${PL2.thanks}`, `${S2.hero}: ${PL2.amy}`, `${S2.girl}: ${PL2.wait}`]), `the portal scene's lines in order:\n       ${view.lines.join('\n       ')}`);
-  check(pr.down && pr.ahead >= PO.dismount.ahead - 0.5 && pr.faces < 0.35 && pr.wideFrames > 30 && pr.wideIn === pr.wideFrames,
-    `Amy gets down, walks ${pr.ahead.toFixed(1)} ahead and turns to face AJ (${pr.faces.toFixed(2)} rad off); a wide shot with AJ, Amy and the horse in frame (${pr.wideIn}/${pr.wideFrames})`);
-  check(pr.glow > PO.eyeGlow * 0.6 && pr.glow < PO.eyeGlow + 0.3 && pr.glowColor && !girl.eyesGlowing, `her eyes glow white-violet for a moment (${pr.glow.toFixed(2)} s, colour ${pr.glowColor ? 'white-violet' : 'WRONG'})`);
-  check(pr.opened && Math.abs(pr.side - PO.side) < 0.6 && sound.counts.portal_open === 1 && sound.counts.portal_whoosh === 1 && story.portal.model.userData.gears.count === PO.gears.count,
-    `a portal opens in the air beside AJ (${pr.side.toFixed(1)} to his side), gears flying in, a rumble and a whoosh`);
-  check(pr.reach && pr.pulledTo < 1.6 && pr.minScale < 0.6 && pr.camToCore < PO.radius, `Amy reaches for him; AJ and the horse are pulled into the portal (${pr.pulledTo.toFixed(2)} from its core, shrinking to ${pr.minScale.toFixed(2)}); the camera follows them into the light (${pr.camToCore.toFixed(2)})`);
+  check(JSON.stringify(view.lines) === JSON.stringify([`${S2.girl}: ${PL2.thanks}`, `${S2.aj}: ${PL2.amy}`, `${S2.girl}: ${PL2.wait}`]), `the portal scene's lines in order (AJ named "AJ"):\n       ${view.lines.join('\n       ')}`);
+  check(pr.innerShut && sound.counts.gateSlam >= 2 && world.castle.userData.torches.length === 4, `the horse walks into the courtyard; the inner gates swing shut behind it (a thud); torches either side of the gate`);
+  check(pr.down && pr.side >= PO.dismount.side - 0.5 && pr.ahead >= PO.dismount.ahead - 0.5 && pr.faces < 0.35,
+    `Amy gets down beside the horse (${pr.side.toFixed(1)} to its left, ${pr.ahead.toFixed(1)} ahead) and turns to face AJ (${pr.faces.toFixed(2)} rad off)`);
+  check(pr.wideFrames > 60 && pr.wideIn === pr.wideFrames && pr.gateIn === pr.wideFrames && pr.skyIn === pr.wideFrames,
+    `the wide shots: AJ, Amy and the horse in frame above the dialogue box (${pr.wideIn}/${pr.wideFrames}), the closed gates behind them (${pr.gateIn}) and the sky over the wall (${pr.skyIn})`);
+  check(pr.closeFrames > 10 && pr.closeGood === pr.closeFrames && pr.closeGlow === pr.closeFrames && pr.glowColor && !pr.glowAtOpen && !girl.eyesGlowing,
+    `"${PL2.thanks}": a close-up on her face (eyes centred ${pr.closeGood}/${pr.closeFrames}, ${pr.closeDist[0].toFixed(2)}–${pr.closeDist[1].toFixed(2)} from them), her eyes glowing white-violet all through it (${pr.closeGlow}), gone by the portal`);
+  check(pr.amyFrames > 60 && pr.amySeen === pr.amyFrames, `Amy is never hidden behind AJ or the horse (${pr.amySeen}/${pr.amyFrames} frames)`);
+  check(pr.opened && Math.abs(pr.portalSide - PO.side) < 0.6 && sound.counts.portal_open === 1 && sound.counts.portal_whoosh === 1 && story.portal.model.userData.gears.count === PO.gears.count,
+    `a portal opens in the air beside AJ (${pr.portalSide.toFixed(1)} to his side), gears flying in, a rumble and a whoosh`);
+  check(pr.reach && pr.pulledTo < 1.6 && pr.minScale < 0.6 && pr.camToCore < PO.radius, `Amy reaches for him; AJ and the horse are pulled into the portal (${pr.pulledTo.toFixed(2)} from its core, shrinking to ${pr.minScale.toFixed(2)}); the camera flies on into its light (${pr.camToCore.toFixed(2)})`);
   check(!story.riderScale && Math.abs(horse.model.scale.x - scale0.horse) < 1e-6 && Math.abs(hero.model.scale.x - scale0.hero) < 1e-6 && story.part1Done, 'Part 1 is over (no Part 2 here: the ending screens); AJ and the horse back to full size');
   check(tEnd >= 0 && story.phase === 'done' && stats.time > rn.tt && stats.gems >= rn.gemsGot && stats.deaths === 0 && stats.gemsTotal === gems.gems.filter((g) => g.zone !== 'drop').length,
     `ending state; summary: gems ${stats.gems}/${stats.gemsTotal}, time ${stats.time.toFixed(1)} s, deaths ${stats.deaths}`);

@@ -349,9 +349,25 @@ export async function loadCastleModel() {
   // The courtyard behind it: a stone floor, walls round it (lit, so it reads up close).
   const CY = DS.castle.courtyard;
   const back = -depth / 2 - CY.depth;
-  const stone = new THREE.MeshLambertMaterial({ color: CY.floorColor });
+  const sand = new THREE.MeshLambertMaterial({ color: CY.floorColor });
   const inner = new THREE.MeshLambertMaterial({ color: CY.wallColor });
-  add(new THREE.BoxGeometry(CY.halfWidth * 2, 0.4, CY.depth), stone, 0, -0.18, -depth / 2 - CY.depth / 2);
+  add(new THREE.BoxGeometry(CY.halfWidth * 2, 0.4, CY.depth), sand, 0, -0.18, -depth / 2 - CY.depth / 2);
+  // Desert ground: low sand drifts along its side and back walls (the middle and the gate stay clear).
+  const D = CY.drifts;
+  const drift = new THREE.MeshLambertMaterial({ color: D.color });
+  const mound = new THREE.SphereGeometry(1, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2);
+  for (let i = 0; i < D.count; i++) {
+    const r = THREE.MathUtils.lerp(D.size[0], D.size[1], (i * 0.618) % 1);
+    const h = THREE.MathUtils.lerp(D.height[0], D.height[1], (i * 0.382) % 1);
+    // (spread round the left side, the back and the right side: never in the gate's half)
+    const u = i / (D.count - 1);
+    const z = (k) => -depth / 2 - CY.depth * k;
+    const [x, zz] = u < 0.3 ? [-CY.halfWidth + r * 0.6, z(0.55 + u * 1.4)]
+      : u > 0.7 ? [CY.halfWidth - r * 0.6, z(0.55 + (1 - u) * 1.4)]
+      : [(u - 0.5) * CY.halfWidth * 4, back + r * 0.6];
+    const m = add(mound, drift, x, 0, zz);
+    m.scale.set(r, h, r * 0.7);
+  }
   for (const side of [-1, 1]) add(new THREE.BoxGeometry(CY.wall, wallH, CY.depth), inner, side * (CY.halfWidth + CY.wall / 2), wallH / 2, -depth / 2 - CY.depth / 2);
   add(new THREE.BoxGeometry(CY.halfWidth * 2 + CY.wall * 2, wallH, CY.wall), inner, 0, wallH / 2, back - CY.wall / 2);
   const zIn = back / H; // (the inner towers and the keep stand behind the courtyard)
@@ -362,6 +378,73 @@ export async function loadCastleModel() {
     add(new THREE.ConeGeometry(r * 1.35, H * 0.22, 10), dark, x * H, h + H * 0.11, z * H);
     add(new THREE.BoxGeometry(r * 0.35, r * 0.6, 0.2), glow, x * H, h * 0.8, z * H + r * 1.02);
   }
+  // The curtain wall's inner face round the passage: lit stone, an arch frame, so the closed
+  // inner gates read as the backdrop of the last scene (from the courtyard).
+  const face = new THREE.MeshLambertMaterial({ color: CY.innerFace });
+  const trim = new THREE.MeshLambertMaterial({ color: CY.trim });
+  const zi = -depth / 2 - 0.06;
+  for (const side of [-1, 1]) add(new THREE.BoxGeometry(W2 - gw, wallH, 0.12), face, side * (gw + (W2 - gw) / 2), wallH / 2, zi);
+  add(new THREE.BoxGeometry(G.width, wallH - G.height, 0.12), face, 0, G.height + (wallH - G.height) / 2, zi);
+  for (const side of [-1, 1]) add(new THREE.BoxGeometry(0.7, G.height + 0.7, 0.5), trim, side * (gw + 0.35), (G.height + 0.7) / 2, zi - 0.2);
+  add(new THREE.BoxGeometry(G.width + 1.4, 0.7, 0.5), trim, 0, G.height + 0.35, zi - 0.2);
+  // Torches either side of the passage on both faces (additive flames and halos; flickered by
+  // CastleGate.update through userData.torches).
+  const T = DS.castle.torches;
+  const iron = new THREE.MeshLambertMaterial({ color: T.iron });
+  const bowl = new THREE.MeshLambertMaterial({ color: T.bowl });
+  const glowMat = (color, opacity) => new THREE.MeshBasicMaterial({ color, transparent: true, opacity, blending: THREE.AdditiveBlending, depthWrite: false, fog: false });
+  const flameMat = glowMat(T.flame, 0.85);
+  const coreMat = glowMat(T.core, 0.9);
+  const haloMat = glowMat(T.halo, T.haloOpacity);
+  const haloOuter = glowMat(T.halo, T.haloOpacity * 0.35);
+  const torches = [];
+  for (const facing of [1, -1]) {
+    for (const side of [-1, 1]) {
+      const torch = new THREE.Group();
+      torch.position.set(side * T.x, T.y, facing * (depth / 2 + T.out));
+      const arm = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, T.out + 0.1), iron);
+      arm.position.set(0, -0.35, -facing * T.out / 2);
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.05, 0.7, 6), iron);
+      post.position.y = -0.35;
+      const cup = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.12, 0.26, 8), bowl);
+      cup.position.y = 0.02;
+      const flame = new THREE.Mesh(new THREE.ConeGeometry(0.2, 0.75, 8).translate(0, 0.375, 0), flameMat);
+      const core = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.42, 6).translate(0, 0.21, 0), coreMat);
+      flame.position.y = core.position.y = 0.12;
+      const halo = new THREE.Mesh(new THREE.SphereGeometry(T.haloSize * 0.45, 10, 8), haloMat);
+      const haloBig = new THREE.Mesh(new THREE.SphereGeometry(T.haloSize, 10, 8), haloOuter);
+      halo.position.y = haloBig.position.y = 0.45;
+      torch.add(arm, post, cup, flame, core, halo, haloBig);
+      group.add(torch);
+      torches.push({ torch, flame, core, halo, phase: torches.length * 1.7 });
+    }
+  }
+  group.userData.torches = torches;
+  // The inner gate leaves (the courtyard side of the passage): open while the horse rides in,
+  // they swing shut behind it (story: the portal scene) — swappable like the outer ones.
+  const IG = DS.castle.innerGate;
+  const innerLeaf = (side) => {
+    const hinge = new THREE.Group();
+    hinge.position.set(side * gw, 0, -depth / 2 - 0.3);
+    const mat = new THREE.MeshLambertMaterial({ color: IG.color });
+    const band = new THREE.MeshLambertMaterial({ color: IG.bandColor });
+    hinge.add(new THREE.Mesh(new THREE.BoxGeometry(gw, G.height, G.thickness).translate(-side * gw / 2, G.height / 2, 0), mat));
+    for (const k of [0.22, 0.5, 0.78]) {
+      const b = new THREE.Mesh(new THREE.BoxGeometry(gw * 0.96, G.height * 0.05, G.thickness * 1.4).translate(-side * gw / 2, G.height * k, 0), band);
+      hinge.add(b);
+    }
+    for (const k of [0.3, 0.7]) { // (studs)
+      const stud = new THREE.Mesh(new THREE.SphereGeometry(0.16, 8, 6), band);
+      stud.position.set(-side * gw * 0.15, G.height * k, -G.thickness * 0.6);
+      hinge.add(stud);
+    }
+    hinge.userData.side = side;
+    hinge.rotation.y = -side * IG.open; // (open: into the courtyard)
+    group.add(hinge);
+    return hinge;
+  };
+  group.userData.innerGates = { left: innerLeaf(-1), right: innerLeaf(1) };
+  group.userData.innerGateLocal = new THREE.Vector3(0, 0, -depth / 2); // the passage's inner opening (castle-local)
   // The gates: two separate leaves hinged at the passage's sides on its outer face (swappable
   // parts: a real castle model can hand its own leaves to the gate scene through userData.gates).
   const leaf = (side) => {

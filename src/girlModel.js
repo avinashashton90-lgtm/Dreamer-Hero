@@ -79,8 +79,9 @@ export async function loadMixamoGirl(opts = {}) {
 }
 
 /**
- * Two faint purple glows over her eyes, on the head bone (additive, shown only during the
- * witch hint). The face's front comes from the head-skinned vertices in the bind pose.
+ * A glow over each eye, on the head bone (additive, each with a soft halo; shown when she
+ * awakens — white-violet — or for the witch hint, off). The face's front over the eyes comes
+ * from the head-skinned vertices in the bind pose.
  */
 function makeEyeGlow(amy, head) {
   const f = GM.height / GM.eyes.refHeight; // (the offsets were measured at refHeight)
@@ -102,7 +103,7 @@ function makeEyeGlow(amy, head) {
       for (let k = 0; k < 4; k++) if (sw.getComponent(i, k) > best) (best = sw.getComponent(i, k)), (bi = si.getComponent(i, k));
       if (bi !== headIndex) continue;
       o.getVertexPosition(i, v).applyMatrix4(o.matrixWorld); // (skinned + dequantized)
-      if (Math.abs(v.x - hp.x) < win && v.y > hp.y + E.up - win && v.y < hp.y + E.up + win) front = Math.max(front, v.z);
+      if (Math.abs(Math.abs(v.x - hp.x) - E.apart) < win && v.y > hp.y + E.up - win && v.y < hp.y + E.up + win) front = Math.max(front, v.z); // (the face's front over the eyes)
     }
   });
   if (!Number.isFinite(front)) front = hp.z + 0.09 * f;
@@ -110,11 +111,16 @@ function makeEyeGlow(amy, head) {
   // On the head bone: positions from world (metres) into its frame, sizes by its scale.
   const group = new THREE.Group();
   const k = head.getWorldScale(new THREE.Vector3()).x;
+  const haloMat = mat.clone();
+  haloMat.opacity = E.opacity * E.haloOpacity;
   for (const side of [-1, 1]) {
     const glow = new THREE.Mesh(new THREE.SphereGeometry(E.size / k, 10, 8), mat);
     glow.position.copy(head.worldToLocal(new THREE.Vector3(hp.x + side * E.apart, hp.y + E.up, front - E.back)));
     glow.renderOrder = 9;
-    group.add(glow);
+    const halo = new THREE.Mesh(new THREE.SphereGeometry((E.size * E.halo) / k, 10, 8), haloMat); // (a soft halo round it)
+    halo.position.copy(glow.position);
+    halo.renderOrder = 9;
+    group.add(glow, halo);
   }
   group.visible = false;
   head.add(group);
@@ -211,7 +217,7 @@ export class GirlAnimator {
     }
     // Witch hint: the eye glow (flickering while hinting; steady in her witch form).
     this.u.eyes.visible = girl.eyesGlowing;
-    if (this.u.eyes.visible) this.u.eyes.children[0]?.material.color.setHex(girl.eyeColor); // (white-violet when she awakens)
+    if (this.u.eyes.visible) for (const e of this.u.eyes.children) e.material.color.setHex(girl.eyeColor); // (white-violet when she awakens)
   }
 }
 

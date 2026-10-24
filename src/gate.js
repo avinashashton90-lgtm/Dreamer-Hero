@@ -4,6 +4,8 @@ import { makeMinionModel } from './minionModels.js';
 import { particleMaterial, softDot } from './sandstorm.js';
 
 const GT = CONFIG.desert.gate;
+const TO = CONFIG.desert.castle.torches;
+const IG = CONFIG.desert.castle.innerGate;
 const { clamp, lerp } = THREE.MathUtils;
 
 /**
@@ -50,6 +52,9 @@ export class CastleGate {
     this.opening = false;
     this.slamT = -1;
     this.slams = 0;
+    this.inner = 1; // the inner gates (the courtyard side): 1 open … 0 shut
+    this.innerClosing = false;
+    this.time = 0;
   }
 
   async init() {
@@ -66,6 +71,23 @@ export class CastleGate {
     const out = new THREE.Vector3(Math.sin(c.rotation.y), 0, Math.cos(c.rotation.y));
     const right = new THREE.Vector3(-out.z, 0, out.x);
     return { gate, inside, out, right, floor: c.position.y };
+  }
+
+  /** The inner gates (the courtyard side of the passage), if the castle has them. */
+  get innerLeaves() {
+    const g = this.world.castle?.userData.innerGates;
+    return g ? [g.left, g.right] : [];
+  }
+
+  /** The inner gates swing shut behind the horse (the portal scene); `onInnerShut` at the end. */
+  closeInner(onShut = null) {
+    if (this.inner <= 0) return onShut?.();
+    this.innerClosing = true;
+    this.onInnerShut = onShut;
+  }
+
+  get innerClosed() {
+    return this.inner <= 0;
   }
 
   get leaves() {
@@ -185,6 +207,21 @@ export class CastleGate {
     } else if (this.opening) this.open = Math.min(1, this.open + dt / O.time);
     const e = this.open * this.open * (3 - 2 * this.open);
     for (const leaf of this.leaves) leaf.rotation.y = -leaf.userData.side * O.angle * e;
+    // The inner gates: shut behind the horse in the courtyard (a slow swing, then a thud).
+    if (this.innerClosing) {
+      this.inner = Math.max(0, this.inner - dt / GT.innerShut.time);
+      if (this.inner <= 0) {
+        this.innerClosing = false;
+        const c = this.world.castle;
+        const at = c.userData.innerGateLocal.clone().applyMatrix4(c.matrixWorld);
+        this.#dustBurst(at.addScaledVector(this.frame.out, -1), GT.innerShut.dust, 2);
+        this.onInnerShut?.();
+        this.onInnerShut = null;
+      }
+    }
+    const ei = this.inner * this.inner * (3 - 2 * this.inner);
+    for (const leaf of this.innerLeaves) leaf.rotation.y = -leaf.userData.side * IG.open * ei;
+    this.#flicker(dt);
     this.#updateFx(dt);
   }
 
@@ -241,6 +278,19 @@ export class CastleGate {
     }
   }
 
+  /** The castle's torches flicker (each its own rate and phase). */
+  #flicker(dt) {
+    this.time += dt;
+    const F = TO.flicker;
+    for (const t of this.world.castle?.userData.torches ?? []) {
+      const rate = lerp(F.rate[0], F.rate[1], (t.phase * 0.37) % 1);
+      const n = Math.sin(this.time * rate + t.phase) * 0.6 + Math.sin(this.time * rate * 2.3 + t.phase * 3) * 0.4;
+      t.flame.scale.set(1 - n * F.amount * 0.4, 1 + n * F.amount, 1 - n * F.amount * 0.4);
+      t.core.scale.y = 1 + n * F.amount * 0.6;
+      t.halo.scale.setScalar(1 + n * F.amount * 0.5);
+    }
+  }
+
   clearPuppets() {
     for (const p of this.puppets) this.scene.remove(p.model);
     this.puppets = [];
@@ -256,6 +306,10 @@ export class CastleGate {
     this.slamT = -1;
     this.slams = 0;
     for (const leaf of this.leaves) leaf.rotation.y = 0;
+    this.inner = 1;
+    this.innerClosing = false;
+    this.onInnerShut = null;
+    for (const leaf of this.innerLeaves) leaf.rotation.y = -leaf.userData.side * IG.open;
     if (this.fx) this.#updateFx(0);
   }
 }
