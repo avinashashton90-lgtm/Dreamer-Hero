@@ -7,8 +7,10 @@ import { fetchBuffers } from '../mixamo.js';
 
 // Gearhaven's robots (Quaternius Animated Mech Pack, CC0): the scout (Leela), the two sword
 // robots (Mike, Stan) and the armoured mech boss (George) — meshopt glb files fitted to their
-// height, tinted brass / copper / rust in a cheap Lambert material that keeps each texture's
-// detail, with an AnimationMixer playing clips by role (idle, walk, run, attack, hit, death).
+// height, keeping their own texture colours with brass / copper accents (accentMaterial: the
+// orange paint becomes trim, the dark joints metal, the boss's light panels brass plates) and a
+// soft rim light in a cheap Lambert material, a glowing eye on the head bone, and an
+// AnimationMixer playing clips by role (idle, walk, run, attack, hit, death).
 // Each kind's file loads once (cached); every loadRobotModel() is a SkeletonUtils clone with its
 // own mixer. If a file fails: a code-built placeholder robot.
 
@@ -22,28 +24,93 @@ export async function loadGlb(url, opts = {}) {
 }
 
 /**
- * A Lambert material showing `src`'s texture through a luminance ramp: dark → `palette[0]`, mid →
- * `palette[1]`, light → `palette[2]`, with `keep` of the original colour mixed back in.
+ * A Lambert material showing `src`'s texture in its own colours, with Gearhaven metal added:
+ * its saturated orange paint → `trim` (a [colour, amount]), its dark joints → `joints`, its light
+ * panels → `plates` (or null), shaded by the texture's brightness; × `boost`, plus a soft `rim`
+ * light at grazing angles so the robot stands out from the brown courtyard.
  */
-export function rampMaterial(src, palette, keep) {
+export function accentMaterial(src, A) {
   const mat = new THREE.MeshLambertMaterial({ map: src.map ?? null, color: 0xffffff, transparent: src.transparent, alphaTest: src.alphaTest });
-  const [d, m, l] = palette.map((c) => new THREE.Color(c));
+  const pair = (p) => (p ? { c: new THREE.Color(p[0]), k: p[1] } : { c: new THREE.Color(0), k: 0 });
+  const [trim, joints, plates, rim] = [A.trim, A.joints, A.plates, A.rim].map(pair);
   mat.onBeforeCompile = (shader) => {
-    Object.assign(shader.uniforms, { uDark: { value: d }, uMid: { value: m }, uLight: { value: l }, uKeep: { value: keep } });
+    Object.assign(shader.uniforms, {
+      uTrim: { value: trim.c }, uTrimK: { value: trim.k }, uJoint: { value: joints.c }, uJointK: { value: joints.k },
+      uPlate: { value: plates.c }, uPlateK: { value: plates.k }, uRim: { value: rim.c.clone().multiplyScalar(rim.k) }, uBoost: { value: A.boost ?? 1 },
+    });
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nuniform vec3 uDark;\nuniform vec3 uMid;\nuniform vec3 uLight;\nuniform float uKeep;')
+      .replace('#include <common>', '#include <common>\nuniform vec3 uTrim;\nuniform float uTrimK;\nuniform vec3 uJoint;\nuniform float uJointK;\nuniform vec3 uPlate;\nuniform float uPlateK;\nuniform vec3 uRim;\nuniform float uBoost;')
       .replace('#include <map_fragment>', `
 #ifdef USE_MAP
   vec4 texel = texture2D( map, vMapUv );
-  float lum = pow( clamp( dot( texel.rgb, vec3( 0.2126, 0.7152, 0.0722 ) ), 0.0, 1.0 ), 0.4545 );
-  vec3 ramp = lum < 0.5 ? mix( uDark, uMid, lum * 2.0 ) : mix( uMid, uLight, lum * 2.0 - 1.0 );
-  diffuseColor.rgb *= mix( ramp, texel.rgb, uKeep );
+  vec3 c = texel.rgb;
+  float mx = max( c.r, max( c.g, c.b ) );
+  float mn = min( c.r, min( c.g, c.b ) );
+  float sat = mx > 1e-4 ? ( mx - mn ) / mx : 0.0;
+  float hue = 0.0;
+  if ( mx > mn ) {
+    float d = mx - mn;
+    hue = mx == c.r ? mod( ( c.g - c.b ) / d, 6.0 ) : mx == c.g ? ( c.b - c.r ) / d + 2.0 : ( c.r - c.g ) / d + 4.0;
+    hue /= 6.0;
+  }
+  // orange paint (and rust) → trim; dark grey joints → metal; light grey panels → plates
+  float wTrim = smoothstep( 0.02, 0.045, hue ) * ( 1.0 - smoothstep( 0.12, 0.15, hue ) ) * smoothstep( 0.45, 0.65, sat ) * smoothstep( 0.04, 0.1, mx );
+  float wJoint = ( 1.0 - smoothstep( 0.035, 0.08, mx ) ) * ( 1.0 - smoothstep( 0.2, 0.35, sat ) );
+  float wPlate = smoothstep( 0.3, 0.5, mn ) * ( 1.0 - smoothstep( 0.08, 0.18, sat ) );
+  c = mix( c, uTrim * clamp( mx * 1.5 + 0.3, 0.35, 1.25 ), wTrim * uTrimK );
+  c = mix( c, uJoint * clamp( mx * 6.0 + 0.45, 0.45, 1.0 ), wJoint * uJointK );
+  c = mix( c, uPlate * clamp( mx * 0.9 + 0.35, 0.5, 1.2 ), wPlate * uPlateK );
+  diffuseColor.rgb *= c * uBoost;
   diffuseColor.a *= texel.a;
-#endif`);
+#endif`)
+      .replace('#include <opaque_fragment>', 'outgoingLight += uRim * pow( 1.0 - clamp( dot( normalize( vViewPosition ), normal ), 0.0, 1.0 ), 2.5 );\n#include <opaque_fragment>');
   };
-  mat.customProgramCacheKey = () => 'gearhavenRamp';
-  mat.userData.ramp = { palette, keep };
+  mat.customProgramCacheKey = () => 'gearhavenAccent';
+  mat.userData.accents = A;
   return mat;
+}
+
+/**
+ * A glowing eye on `head` (a bone): a core sphere and an additive halo, at the front of the
+ * head-skinned vertices (the face), `size` × `height` big. Returns the group (on the bone; its
+ * children: the core, then the halo).
+ */
+export function addGlowEye(root, head, height, eye, E = RB.eye) {
+  root.updateMatrixWorld(true);
+  const hp = head.getWorldPosition(new THREE.Vector3());
+  const v = new THREE.Vector3();
+  const pts = [];
+  root.traverse((o) => {
+    if (!o.isSkinnedMesh) return;
+    const hi = o.skeleton.bones.indexOf(head);
+    const si = o.geometry.attributes.skinIndex;
+    const sw = o.geometry.attributes.skinWeight;
+    for (let i = 0; i < o.geometry.attributes.position.count; i++) {
+      let best = 0;
+      let bi = -1;
+      for (let k = 0; k < 4; k++) if (sw.getComponent(i, k) > best) (best = sw.getComponent(i, k)), (bi = si.getComponent(i, k));
+      if (bi === hi) pts.push(o.getVertexPosition(i, v).applyMatrix4(o.matrixWorld).clone());
+    }
+  });
+  const size = eye.size * height;
+  const at = hp.clone();
+  if (pts.length) {
+    // (the face: the front-most of the head's vertices; the eye at their middle)
+    const zmax = Math.max(...pts.map((p) => p.z));
+    const front = pts.filter((p) => p.z > zmax - size);
+    at.set(front.reduce((a, p) => a + p.x, 0) / front.length, front.reduce((a, p) => a + p.y, 0) / front.length, zmax + size * E.out);
+  }
+  const k = head.getWorldScale(new THREE.Vector3()).x;
+  const group = new THREE.Group();
+  group.name = 'glowEye';
+  const core = new THREE.Mesh(new THREE.SphereGeometry(size / k, 10, 8), new THREE.MeshBasicMaterial({ color: eye.color, transparent: true, opacity: E.coreOpacity, depthWrite: false, fog: false }));
+  const halo = new THREE.Mesh(new THREE.SphereGeometry((size * (eye.haloSize ?? E.halo)) / k, 10, 8), new THREE.MeshBasicMaterial({ color: eye.halo, transparent: true, opacity: eye.haloOpacity ?? E.haloOpacity, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
+  core.renderOrder = 10;
+  halo.renderOrder = 9;
+  group.add(core, halo);
+  group.position.copy(head.worldToLocal(at));
+  head.add(group); // (its children: the core, then the halo)
+  return group;
 }
 
 /** Fit a loaded scene to `height`: feet at the origin (or `centre`d), facing +Z. Returns the wrapper. */
@@ -128,10 +195,16 @@ export function loadRobotTemplate(kind, opts = {}) {
       gltf.scene.traverse((o) => {
         if (!o.isMesh) return;
         const src = o.material;
-        if (!tinted.has(src)) tinted.set(src, rampMaterial(src, K.palette, K.keep));
+        if (!tinted.has(src)) tinted.set(src, accentMaterial(src, K.accents));
         o.material = tinted.get(src);
       });
-      return { scene: fitModel(gltf.scene, K.height), clips: gltf.animations };
+      const scene = fitModel(gltf.scene, K.height);
+      let head = null;
+      scene.traverse((o) => {
+        if (!head && o.isBone && o.name === 'Head') head = o;
+      });
+      if (K.eye && head) addGlowEye(scene, head, K.height, K.eye);
+      return { scene, clips: gltf.animations };
     }).catch((e) => {
       console.warn(`Robot "${kind}" (${K.file}) failed to load; using the placeholder robot.`, e);
       return null;
@@ -143,7 +216,7 @@ export function loadRobotTemplate(kind, opts = {}) {
 /**
  * A robot: `kind` is scout / swordA / swordB / boss (CONFIG.part2.robots.kinds). Returns a
  * Group, feet at the origin, facing +Z; `userData` = { kind, animator (play(role), update(dt)),
- * clipNames, roles, placeholder }. The animator starts on its idle.
+ * clipNames, roles, eye (its glowing eye, if any), placeholder }. The animator starts on its idle.
  */
 export async function loadRobotModel(kind, opts = {}) {
   const K = RB.kinds[kind];
@@ -157,7 +230,11 @@ export async function loadRobotModel(kind, opts = {}) {
   for (const [role, names] of Object.entries(RB.clips)) roles[role] = findClip(t.clips, role === 'attack' ? RB.attackFor[kind] ?? names : names);
   const animator = new ClipAnimator(body, t.clips, roles);
   animator.play('idle');
-  root.userData = { kind, name: K.name, role: K.role, height: K.height, animator, clipNames: t.clips.map((c) => c.name), roles, placeholder: false };
+  let eye = null;
+  body.traverse((o) => {
+    if (o.name === 'glowEye') eye = o;
+  });
+  root.userData = { kind, name: K.name, role: K.role, height: K.height, animator, clipNames: t.clips.map((c) => c.name), roles, eye, placeholder: false };
   return root;
 }
 
@@ -176,7 +253,7 @@ export function buildPlaceholderRobot(kind) {
   torso.position.y = h * 0.62;
   const head = new THREE.Mesh(new THREE.BoxGeometry(h * 0.2, h * 0.16, h * 0.18), copper);
   head.position.y = h * 0.92;
-  const visor = new THREE.Mesh(new THREE.BoxGeometry(h * 0.16, h * 0.04, 0.02), new THREE.MeshBasicMaterial({ color: P.eye }));
+  const visor = new THREE.Mesh(new THREE.BoxGeometry(h * 0.16, h * 0.04, 0.02), new THREE.MeshBasicMaterial({ color: K.eye?.color ?? P.eye }));
   visor.position.set(0, h * 0.94, h * 0.09 + 0.01);
   const legs = [-1, 1].map((s) => {
     const leg = new THREE.Mesh(new THREE.BoxGeometry(h * 0.1, h * 0.45, h * 0.12).translate(0, -h * 0.225, 0), rust);

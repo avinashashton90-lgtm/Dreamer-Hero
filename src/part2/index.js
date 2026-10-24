@@ -364,8 +364,8 @@ class Part2 {
         group.add(m);
         items.push({ name: m.userData.name, role: m.userData.role, height: m.userData.height, model: m, animator: m.userData.animator });
       });
-      // In a row along x, spaced by size.
-      const width = (h) => Math.max(1.2, h * 0.6);
+      // In a row along x: each slot as wide as its label or its body (whichever is wider).
+      const width = (h) => Math.max(1.2, h * 0.6, labelWidth(h));
       let x = 0;
       for (const it of items) {
         it.x = x + width(it.height) / 2;
@@ -384,7 +384,7 @@ class Part2 {
         it.t = 0;
         it.label = makeLabel(it);
         if (it.label) {
-          it.label.position.set(it.x, (it.tick ? P2.tick.float : 0) + it.height + 0.6, SC.z);
+          it.label.position.set(it.x, (it.tick ? P2.tick.float + it.height / 2 : it.height) + 0.5, SC.z);
           group.add(it.label);
         }
       }
@@ -570,6 +570,11 @@ class Part2 {
   }
 }
 
+/** A robot's label width in the Robots test (bigger robots get a slightly bigger label). */
+function labelWidth(height) {
+  return 2 * P2.showcase.labelScale * Math.max(1, height / 3);
+}
+
 /** A name / role / clip label over a robot (browser only: a canvas sprite; none headless). */
 function makeLabel(it) {
   if (typeof document === 'undefined') return null;
@@ -581,8 +586,8 @@ function makeLabel(it) {
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
   const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, fog: false }));
-  const k = P2.showcase.labelScale * Math.max(1, it.height / 3);
-  sprite.scale.set(k * 2, k / 2, 1);
+  const w = labelWidth(it.height);
+  sprite.scale.set(w, w / 4, 1);
   sprite.renderOrder = 20;
   sprite.userData.draw = (title, clip) => {
     g.clearRect(0, 0, 512, 128);
@@ -590,13 +595,17 @@ function makeLabel(it) {
     g.beginPath();
     g.roundRect?.(8, 8, 496, 112, 22);
     g.fill();
-    g.fillStyle = '#ffd88a';
-    g.font = '700 40px system-ui, sans-serif';
+    // (each line's font shrinks until it fits inside the label)
+    const line = (text, weight, px, y, color) => {
+      let size = px;
+      do g.font = `${weight} ${size}px system-ui, sans-serif`;
+      while (g.measureText(text).width > 468 && --size > 14);
+      g.fillStyle = color;
+      g.fillText(text, 256, y);
+    };
     g.textAlign = 'center';
-    g.fillText(title, 256, 56);
-    g.fillStyle = '#ffffff';
-    g.font = '500 34px system-ui, sans-serif';
-    g.fillText(clip, 256, 100);
+    line(title, 700, 40, 56, '#ffd88a');
+    line(clip, 500, 34, 100, '#ffffff');
     tex.needsUpdate = true;
   };
   return sprite;

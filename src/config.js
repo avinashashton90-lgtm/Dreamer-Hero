@@ -678,31 +678,53 @@ export const CONFIG = {
     // public/models/gearhaven/tick/tick.glb — its yellow body tinted brass and copper, the goggles
     // kept dark — fitted to `height`, centred on its middle, playing its idle; else placeholder shapes).
     tick: {
-      file: 'models/gearhaven/tick/tick.glb', height: 0.95,
-      tint: { Main: 0xc9a23a, Grey: 0xa45a32, Black: 0x141210 }, // material name → colour (brass body, copper limbs, dark goggles)
+      file: 'models/gearhaven/tick/tick.glb', height: 1.4, // (1.5× his first size: he reads from across the courtyard)
+      tint: { Main: 0xf5c832, Grey: 0xc27a3a, Black: 0x141210 }, // material name → colour (bright brass-yellow body, copper limbs, dark goggles)
+      goggleEye: { color: 0x5ff6ff, halo: 0x9ffaff, size: 0.05, haloSize: 2.4, haloOpacity: 0.5 }, // a glowing cyan eye on the goggles (fractions of his height)
+      glow: { color: 0xffe9a8, size: 2.2, opacity: 0.32 }, // a soft light round him (an additive sprite, × his height; no light)
       clips: { idle: ['Robot_Idle', 'Idle'], wave: ['Robot_Wave'], yes: ['Robot_Yes'], no: ['Robot_No'] },
       crossfade: 0.3,
-      size: 0.42, color: 0xc89b45, dark: 0x6b4a22, eye: 0x7ff3ff, eyeGlow: 0.9,
-      float: 1.75, bob: 0.12, bobRate: 1.6, follow: { side: 1.3, back: -0.4, rate: 2.5 },
+      size: 0.6, color: 0xf0c03a, dark: 0x6b4a22, eye: 0x7ff3ff, eyeGlow: 0.9,
+      float: 1.9, bob: 0.12, bobRate: 1.6, follow: { side: 1.6, back: -0.4, rate: 6 }, // (at AJ's head height, beside him)
       prop: 14,                // propeller spin (rad/s)
       nervous: { yaw: 1.6, rate: 9, time: 1.8 }, // "I cannot say." — he looks over his shoulder, jittery
     },
     // The robots (robots.js loadRobotModel(kind); Quaternius Animated Mech Pack, CC0, in
     // public/models/gearhaven/robots/ — meshopt glb, 1024 px textures, 512 for the scout).
     // Picked by size: Leela (the smallest) the scout, Mike and Stan (the middle two) the sword
-    // robots, George (the biggest) the armoured mech boss. Each is fitted to `height`, its
-    // texture tinted through a luminance ramp (`palette`: dark → mid → light, `keep` of the
-    // original colour so the detail reads) in a Lambert material (cheap on phones); clips by
-    // role (first name found wins). A file that fails → a code-built placeholder robot.
+    // robots, George (the biggest) the armoured mech boss. Each is fitted to `height` and keeps
+    // its own texture colours (Leela white and orange, Mike blue-grey, Stan teal-green, George
+    // sage-green) in a cheap Lambert material (accentMaterial()) that only adds Gearhaven metal:
+    // the texture's orange paint → `trim` (brass or copper), its dark joints → `joints`, and for
+    // the boss its light panels → brass `plates`; a soft `rim` light so they stand out from the
+    // brown ground. Optional glowing `eye` on the head bone (core + additive halo). Clips by role
+    // (first name found wins). A file that fails → a code-built placeholder robot.
     robots: {
       path: 'models/gearhaven/robots/',
       crossfade: 0.2,
       kinds: {
-        scout: { file: 'leela.glb', name: 'Leela', role: 'scout', height: 1.55, palette: [0x4a2a18, 0xb0643a, 0xd9b25a], keep: 0.18 },
-        swordA: { file: 'mike.glb', name: 'Mike', role: 'sword robot', height: 2.7, palette: [0x3a2414, 0x9c5a2e, 0xc9a23a], keep: 0.15 },
-        swordB: { file: 'stan.glb', name: 'Stan', role: 'sword robot', height: 2.7, palette: [0x40241a, 0x8a3f22, 0xc0874a], keep: 0.15 },
-        boss: { file: 'george.glb', name: 'George', role: 'armoured mech boss', height: 6.5, palette: [0x2e1c12, 0x7a3b1e, 0xb8893e], keep: 0.12 },
+        scout: {
+          file: 'leela.glb', name: 'Leela', role: 'scout', height: 1.55,
+          accents: { trim: [0xe0b040, 0.9], joints: [0x9a7430, 0.45], plates: null, rim: [0xfff0c8, 0.3], boost: 1.08 },
+          eye: null,
+        },
+        swordA: {
+          file: 'mike.glb', name: 'Mike', role: 'sword robot', height: 2.7,
+          accents: { trim: [0xc8703a, 0.9], joints: [0x8c4a28, 0.45], plates: null, rim: [0xffe6cc, 0.28], boost: 1.08 },
+          eye: { color: 0xff8a1a, halo: 0xffb060, size: 0.022 },
+        },
+        swordB: {
+          file: 'stan.glb', name: 'Stan', role: 'sword robot', height: 2.7,
+          accents: { trim: [0xc8703a, 0.9], joints: [0x8c4a28, 0.45], plates: null, rim: [0xffe6cc, 0.28], boost: 1.08 },
+          eye: { color: 0xff8a1a, halo: 0xffb060, size: 0.022 },
+        },
+        boss: {
+          file: 'george.glb', name: 'George', role: 'armoured mech boss', height: 6.5,
+          accents: { trim: [0xd8a93c, 0.95], joints: [0x8a6a2a, 0.4], plates: [0xd4a640, 0.8], rim: [0xfff0c8, 0.25], boost: 1.05 },
+          eye: { color: 0xff2a14, halo: 0xff6040, size: 0.02 },
+        },
       },
+      eye: { coreOpacity: 0.95, halo: 2.6, haloOpacity: 0.45, out: 0.35 }, // (the halo `halo` × the core; the eye stands `out` × its size from the face)
       clips: {
         idle: ['Idle'], walk: ['Walk', 'Walk_Tall', 'Run'], run: ['Run', 'Run_Tall'],
         attack: ['SwordSlash', 'Punch', 'Kick', 'Shoot'], hit: ['HitRecieve_1', 'HitRecieve_2'], death: ['Death'],
@@ -711,7 +733,7 @@ export const CONFIG = {
       placeholder: { brass: 0xc9a23a, copper: 0xa45a32, rust: 0x6e3a1e, eye: 0xffb050 },
     },
     // "Robots test" (?debug): all five in a row in the courtyard, each going through its clips.
-    showcase: { z: -8, gap: 1.2, clipTime: 2.6, roleOrder: ['idle', 'walk', 'run', 'attack', 'hit', 'wave', 'yes', 'no', 'death'], orbit: { radius: 17, height: 5.5, speed: 0.12, look: 2.6 }, labelScale: 1.6 },
+    showcase: { z: -8, gap: 1.6, clipTime: 2.6, roleOrder: ['idle', 'walk', 'run', 'attack', 'hit', 'wave', 'yes', 'no', 'death'], orbit: { radius: 17, height: 5.5, speed: 0.12, look: 2.6 }, labelScale: 0.85 }, // (each robot's slot is as wide as its label or its body, whichever is wider, plus `gap`)
     // The horse in Gearhaven: a small brass key on its back and brass armour plates (loadGearhavenHorseUpgrade()).
     horseUpgrade: { brass: 0xc9a23a, copper: 0xb0643a, key: { at: [0, 1.95, -0.72], size: 0.34, spin: 1.2 } },
     // The arrival scene: AJ and the horse drop out of the light into the courtyard.

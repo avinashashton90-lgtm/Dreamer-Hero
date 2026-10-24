@@ -84,10 +84,12 @@ const scale0 = horse.model.scale.x;
   const tu = tick.model.userData;
   const tickOk = heroAssets.placeholder
     ? tu.placeholder && tu.eye && tu.prop
-    : !tu.placeholder && tu.animator?.clipName && /Idle/.test(tu.animator.clipName) && tu.materials.Main.color.getHex() === P2.tick.tint.Main && tu.materials.Black.color.getHex() === P2.tick.tint.Black;
-  const tbox = new THREE.Box3().setFromObject(tick.model, true);
-  check(tick.model.parent === p2.scene && tickOk && Math.abs(tbox.max.y - tbox.min.y - (heroAssets.placeholder ? tbox.max.y - tbox.min.y : P2.tick.height)) < P2.tick.height * 0.12, // (its idle pose stands a little taller than the fitted bind pose)
-    `Tick: ${heroAssets.placeholder ? 'the placeholder (shapes)' : `the Animated Robot glb, ${(tbox.max.y - tbox.min.y).toFixed(2)} tall, brass body / copper limbs / dark goggles, playing ${tu.animator?.clipName}`}`);
+    : !tu.placeholder && tu.animator?.clipName && /Idle/.test(tu.animator.clipName) && tu.materials.Main.color.getHex() === P2.tick.tint.Main && tu.materials.Black.color.getHex() === P2.tick.tint.Black
+      && tu.eye?.children[0].material.color.getHex() === P2.tick.goggleEye.color;
+  const tickGlow = tick.model.getObjectByName('tickGlow');
+  const tbox = new THREE.Box3().setFromObject(tu.body, true);
+  check(tick.model.parent === p2.scene && tickOk && tickGlow?.isSprite && tickGlow.material.blending === THREE.AdditiveBlending && Math.abs(tbox.max.y - tbox.min.y - (heroAssets.placeholder ? tbox.max.y - tbox.min.y : P2.tick.height)) < P2.tick.height * 0.12, // (its idle pose stands a little taller than the fitted bind pose)
+    `Tick: ${heroAssets.placeholder ? 'the placeholder (shapes)' : `the Animated Robot glb, ${(tbox.max.y - tbox.min.y).toFixed(2)} tall, a bright brass-yellow body / copper limbs / dark goggles with a glowing cyan eye, playing ${tu.animator?.clipName}`}; a soft glow round him`);
   // Play it through.
   let dropped = false, landedOnFoot = false, nervousSeen = 0, tickNear = Infinity, tickHorse = Infinity, tickBob = [Infinity, -Infinity], glanceMax = 0, chime = sound.counts.clock_chime ?? 0;
   const gear = p2.gearhaven.userData.skyGears[0].mesh, gearRot = gear.rotation.z;
@@ -161,15 +163,22 @@ const scale0 = horse.model.scale.x;
   let steamMax = 0;
   held = { moveX: 0, moveY: 1, jumpPressed: false };
   const p0 = hero.position.clone();
-  let maxR = 0, minY = Infinity;
+  let maxR = 0, minY = Infinity, tickFrames = 0, tickSeen = 0;
   for (let i = 0; i < 60 * 8; i++) {
     await frame();
+    if (i > 60 * 2) {
+      // Tick beside AJ at his head height, on screen (above the HUD buttons' band, under the top bar).
+      tickFrames++;
+      const q = p2.tick.position.clone().project(cam.camera);
+      if (q.z < 1 && Math.abs(q.x) < 0.95 && q.y > -0.3 && q.y < 0.8 && Math.abs(p2.tick.position.y - (hero.position.y + P2.tick.float)) < 0.35 && Math.hypot(p2.tick.position.x - hero.position.x, p2.tick.position.z - hero.position.z) < 2.6) tickSeen++;
+    }
     steamMax = Math.max(steamMax, u.steam.count);
     maxR = Math.max(maxR, Math.hypot(hero.position.x, hero.position.z));
     minY = Math.min(minY, hero.position.y);
   }
   held = { moveX: 0, moveY: 0, jumpPressed: false };
   check(hero.position.distanceTo(p0) > 3 && maxR <= P2.gearhaven.floor.wall + 0.01 && minY > -0.05, `AJ walks about the courtyard and stays inside its wall (${maxR.toFixed(2)} ≤ ${P2.gearhaven.floor.wall}), on its floor`);
+  check(tickFrames > 100 && tickSeen === tickFrames, `Tick floats beside AJ at his head height, always on screen while he walks (${tickSeen}/${tickFrames})`);
   check(u.clock.minute.rotation.z !== minute && u.cogs[0].mesh.rotation.z !== cog && steamMax > 0, `the clock's hands, the cogs and the steam move (${steamMax} puffs)`);
   // Into the Fire door.
   const door = u.doors.fire.at;
@@ -246,15 +255,18 @@ const scale0 = horse.model.scale.x;
     for (let i = 0; i < 12; i++) { u.animator.update(1 / 30); m.updateMatrixWorld(true); }
     const moved = snap() !== a;
     const roles = ['idle', 'walk', 'attack'].every((r) => u.roles[r]);
+    // Its own texture colours with brass / copper accents; a glowing eye (Mike, Stan: orange; George: red; Leela: none).
     let tinted = u.placeholder;
-    m.traverse((o) => { if (o.isMesh && o.material.userData?.ramp) tinted = true; });
-    const fine = Math.abs(h - want) < want * 0.06 && roles && moved && tinted && (heroAssets.placeholder || !u.placeholder);
+    m.traverse((o) => { if (o.isMesh && o.material.map && o.material.userData?.accents === RB.kinds[kind].accents) tinted = true; });
+    const E = RB.kinds[kind].eye;
+    const eyeOk = u.placeholder || (E ? u.eye?.children[0]?.material.color.getHex() === E.color && !!u.eye.parent?.isBone : !u.eye);
+    const fine = Math.abs(h - want) < want * 0.06 && roles && moved && tinted && eyeOk && (heroAssets.placeholder || !u.placeholder);
     ok &&= fine;
     rows.push(`${u.name} (${kind}) ${h.toFixed(2)} tall, idle ${u.roles.idle?.name} / walk ${u.roles.walk?.name} / attack ${u.roles.attack?.name}${u.placeholder ? ' [placeholder]' : ''}${fine ? '' : ' ✗'}`);
   }
   const H = (k) => RB.kinds[k].height;
   check(ok && H('scout') < H('swordA') && H('swordA') === H('swordB') && H('swordB') < H('boss') && (heroAssets.placeholder || models.swordA.userData.roles.attack?.name.includes('SwordSlash')),
-    `the robots by size and role, tinted brass / copper / rust, animating:\n       ${rows.join('\n       ')}`);
+    `the robots by size and role, in their own colours with brass / copper accents, glowing eyes on the head bone (Mike and Stan orange, George red), animating:\n       ${rows.join('\n       ')}`);
   // A file that fails → the placeholder robot (and Tick's placeholder).
   forgetRobotTemplates();
   const warn = console.warn; console.warn = () => {};

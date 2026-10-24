@@ -3,16 +3,17 @@ import { CONFIG } from '../config.js';
 import { loadGlb, fitModel, findClip, ClipAnimator } from './robots.js';
 
 // Tick: a small floating brass robot, AJ's guide in Gearhaven — the Quaternius Animated Robot
-// (public/models/gearhaven/tick/tick.glb, CC0): its yellow body tinted brass, its limbs copper,
-// its goggles kept dark, fitted to `height` and centred on its middle (it floats), playing its
-// idle. If the file fails: placeholder shapes (a brass ball with a rivet band, a dark visor with
-// one glowing eye, two little arms, a propeller and an antenna).
+// (public/models/gearhaven/tick/tick.glb, CC0): a bright brass-yellow body, copper limbs, dark
+// goggles with a glowing cyan eye on them, fitted to `height` and centred on its middle (it
+// floats), playing its idle, a soft glow round him (an additive sprite: no light). If the file
+// fails: placeholder shapes (a brass ball with a rivet band, a dark visor with one glowing eye,
+// two little arms, a propeller and an antenna).
 
 const T = CONFIG.part2.tick;
 
 /**
  * @param {{ readFile?: Function, placeholder?: boolean }} [opts]
- * @returns {Promise<THREE.Group>}  `userData` = { body, animator?, eyeGlow?, prop?, arms?, placeholder }. Faces +Z.
+ * @returns {Promise<THREE.Group>}  `userData` = { body, animator?, eye?, eyeGlow?, prop?, arms?, placeholder }. Faces +Z.
  */
 export async function loadTickModel(opts = {}) {
   if (!opts.placeholder) {
@@ -43,8 +44,57 @@ async function loadTickGlb(opts) {
   const roles = Object.fromEntries(Object.entries(T.clips).map(([role, names]) => [role, findClip(gltf.animations, names)]));
   const animator = new ClipAnimator(gltf.scene, gltf.animations, roles, T.crossfade);
   animator.play('idle');
-  group.userData = { body, animator, placeholder: false, materials: Object.fromEntries(mats) };
+  const eye = addGogglesEye(body);
+  group.add(makeGlow());
+  group.userData = { body, animator, eye, placeholder: false, materials: Object.fromEntries(mats) };
   return group;
+}
+
+/** A glowing cyan eye on the middle of his goggles (the `Black` parts), riding on the head bone. */
+function addGogglesEye(body) {
+  body.updateMatrixWorld(true);
+  const box = new THREE.Box3();
+  let head = null;
+  body.traverse((o) => {
+    if (o.isMesh && o.material.name === 'Black') box.expandByObject(o, true);
+    if (!head && o.isBone && o.name === 'Head') head = o;
+  });
+  if (box.isEmpty()) return null;
+  const E = T.goggleEye;
+  const size = E.size * T.height;
+  const at = new THREE.Vector3((box.min.x + box.max.x) / 2, (box.min.y + box.max.y) / 2, box.max.z + size * 0.3);
+  const parent = head ?? body;
+  const k = parent.getWorldScale(new THREE.Vector3()).x;
+  const eye = new THREE.Group();
+  const core = new THREE.Mesh(new THREE.SphereGeometry(size / k, 12, 8), new THREE.MeshBasicMaterial({ color: E.color, fog: false }));
+  const halo = new THREE.Mesh(new THREE.SphereGeometry((size * E.haloSize) / k, 12, 8), new THREE.MeshBasicMaterial({ color: E.halo, transparent: true, opacity: E.haloOpacity, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
+  core.renderOrder = 10;
+  halo.renderOrder = 9;
+  eye.add(core, halo);
+  eye.position.copy(parent.worldToLocal(at));
+  parent.add(eye);
+  return eye;
+}
+
+/** A soft round glow (an additive sprite with a radial fade; no light, so it costs nothing). */
+function makeGlow() {
+  const G = T.glow;
+  const n = 64;
+  const data = new Uint8Array(n * n * 4);
+  for (let y = 0; y < n; y++) {
+    for (let x = 0; x < n; x++) {
+      const r = Math.hypot(x - n / 2 + 0.5, y - n / 2 + 0.5) / (n / 2);
+      const a = Math.max(0, 1 - r) ** 2;
+      data.set([255, 255, 255, Math.round(a * 255)], (y * n + x) * 4);
+    }
+  }
+  const tex = new THREE.DataTexture(data, n, n);
+  tex.needsUpdate = true;
+  const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, color: G.color, transparent: true, opacity: G.opacity, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
+  glow.scale.setScalar(G.size * T.height);
+  glow.renderOrder = 8;
+  glow.name = 'tickGlow';
+  return glow;
 }
 
 function buildPlaceholderTick() {
@@ -94,6 +144,7 @@ function buildPlaceholderTick() {
   // A soft blob shadow below (it floats).
   body.add(shell, band, visor, eye, eyeGlow, mast, prop, antenna, tip);
   group.add(body);
+  group.add(makeGlow());
   group.userData = { body, eye, eyeGlow, prop, arms, placeholder: true };
   return group;
 }
