@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { CONFIG, DIALOGUE } from './config.js';
 import { STATES } from './state.js';
 import { loadMinionTemplate } from './minionModels.js';
+import { Portal } from './portal.js';
 
 const CI = CONFIG.cinematic;
 const DS = CONFIG.desert;
@@ -10,6 +11,7 @@ const EX = DS.exhaustion;
 const PIT = DS.pit;
 const CH = DS.chase;
 const GT = DS.gate;
+const PO = CONFIG.part2.portal;
 const { smoothstep, clamp } = THREE.MathUtils;
 /** From angle a to b the short way round, by k (0..1). */
 const lerpAngle = (a, b, k) => a + Math.atan2(Math.sin(b - a), Math.cos(b - a)) * clamp(k, 0, 1);
@@ -37,6 +39,8 @@ const lerpAngle = (a, b, k) => a + Math.atan2(Math.sin(b - a), Math.cos(b - a)) 
 export class Story {
   constructor(sys) {
     Object.assign(this, sys);
+    this.portal ??= new Portal(this.world.scene); // (the end of Part 1: it opens in the castle courtyard)
+    this.onPart1Complete ??= null; // main.js: the portal's white → Part 2 (levelManager); else the ending screens
     this.reset();
   }
 
@@ -61,6 +65,10 @@ export class Story {
     this.gateRide = null; // the horse's scripted path through the gate
     this.glanceT = 0; // Amy's nervous glance back
     this.chaseGrace = 0; // seconds before a skeleton can land another hit in the chase
+    this.portalStarted = false; // the end of Part 1: Amy, the portal (after the gates shut)
+    this.portalDone = false;
+    this.pull = null; // the portal pulling AJ and the horse in
+    this.part1Done = false;
   }
 
   /**
@@ -99,6 +107,7 @@ export class Story {
     this.#updateFatigue(counting ? dt : 0);
     this.#updateScripted(counting ? dt : 0);
     this.pit?.update(counting ? dt : 0);
+    this.portal.update(counting ? dt : 0);
     if (counting && this.desertChaseActive && !this.gateStarted && state.is(STATES.PLAY)) this.chaseTime += dt;
     if (counting) this.chaseGrace = Math.max(0, this.chaseGrace - dt);
     if (counting && this.gateStarted) {
@@ -719,8 +728,9 @@ export class Story {
       { camera: { pos: () => gateShot().pos, look: () => gateShot().look, duration: S.gate.duration, wait: false } },
       { call: () => this.#tween(() => this.gateRide.done) },
       { call: () => this.#slamGates() },
-      { wait: GT.hold },
+      { wait: PO.hold },
       { call: () => this.finishGate(), essential: true },
+      ...this.portalSteps(),
     ];
   }
 
@@ -734,7 +744,7 @@ export class Story {
     this.cinematic.shake(GT.slam.shake, GT.slam.shakeTime);
   }
 
-  /** Inside with the gates shut (also on Skip); then the ending screens. */
+  /** Inside with the gates shut (also on Skip); then Amy and the portal (portalSteps). */
   finishGate() {
     if (this.gateDone) return;
     this.gateDone = true;
@@ -762,7 +772,206 @@ export class Story {
     horse.speed = 0;
     horse.galloping = false;
     horse.mountNow(this.hero); // (the riders' pose where the horse stands)
-    this.finish();
+  }
+
+  // --- The end of Part 1: Amy and the portal --------------------------------
+
+  /** The courtyard behind the gate: its centre, `inward` (from the gate into it), `right` of that. */
+  get #courtyard() {
+    const c = this.world.castle;
+    c.updateMatrixWorld(true);
+    const centre = (c.userData.courtyardLocal ?? c.userData.insideLocal).clone().applyMatrix4(c.matrixWorld);
+    const out = new THREE.Vector3(Math.sin(c.rotation.y), 0, Math.cos(c.rotation.y));
+    const inward = out.clone().negate();
+    return { centre, inward, right: new THREE.Vector3(-inward.z, 0, inward.x), floor: c.position.y };
+  }
+
+  /**
+   * After the gates shut: the horse walks on into the courtyard; a wide shot; Amy gets down,
+   * walks a few steps ahead and turns to AJ; her eyes glow white-violet for a moment — "Thank you
+   * for bringing me home." — "Amy?" — a portal opens in the air beside AJ (a swirling ring, gears
+   * flying in, a rumble); shocked, she reaches for him — "No, wait!" — as it pulls AJ and the
+   * horse in, the camera following them into the light; white (essential `finishPortal()`: Part 2).
+   */
+  portalSteps() {
+    const L = DIALOGUE.part2.portal;
+    const S = PO.shots;
+    const { horse, girl } = this;
+    // A wide shot from the side (left of the horse: the portal opens on its right), everyone in frame.
+    const wide = () => {
+      const st = this.portalStage;
+      const f = st.inward;
+      const mid = st.horse.clone().addScaledVector(f, PO.dismount.ahead * 0.5);
+      const pos = mid.clone().addScaledVector(st.right, -S.wide.dist).addScaledVector(f, S.wide.along).setY(st.floor + S.wide.up);
+      return { pos, look: mid.clone().addScaledVector(st.right, 1.2).setY(st.floor + 1.7) };
+    };
+    // Following them in, then on into the light.
+    const follow = () => {
+      const c = this.portal.center;
+      const p = horse.position.clone().setY(horse.position.y + 1.2);
+      const dir = c.clone().sub(p).normalize();
+      return { pos: p.clone().addScaledVector(dir, -S.pull.back).setY(p.y + S.pull.up), look: c.clone() };
+    };
+    const light = () => {
+      const c = this.portal.center;
+      const from = this.cam.camera.position.clone().sub(c).normalize();
+      return { pos: c.clone().addScaledVector(from, S.light.into), look: c.clone().addScaledVector(from, -2) };
+    };
+    return [
+      { call: () => this.#stagePortalScene() },
+      { camera: { pos: () => wide().pos, look: () => wide().look, duration: S.wide.duration, wait: false } },
+      { call: () => this.#tween(() => this.portalStage.walked) },
+      { call: () => this.#amyGetsDown() },
+      { call: () => { girl.awaken(PO.eyeGlow); this.sound?.play('eerie'); } }, // (white-violet, a moment)
+      { say: 'girl', text: L.thanks },
+      { say: 'hero', text: L.amy, pace: 0.75 }, // (confused)
+      { call: () => this.#openPortal() },
+      { call: () => this.#startPull() },
+      { say: 'girl', text: L.wait },
+      { camera: { pos: () => follow().pos, look: () => follow().look, duration: S.pull.duration, follow: true, wait: false } },
+      { call: () => this.#tween(() => this.pull?.done) },
+      { camera: { pos: () => light().pos, look: () => light().look, duration: S.light.duration } },
+      { call: () => this.finishPortal(), essential: true },
+    ];
+  }
+
+  /** Where everyone ends up; the horse sets off walking from the passage into the courtyard. */
+  #stagePortalScene() {
+    this.portalStarted = true;
+    const { horse } = this;
+    const C = this.#courtyard;
+    const to = C.centre.clone().addScaledVector(C.inward, -PO.walkIn.stop).setY(C.floor);
+    const from = horse.position.clone();
+    const dist = Math.hypot(to.x - from.x, to.z - from.z);
+    const stage = { horse: to, inward: C.inward, right: C.right, floor: C.floor, walked: false };
+    this.portalStage = stage;
+    horse.scripted = true;
+    horse.heading = Math.atan2(C.inward.x, C.inward.z);
+    const last = from.clone();
+    this.#tween((t, dt) => {
+      const k = Math.min(1, (t * PO.walkIn.speed) / Math.max(dist, 1e-3));
+      const p = from.clone().lerp(to, THREE.MathUtils.smootherstep(k, 0, 1)).setY(C.floor);
+      horse.speed = dt > 0 ? Math.hypot(p.x - last.x, p.z - last.z) / dt : 0;
+      horse.position.copy(p);
+      last.copy(p);
+      if (k >= 1) {
+        horse.speed = 0;
+        stage.walked = true;
+      }
+      return k >= 1;
+    });
+  }
+
+  /** Amy slides down, walks a few steps ahead of the horse and turns to face AJ. */
+  async #amyGetsDown() {
+    const { horse, girl, boss, hero } = this;
+    const st = this.portalStage;
+    const seat = boss.girl.position.clone();
+    horse.setPassenger(null);
+    girl.lookAtHero = girl.glanceBack = false;
+    const left = st.right.clone().negate();
+    const foot = seat.clone().addScaledVector(left, CONFIG.horse.dismountSide).setY(st.floor);
+    this.actors.girl = { pos: seat.clone(), yaw: boss.girl.rotation.y, moving: false };
+    await this.#tween((t) => {
+      const k = Math.min(1, t / CONFIG.horse.mountTime);
+      this.actors.girl.pos.lerpVectors(seat, foot, k);
+      this.actors.girl.pos.y += Math.sin(Math.PI * k) * CONFIG.horse.mountArc;
+      return k >= 1;
+    });
+    const spot = st.horse.clone().addScaledVector(st.inward, PO.dismount.ahead).addScaledVector(left, PO.dismount.side).setY(st.floor);
+    const a = this.actors.girl;
+    const from = a.pos.clone();
+    const dist = from.distanceTo(spot);
+    a.yaw = Math.atan2(spot.x - from.x, spot.z - from.z);
+    a.moving = true;
+    await this.#tween((t) => {
+      const k = Math.min(1, (t * PO.dismount.walkSpeed) / Math.max(dist, 1e-3));
+      a.pos.lerpVectors(from, spot, k);
+      if (k >= 1) {
+        a.moving = false;
+        a.yaw = Math.atan2(hero.position.x - spot.x, hero.position.z - spot.z); // (she turns to face him)
+      }
+      return k >= 1;
+    });
+    girl.frightened = false;
+  }
+
+  /** A portal opens in the air beside AJ: a swirling ring of light, gears flying in, a rumble. */
+  async #openPortal() {
+    await this.portal.ready;
+    const st = this.portalStage;
+    const at = st.horse.clone().addScaledVector(st.right, PO.side).setY(st.floor + PO.up);
+    this.portal.openAt(at, st.right.clone().negate()); // (its face toward the horse and the camera)
+    this.sound?.play('portal_open');
+    this.cinematic.shake(PO.shake, PO.shakeTime);
+    await this.#tween(() => this.portal.open >= 1);
+  }
+
+  /** It pulls AJ and the horse in (accelerating, a little spiral, shrinking); Amy reaches for him. */
+  #startPull() {
+    const { horse, hero, girl } = this;
+    const from = horse.position.clone();
+    const scale = { horse: horse.model.scale.clone(), hero: hero.model.scale.clone() };
+    this.riderScale ??= scale; // (restored by restoreRiders: Part 2, a new game)
+    const pull = { done: false };
+    this.pull = pull;
+    horse.scripted = true;
+    this.sound?.play('portal_whoosh');
+    this.#tween((t) => {
+      if (t >= PO.reachDelay && !girl.pointing) {
+        girl.frightened = true; // (shock)
+        girl.pointing = true; // (reaching for him)
+      }
+      const c = this.portal.center;
+      const k = Math.min(1, t / PO.pullTime);
+      const e = k * k;
+      const target = c.clone().setY(c.y - 1);
+      const p = from.clone().lerp(target, e);
+      // (a little spiral round the line in)
+      const side = new THREE.Vector3(-(target.z - from.z), 0, target.x - from.x).normalize();
+      p.addScaledVector(side, Math.sin(e * PO.spiral * Math.PI) * 0.6 * (1 - e));
+      horse.position.copy(p);
+      horse.heading += Math.atan2(Math.sin(Math.atan2(c.x - p.x, c.z - p.z) - horse.heading), Math.cos(Math.atan2(c.x - p.x, c.z - p.z) - horse.heading)) * Math.min(1, t * 2) * 0.1;
+      horse.speed = 4;
+      const s = THREE.MathUtils.lerp(1, PO.shrink, e);
+      horse.model.scale.copy(this.riderScale.horse).multiplyScalar(s);
+      hero.model.scale.copy(this.riderScale.hero).multiplyScalar(s);
+      if (this.actors.girl) {
+        const g = this.actors.girl.pos;
+        this.actors.girl.yaw = Math.atan2(p.x - g.x, p.z - g.z); // (her eyes on him)
+      }
+      if (k >= 1) {
+        pull.done = true;
+        horse.model.visible = hero.model.visible = false; // (gone into the light: the camera follows)
+      }
+      return k >= 1;
+    });
+  }
+
+  /** AJ and the horse back to full size (after the portal: Part 2, a new game). */
+  restoreRiders() {
+    this.horse.model.visible = this.hero.model.visible = true;
+    if (!this.riderScale) return;
+    this.horse.model.scale.copy(this.riderScale.horse);
+    this.hero.model.scale.copy(this.riderScale.hero);
+    this.riderScale = null;
+  }
+
+  /**
+   * Into the light (also on Skip): Part 1 is over. main.js turns the screen white and loads
+   * Part 2 (`onPart1Complete`); without it (tests) the ending screens.
+   */
+  finishPortal() {
+    if (this.portalDone) return;
+    this.portalDone = this.part1Done = true;
+    this.portalStarted = true;
+    if (this.pull) this.pull.done = true;
+    this.phase = 'done';
+    if (this.onPart1Complete) this.onPart1Complete();
+    else {
+      this.restoreRiders();
+      this.finish();
+    }
   }
 
   finish() {
@@ -791,6 +1000,8 @@ export class Story {
     this.boss.reset();
     this.girl.reset();
     this.pit?.reset();
+    this.portal.reset();
+    this.restoreRiders();
     this.pitFrom = null;
     this.horse.scripted = false;
     this.gate?.reset();
@@ -881,6 +1092,24 @@ export class Story {
     this.horse.mountNow(this.hero);
     this.horse.speed = CONFIG.horse.maxSpeed;
     this.#cameraBehindHorse();
+  }
+
+  /** Test menu "Portal scene": inside the castle with the gates shut → Amy and the portal. */
+  async debugPortal() {
+    if (this.phase !== 'desert') await this.debugDesert();
+    if (this.phase !== 'desert') return;
+    if (!this.pitDone) this.finishPit();
+    this.gateStarted = this.endingStarted = true;
+    this.phase = 'gate';
+    this.gateTime = GT.stormClear; // (the storm already gone)
+    this.stormForced = null;
+    this.chaseOver = true;
+    this.minions?.sinkSkeletons();
+    this.state.set(STATES.CUTSCENE);
+    this.#gatePath();
+    this.finishGate(); // (straight to the stop inside, the gates shut)
+    this.horse.hold = false;
+    await this.cinematic.play(this.portalSteps());
   }
 
   /** Debug U: ride up to the castle → the gate cinematic → the ending. */

@@ -341,11 +341,21 @@ export async function loadCastleModel() {
   add(new THREE.BoxGeometry(W2 - gw, wallH, depth), dark, -(gw + (W2 - gw) / 2), wallH / 2, 0);
   add(new THREE.BoxGeometry(W2 - gw, wallH, depth), dark, gw + (W2 - gw) / 2, wallH / 2, 0);
   add(new THREE.BoxGeometry(G.width, wallH - G.height, depth), dark, 0, G.height + (wallH - G.height) / 2, 0); // over the passage
-  const tunnel = new THREE.MeshBasicMaterial({ color: G.passageColor, fog: false, side: THREE.BackSide });
-  add(new THREE.BoxGeometry(G.width * 0.98, G.height * 0.99, depth * 0.98), tunnel, 0, G.height / 2, 0); // the dark passage
-  add(new THREE.PlaneGeometry(G.width, G.height).translate(0, G.height / 2, 0), new THREE.MeshBasicMaterial({ color: G.passageColor, fog: false }), 0, 0, -depth / 2 + 0.05); // (its far end)
+  // The dark passage (its sides and roof; it opens into the courtyard behind the wall).
+  const tunnel = new THREE.MeshBasicMaterial({ color: G.passageColor, fog: false, side: THREE.DoubleSide });
+  for (const side of [-1, 1]) add(new THREE.PlaneGeometry(depth * 0.98, G.height).rotateY(Math.PI / 2), tunnel, side * G.width * 0.49, G.height / 2, 0);
+  add(new THREE.PlaneGeometry(G.width, depth * 0.98).rotateX(Math.PI / 2), tunnel, 0, G.height * 0.99, 0);
   for (let i = 0; i < 13; i++) add(new THREE.BoxGeometry(H * 0.04, H * 0.05, H * 0.26), dark, -H * 0.42 + i * H * 0.07, H * 0.345, 0); // battlements
-  for (const [x, z, k] of [[-0.45, 0, 0.55], [0.45, 0, 0.55], [-0.17, -0.12, 0.75], [0.17, -0.12, 0.7], [0, -0.22, 1]]) {
+  // The courtyard behind it: a stone floor, walls round it (lit, so it reads up close).
+  const CY = DS.castle.courtyard;
+  const back = -depth / 2 - CY.depth;
+  const stone = new THREE.MeshLambertMaterial({ color: CY.floorColor });
+  const inner = new THREE.MeshLambertMaterial({ color: CY.wallColor });
+  add(new THREE.BoxGeometry(CY.halfWidth * 2, 0.4, CY.depth), stone, 0, -0.18, -depth / 2 - CY.depth / 2);
+  for (const side of [-1, 1]) add(new THREE.BoxGeometry(CY.wall, wallH, CY.depth), inner, side * (CY.halfWidth + CY.wall / 2), wallH / 2, -depth / 2 - CY.depth / 2);
+  add(new THREE.BoxGeometry(CY.halfWidth * 2 + CY.wall * 2, wallH, CY.wall), inner, 0, wallH / 2, back - CY.wall / 2);
+  const zIn = back / H; // (the inner towers and the keep stand behind the courtyard)
+  for (const [x, z, k] of [[-0.45, 0, 0.55], [0.45, 0, 0.55], [-0.4, zIn, 0.75], [0.4, zIn, 0.7], [0, zIn - 0.13, 1]]) {
     const r = H * 0.07 * (0.8 + k * 0.4);
     const h = H * k;
     add(new THREE.CylinderGeometry(r, r * 1.1, h, 10), dark, x * H, h / 2, z * H);
@@ -372,6 +382,7 @@ export async function loadCastleModel() {
   group.userData.gates = { left: leaf(-1), right: leaf(1) };
   group.userData.gateLocal = new THREE.Vector3(0, 0, depth / 2); // the passage's outer opening (castle-local)
   group.userData.insideLocal = new THREE.Vector3(0, 0, -depth / 2 + G.insideStop); // where the riders stop inside
+  group.userData.courtyardLocal = new THREE.Vector3(0, 0, -depth / 2 - CY.depth / 2); // the courtyard's centre (Part 1's last scene)
   // A warm glow over the gate (seen through the sandstorm).
   add(new THREE.BoxGeometry(G.width * 1.2, H * 0.03, 0.3), glow, 0, G.height + H * 0.02, depth / 2 + 0.1);
   return group;
@@ -1123,6 +1134,15 @@ export class World {
     const pz = pp.z + pp.tx * PIT.lateral;
     this.pitPosition = new THREE.Vector3(px, this.heightAt(px, pz), pz);
     this.heightAt.flats.push({ x: px, z: pz, y: this.pitPosition.y, r0: PIT.radius + 0.5, r1: PIT.radius + PIT.flat });
+    // The castle, past the end of the trail, facing back along it; its courtyard levelled.
+    const end = this.desertTrack.at(this.desertTrack.length);
+    const cx = end.x + end.tx * DS.castle.distance;
+    const cz = end.z + end.tz * DS.castle.distance;
+    this.castleAt = { x: cx, y: this.heightAt(cx, cz) - 1, z: cz, rot: Math.atan2(-end.tx, -end.tz) };
+    const CY = DS.castle.courtyard;
+    const back = DS.castle.height * 0.125 + CY.depth / 2; // (the courtyard centre behind the gate: half the wall depth + half its own)
+    this.courtyardAt = { x: cx - Math.sin(this.castleAt.rot) * back, z: cz - Math.cos(this.castleAt.rot) * back };
+    this.heightAt.flats.push({ x: this.courtyardAt.x, z: this.courtyardAt.z, y: this.castleAt.y, r0: CY.flat[0], r1: CY.flat[1] });
 
     // Colliders. boxes: buildings (standable tops + walls). beams: horizontal branches
     // (standable flat top + sides). cylinders: solid round obstacles (trunks, rocks).
@@ -1979,6 +1999,7 @@ export class World {
       x < W.xMax - 26 &&
       z > W.zMin + 26 &&
       z < W.zMax - 26 &&
+      Math.hypot(x - this.courtyardAt.x, z - this.courtyardAt.z) > DS.castle.courtyard.flat[1] + r && // (nothing growing in the castle courtyard)
       track.distance(x, z, corridor + r + 1) > corridor + r;
     const along = (step, band, kind, r0, scale) => {
       for (let s = rnd() * step; s < track.length; s += step) {
@@ -2033,13 +2054,11 @@ export class World {
     }
     this.desertItems = items;
 
-    // The castle, past the end of the trail, facing back along it.
-    const end = track.at(track.length);
-    const cx = end.x + end.tx * DS.castle.distance;
-    const cz = end.z + end.tz * DS.castle.distance;
+    // The castle, past the end of the trail, facing back along it (placed in the constructor).
+    const C = this.castleAt;
     this.castle = await loadCastleModel();
-    this.castle.position.set(cx, this.heightAt(cx, cz) - 1, cz);
-    this.castle.rotation.y = Math.atan2(-end.tx, -end.tz);
+    this.castle.position.set(C.x, C.y, C.z);
+    this.castle.rotation.y = C.rot;
     this.zones.desert.add(this.castle);
     this.castlePosition = this.castle.position.clone();
   }

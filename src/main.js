@@ -33,6 +33,7 @@ import { TestMenu, testMenuWanted, saveTestMenu } from './testMenu.js';
 import { Hurdles } from './hurdles.js';
 import { HorseEnergy } from './energy.js';
 import { SealedArena } from './arena.js';
+import { LevelManager } from './levelManager.js';
 
 async function boot() {
   const app = document.getElementById('app');
@@ -244,6 +245,40 @@ async function boot() {
   quests.story = story;
   const NEUTRAL = { moveX: 0, moveY: 0, jumpPressed: false };
 
+  // --- Chapters: Part 1 (this loop and World) and Part 2 (Gearhaven, src/part2/, imported on demand) ---
+  const part1 = {
+    id: 'part1',
+    scene: world.scene,
+    enter: () => {
+      // (back from Gearhaven: the hero and the horse return to this world)
+      for (const o of [hero.model, hero.shadow, horse.model, horse.shadow]) world.scene.add(o);
+      story.restoreRiders();
+      hero.model.visible = horse.model.visible = true;
+    },
+    exit: () => {},
+  };
+  const levels = new LevelManager({
+    part1: async () => part1,
+    part2: async () => (await import('./part2/index.js')).createPart2({ state, STATES, ui, input, cam, cinematic, sound, soundscape, hero, horse, abilities, lives }),
+  });
+  levels.chapters.set('part1', part1);
+  levels.current = part1;
+  levels.id = 'part1';
+  const PO = CONFIG.part2.portal;
+  /** Into Part 2 (the end of Part 1's portal scene, or the test menu): white, load, white clears. */
+  async function goToPart2(start, { white = true } = {}) {
+    if (white) await new Promise((r) => ui.fadeOut(PO.whiteOutMs, r, '#fff'));
+    const chapter = await levels.load('part2', { start });
+    story.restoreRiders();
+    if (!chapter) {
+      story.finish(); // (Part 2 failed to load: Part 1's ending screens instead)
+      ui.fadeIn(PO.whiteInMs);
+      return;
+    }
+    if (white) ui.fadeIn(PO.whiteInMs);
+  }
+  story.onPart1Complete = () => goToPart2('arrival');
+
   // --- Hearts, death and respawn ---
   let dying = false;
   let deathDelay = -1; // seconds of the death fall left before the fade
@@ -307,6 +342,7 @@ async function boot() {
   state.onEnter(STATES.INTRO, async () => {
     ui.showHud(false);
     input.setEnabled(false);
+    if (levels.id !== 'part1') await levels.load('part1'); // (a new game starts in Part 1)
     await cutscene.play(DIALOGUE.intro);
     state.set(STATES.PLAY);
   });
@@ -353,17 +389,21 @@ async function boot() {
     input.setEnabled(false);
   });
 
-  // Ending: title, then the summary. Play Again = a full reset, then the intro.
+  // Ending: title, then the summary. Play Again = a full reset, then the intro. (Part 2's ending:
+  // "To be continued... Part 3".)
   state.onEnter(STATES.ENDING, () => {
     ui.showHud(false);
     input.setEnabled(false);
-    ui.showEnding(true, story.stats(), () => {
+    const P2D = DIALOGUE.part2;
+    const titles = levels.id === 'part2' ? { title: P2D.toBeContinued, heading: P2D.summaryTitle, next: P2D.nextPart } : undefined;
+    ui.showEnding(true, story.stats(), async () => {
+      if (levels.id !== 'part1') await levels.load('part1'); // (the hero and the horse back in Part 1's world first)
       story.resetAll();
       rescue.reset();
       minions.clear();
       ui.setGems(gems.counts);
       state.set(STATES.INTRO);
-    });
+    }, titles);
   });
   state.onExit(STATES.ENDING, () => ui.showEnding(false));
 
@@ -421,6 +461,7 @@ async function boot() {
     };
     /** Out of whatever is running (intro, a cutscene, Game Over, the ending) into a fresh game in play. */
     const freshPlay = async () => {
+      if (levels.id !== 'part1') await levels.load('part1'); // (out of Part 2 first)
       if (state.is(STATES.ENDING)) state.set(STATES.INTRO);
       if (state.is(STATES.INTRO)) cutscene.finish(); // (entering play from the intro resets everything)
       if (state.is(STATES.CUTSCENE)) cinematic.stop();
@@ -498,18 +539,30 @@ async function boot() {
         storm.strength = 1;
       },
       gate: () => story.debugGate(),
-      ending: () => story.finish(),
     };
+    // Part 2: the portal scene (the end of Part 1), Gearhaven, the element levels (stubs for now),
+    // Amy's final fight (a stub) and the Part 2 ending.
+    const part2Jumps = {
+      portal: () => story.debugPortal(),
+      arrival: () => goToPart2('arrival', { white: false }),
+      ...Object.fromEntries(CONFIG.part2.levels.order.map((id) => [id, () => goToPart2(id, { white: false })])),
+      final: () => goToPart2('final', { white: false }),
+      part2Ending: () => goToPart2('ending', { white: false }),
+    };
+    const item = ([key, jump]) => ({
+      label: DIALOGUE.testMenu[key],
+      run: async () => {
+        await freshPlay();
+        await jump();
+        kit();
+      },
+    });
     const audioTest = new AudioTestPanel(overlay, audio);
     testMenu = new TestMenu(overlay, [
-      ...Object.entries(jumps).map(([key, jump]) => ({
-        label: DIALOGUE.testMenu[key],
-        run: async () => {
-          await freshPlay();
-          await jump();
-          kit();
-        },
-      })),
+      { header: DIALOGUE.testMenu.part1 },
+      ...Object.entries(jumps).map(item),
+      { header: DIALOGUE.testMenu.part2 },
+      ...Object.entries(part2Jumps).map(item),
       { label: DIALOGUE.testMenu.audio, run: () => audioTest.open() }, // (every sound, the music sections)
     ]);
   }
@@ -551,6 +604,14 @@ async function boot() {
     // Hit-stop: heavy hits freeze the action for a moment (the camera keeps going).
     const dt = hitStop > 0 ? 0 : realDt;
     hitStop = Math.max(0, hitStop - realDt);
+    if (levels.id !== 'part1') {
+      // Another chapter (Part 2): its own loop and scene; the shared sound, HUD and state carry on.
+      levels.current.update(dt, realDt, { paused: state.paused });
+      soundscape.update(state.paused ? 0 : realDt);
+      audioPanel.setVisible(state.is(STATES.PLAY));
+      renderer.render(levels.current.scene, cam.camera);
+      return;
+    }
     if (deathDelay >= 0 && !state.paused && (deathDelay -= realDt) <= 0) {
       deathDelay = -1;
       deathFade?.();
@@ -642,7 +703,7 @@ async function boot() {
   });
 
   // Exposed for debugging in the browser console (e.g. game.state.set('ending')).
-  window.game = { renderer, audio, soundscape, state, hero, cam, world, quests, horse, input, guide, gems, abilities, sound, combat, lives, boss, girl, pit, story, cinematic, minions, rescue, storm, gate, hurdles, energy, arena, damageHero, lifeEvents, STATES };
+  window.game = { renderer, audio, soundscape, state, hero, cam, world, quests, horse, input, guide, gems, abilities, sound, combat, lives, boss, girl, pit, story, cinematic, minions, rescue, storm, gate, hurdles, energy, arena, damageHero, lifeEvents, levels, STATES };
 
   state.start();
 }

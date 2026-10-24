@@ -312,8 +312,9 @@ export class UI {
     setTimeout(() => el.remove(), CONFIG.combat.damageNumberMs + 50);
   }
 
-  /** Fade to black (death), then call back; `fadeIn()` brings the picture back. */
-  fadeOut(ms, then) {
+  /** Fade to black (death) — or `color` (the portal's white) — then call back; `fadeIn()` brings the picture back. */
+  fadeOut(ms, then, color = '#000') {
+    this.fade.style.background = color;
     this.fade.style.transition = `opacity ${ms}ms ease-in`;
     this.fade.style.opacity = '1';
     setTimeout(then, ms);
@@ -328,11 +329,14 @@ export class UI {
    * Ending: the "To be continued" title for `titleMs`, then the summary
    * (stats: { gems, gemsTotal, time, deaths }) with Play Again.
    */
-  showEnding(on, stats = null, onPlayAgain = null) {
+  showEnding(on, stats = null, onPlayAgain = null, { title = DIALOGUE.toBeContinued, heading = DIALOGUE.summary.title, next = DIALOGUE.summary.part2 } = {}) {
     clearTimeout(this.endingTimer);
     this.ending.style.display = on ? '' : 'none';
     this.playAgainBtn.onclick = null;
     if (!on) return;
+    this.endTitle.textContent = title; // (Part 1's "…Part 2", or Part 2's "…Part 3")
+    this.summary.querySelector('h2').textContent = heading;
+    this.ending.querySelector('.part2').textContent = next;
     this.endTitle.classList.remove('show');
     this.summary.style.display = 'none';
     void this.endTitle.offsetWidth;

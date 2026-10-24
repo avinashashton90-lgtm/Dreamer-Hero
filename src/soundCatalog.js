@@ -79,6 +79,11 @@ export const SOUNDS = {
   pit_heal: { group: 'effects', desc: 'AJ drinks and is healed' },
   gate_open: { group: 'effects', desc: 'The castle gates swing open' },
   gate_slam: { group: 'effects', desc: 'The castle gates slam shut' },
+  portal_open: { group: 'effects', desc: 'The portal opens beside AJ: a deep rumble and a rising shimmer (end of Part 1)' },
+  portal_whoosh: { group: 'effects', desc: 'The portal pulls AJ and the horse in: a long rising whoosh' },
+  steam_hiss: { group: 'effects', desc: 'Gearhaven: a steam vent hisses (Part 2)' },
+  clock_chime: { group: 'effects', desc: 'Gearhaven: the Dream Clock’s deep, slow chime far away (Part 2 arrival)' },
+  tick_whir: { group: 'voices', desc: 'Tick, the brass robot, whirs as he floats in (Part 2)' },
   sandstorm_wind: { group: 'effects', loop: true, desc: 'The sandstorm’s wind (loop, follows its strength)' },
   thunder_soft: { group: 'effects', desc: 'Distant soft thunder (the witch hint)' },
   // Hearts
@@ -106,6 +111,7 @@ export const MUSIC = {
   sandstorm: { track: 'chase', layers: ['wind'], desc: 'Sandstorm: the chase with a wind layer' },
   gate: { track: 'gate', desc: 'Castle gate: triumphant' },
   ending: { track: 'ending', desc: 'Ending screen: gentle' },
+  gearhaven: { track: 'gearhaven', desc: 'Gearhaven (Part 2): clockwork, warm and curious, a ticking pulse' },
 };
 
 /** Music layers: on top of a track (file music_<track>_<layer>.ogg, else synthesized). */
@@ -119,4 +125,5 @@ export const VOICES = {
   aj: { desc: 'AJ (higher)' },
   amy: { desc: 'Amy (softer)' },
   boss: { desc: 'The boss (deep)' },
+  tick: { desc: 'Tick, the brass robot guide (Part 2: small and bright)' },
 };

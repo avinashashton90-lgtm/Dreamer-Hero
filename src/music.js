@@ -75,6 +75,14 @@ export const TRACKS = {
     arp: [0, 1, 2, 1, 0, 1, 2, 3, 0, 1, 2, 1, 2, 3, 2, 1], arpOct: 12, arpType: 'triangle', arpV: 0.05,
     drums: { kick: 'x.......x.......', snare: '....x.x.....xxxx', hat: '..x...x...x...x.' }, drumV: 0.5,
   },
+  gearhaven: {
+    bpm: 100, v: 0.5,
+    chords: [ch(57, 'min7'), ch(53, 'maj7'), ch(55), ch(52, 'min')],
+    pad: { type: 'triangle', v: 0.05, cutoff: 1500 },
+    bass: [0, null, null, null, 2, null, null, null, 0, null, null, null, 1, null, null, null], bassType: 'triangle', bassV: 0.2,
+    arp: [0, 2, 1, 3, 0, 2, 1, 3, 2, null, 1, null, 0, null, 3, null], arpOct: 24, arpType: 'square', arpV: 0.025,
+    drums: { hat: 'x...x...x...x...', tom: '..............x.' }, drumV: 0.35, // (a clock's tick)
+  },
   ending: {
     bpm: 72, v: 0.5,
     chords: [ch(53), ch(48), ch(50, 'min'), ch(46)],

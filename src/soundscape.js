@@ -13,11 +13,16 @@ import { CONFIG, DIALOGUE } from './config.js';
 const AU = CONFIG.audio;
 const MU = AU.music;
 
-/** "girlScene.safe"-style ids for every DIALOGUE line spoken in the cutscenes (voice files). */
+/**
+ * "girlScene_safe"-style ids for every DIALOGUE line spoken in the cutscenes (voice files); Part 2's
+ * scenes as "part2Portal_thanks", "part2Arrival_welcome". (A line said twice word for word — AJ's
+ * "Amy?" — shares one id: the later scene's.)
+ */
 function lineIds() {
   const ids = new Map();
-  for (const scene of ['girlScene', 'pitScene']) {
-    for (const [key, text] of Object.entries(DIALOGUE[scene] ?? {})) if (typeof text === 'string' && !/cue$/i.test(key)) ids.set(text, `${scene}_${key}`);
+  const scenes = [['girlScene', DIALOGUE.girlScene], ['pitScene', DIALOGUE.pitScene], ['part2Portal', DIALOGUE.part2?.portal], ['part2Arrival', DIALOGUE.part2?.arrival]];
+  for (const [scene, lines] of scenes) {
+    for (const [key, text] of Object.entries(lines ?? {})) if (typeof text === 'string' && !/cue$/i.test(key)) ids.set(text, `${scene}_${key}`);
   }
   return ids;
 }
@@ -43,6 +48,7 @@ export class Soundscape {
     this.horseAirT = 0;
     this.seen = new Map(); // minion → { alive }
     this.clock = 0; // seconds of sound time (for the horse's call gap)
+    this.musicPhase = null; // a chapter's own music section (Part 2: CONFIG.part2.music), set by its chapter
     this.lastCall = null; // the horse's last call (never the same twice in a row)
     this.lastCallAt = -Infinity;
     this.gallopCallT = this.#nextCall(); // seconds of galloping to the next call
@@ -213,6 +219,7 @@ export class Soundscape {
     if (st === S.INTRO) return 'title';
     if (st === S.GAMEOVER) return 'gameover';
     if (st === S.ENDING) return 'ending';
+    if (this.musicPhase) return this.musicPhase; // (a chapter's own music: Part 2's Gearhaven — levelManager)
     const story = g.story;
     if (story.gateStarted) return 'gate';
     if (story.phase === 'pit') return 'pit';

@@ -31,7 +31,7 @@ export function saveTestMenu(on) {
  * panel of big buttons, one per part of the game, plus Close. DOM only; touch works because the
  * touch router leaves taps on `.test-menu` alone (input.js), so they arrive as plain clicks.
  * @param {HTMLElement} overlay
- * @param {{ label: string, run: () => any }[]} items
+ * @param {({ label: string, run: () => any } | { header: string })[]} items
  */
 export class TestMenu {
   constructor(overlay, items) {
@@ -46,6 +46,14 @@ export class TestMenu {
     this.panel.className = 'test-panel';
     this.panel.style.display = 'none';
     for (const item of items) {
+      if (item.header) {
+        // (a section heading: "Part 1", "Part 2")
+        const h = document.createElement('div');
+        h.className = 'test-head';
+        h.textContent = item.header;
+        this.panel.append(h);
+        continue;
+      }
       const b = document.createElement('button');
       b.textContent = item.label;
       b.addEventListener('click', () => {

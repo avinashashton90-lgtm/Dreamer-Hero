@@ -445,6 +445,7 @@ html, body {
 .test-panel { position: absolute; inset: max(52px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); pointer-events: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; align-content: start; overflow-y: auto; padding: 12px; border-radius: 16px; background: rgba(20, 16, 50, 0.92); }
 .test-panel button { min-height: 56px; padding: 8px 12px; background: #3b2f6e; border: 2px solid #ffd23f; }
 .test-panel .test-close { background: #555; border-color: #fff; }
+.test-panel .test-head { grid-column: 1 / -1; color: #ffd23f; font: 800 14px system-ui, sans-serif; letter-spacing: .08em; text-transform: uppercase; padding: 4px 2px 0; }
 
 /* Sound: the speaker button in the top-right corner and its tiny panel (audioPanel.js). */
 .audio-ui { z-index: 900; }

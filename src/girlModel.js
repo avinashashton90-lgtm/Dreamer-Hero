@@ -211,6 +211,7 @@ export class GirlAnimator {
     }
     // Witch hint: the eye glow (flickering while hinting; steady in her witch form).
     this.u.eyes.visible = girl.eyesGlowing;
+    if (this.u.eyes.visible) this.u.eyes.children[0]?.material.color.setHex(girl.eyeColor); // (white-violet when she awakens)
   }
 }
 

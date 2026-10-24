@@ -344,6 +344,7 @@ const rideToEnd = async (gallop) => {
       }
       if (girl.glanceBack) r.glance = true;
       if (r.slammedAt < 0 && gate.slams > 0) r.slammedAt = t;
+      if (view.complete && (readFor += dt) > 0.3) { readFor = 0; cinematic.tap(); } // (then Amy and the portal: read on)
       continue;
     }
     if (cinematic.active) { await cutsceneFrame(); continue; }
@@ -403,7 +404,7 @@ for (const gallop of [false, true]) {
     `${label}: the gate cinematic starts ${r.gateDist.toFixed(1)} from the gate; the storm clears in ${r.stormClear.toFixed(2)} s`);
   check(r.puppetsStaged === 4 && r.launched === 4 && r.standsInPath === 0 && r.blocked === 0, `${label}: 4 skeletons in a line, each thrown aside as the horse passes (${r.launched}), never in its way (${r.standsInPath}), the horse never held back`);
   check(r.openAtGate > 0.9 && r.inside && r.slammedAt > 0 && gate.closed && r.glance && sound.counts.gateSlam >= 1, `${label}: the gates open as the horse arrives (${r.openAtGate.toFixed(2)}), it rides in, they slam shut behind it (sound), Amy glances back`);
-  check(story.phase === 'done' && gate.puppets.every((p) => p.landed) && (gate.puppets.every((p) => { const { gate: gp, out } = gate.frame; return p.model.position.clone().sub(gp).dot(out) > 0.5; })), `${label}: the ending screens; the skeletons stay outside`);
+  check(story.phase === 'done' && story.part1Done && gate.puppets.every((p) => p.landed) && (gate.puppets.every((p) => { const { gate: gp, out } = gate.frame; return p.model.position.clone().sub(gp).dot(out) > 0.5; })), `${label}: the ending screens; the skeletons stay outside`);
 }
 
 // 6) Skip in the gate cinematic: inside, gates shut, the ending.

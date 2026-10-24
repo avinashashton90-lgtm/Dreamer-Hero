@@ -397,6 +397,27 @@ export const RECIPES = {
     k.noise(o, t, { filter: 'bandpass', f: 400, f2: 900, q: 6, a: 0.3, d: 1.0, v: 0.25 });
     return 1.3;
   },
+  portal_open: (k, o, t, p) => {
+    k.noise(o, t, { filter: 'lowpass', f: 160 * p, q: 1.4, a: 0.2, d: 1.4, v: 0.6 });
+    k.tone(o, t, { f: 40 * p, f2: 55 * p, a: 0.2, d: 1.4, v: 0.35 });
+    [392, 523, 659, 784].forEach((f, i) => k.tone(o, t + 0.25 + i * 0.14, { type: 'triangle', f: f * p, f2: f * 1.5 * p, a: 0.05, d: 0.8, v: 0.05 }));
+    return 1.8;
+  },
+  portal_whoosh: (k, o, t, p) => {
+    k.noise(o, t, { filter: 'bandpass', f: 300 * p, f2: 3200 * p, q: 1.2, a: 1.2, d: 1.2, v: 0.35 });
+    k.tone(o, t, { type: 'sine', f: 110 * p, f2: 660 * p, a: 1.0, d: 1.2, v: 0.08 });
+    return 2.4;
+  },
+  steam_hiss: (k, o, t, p) => k.noise(o, t, { filter: 'highpass', f: 2600 * p, a: 0.06, d: 0.7, v: 0.12 }) - t,
+  clock_chime: (k, o, t, p) => {
+    [98, 196, 293.7].forEach((f, i) => k.tone(o, t, { type: 'sine', f: f * p, a: 0.01, d: 2.6 - i * 0.5, v: 0.18 / (i + 1) }));
+    return 2.7;
+  },
+  tick_whir: (k, o, t, p) => {
+    k.tone(o, t, { type: 'square', f: 880 * p, f2: 1320 * p, a: 0.02, d: 0.18, v: 0.04 });
+    k.noise(o, t, { filter: 'bandpass', f: 1800 * p, q: 3, a: 0.05, d: 0.35, v: 0.06 });
+    return 0.45;
+  },
   gate_slam: (k, o, t, p) => {
     k.tone(o, t, { f: 65 * p, f2: 30, d: 0.9, v: 0.9 });
     k.noise(o, t, { filter: 'lowpass', f: 2500, f2: 100, d: 0.6, v: 0.7 });

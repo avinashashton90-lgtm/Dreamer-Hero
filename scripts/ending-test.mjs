@@ -1,7 +1,9 @@
 // Headless end-of-Part-1 test: the girl's cutscene (trigger, camera, typewriter, taps, witch
 // hint, Skip mid-typewriter), exhaustion on 1 heart and the Lazarus Pit scene, the desert (layout, a bot riding the whole trail at normal speed
-// and galloping, walls), the castle-gate cinematic and the ending state, and Play
-// Again resetting everything.
+// and galloping, walls), the castle-gate cinematic, then Amy and the portal (the end of Part 1:
+// she gets down, walks ahead, turns to AJ, her eyes glow white-violet, the lines, a portal opens
+// beside AJ and pulls him and the horse in, the camera following; Skip), the ending state
+// (without Part 2 loaded), and Play Again resetting everything.
 // Usage: npm run test:ending   (exits non-zero on failure)
 import { heroAssets } from './node-assets.mjs'; // the real Mixamo hero, read from public/
 import * as THREE from 'three';
@@ -419,11 +421,57 @@ for (const at of ['second line, mid-typewriter', 'first line']) {
   check(rn.pitScene && story.pitDone, 'the ride stops at the Lazarus Pit on the way');
   check(!rn.stuck && story.phase === 'gate' && rn.maxLat <= TRK.halfWidth, `bot rides the desert at normal speed in ${rn.tt.toFixed(1)} s to the castle; stuck ${rn.stuck}, max off-centre ${rn.maxLat.toFixed(1)}`);
   check(rn.prints > 20 && rn.dust > 0 && rn.gemsGot > 0, `hoof prints ${rn.prints}, dust puffs, optional gems picked up ${rn.gemsGot}`);
-  // 6) The ending: the castle-gate cinematic (the horse rides in, the gates shut), then the ending state.
+  // 6) The ending: the castle-gate cinematic (the horse rides in, the gates shut), then Amy and
+  // the portal, then (no Part 2 loaded here) the ending state.
+  const PO = CONFIG.part2.portal, PL2 = DIALOGUE.part2.portal, S2 = DIALOGUE.speakers;
   const camBefore = cam.camera.position.clone();
-  const tEnd = await until(() => state.is(STATES.ENDING), 20);
+  const scale0 = { horse: horse.model.scale.x, hero: hero.model.scale.x };
+  view.lines = [];
+  const pr = { shut: false, down: false, ahead: 0, faces: Infinity, glow: 0, glowColor: true, opened: false, side: Infinity, reach: false, pulledTo: Infinity, minScale: 1,
+    camToCore: Infinity, wideIn: 0, wideFrames: 0, shotAt: -1 };
+  const onScreen = (v) => { const q = v.clone().project(cam.camera); return q.z < 1 && Math.abs(q.x) <= 1 && Math.abs(q.y) <= 1; };
+  let tEnd = -1, readFor = 0;
+  for (let t = 0; t < 60; t += dt) {
+    await frame();
+    if (gate.closed) pr.shut = true;
+    if (story.portalStarted && !horse.passenger && story.actors.girl) {
+      pr.down = true;
+      const g = story.actors.girl;
+      const f = new THREE.Vector3(Math.sin(horse.heading), 0, Math.cos(horse.heading));
+      if (!g.moving && story.portalStage?.walked && !story.pull) {
+        pr.ahead = Math.max(pr.ahead, g.pos.clone().sub(horse.position).dot(f));
+        pr.faces = Math.min(pr.faces, Math.abs(wrap(g.yaw - Math.atan2(hero.position.x - g.pos.x, hero.position.z - g.pos.z))));
+      }
+    }
+    if (girl.eyesGlowing) { pr.glow += dt; if (girl.eyeColor !== PO.eyeColor) pr.glowColor = false; }
+    if (story.portal.open >= 1 && !pr.opened) {
+      pr.opened = true;
+      pr.side = story.portal.center.distanceTo(horse.position.clone().setY(story.portal.center.y));
+    }
+    if (story.pull && girl.pointing) pr.reach = true;
+    if (story.pull) {
+      pr.pulledTo = Math.min(pr.pulledTo, horse.position.distanceTo(story.portal.center));
+      pr.minScale = Math.min(pr.minScale, horse.model.scale.x / (story.riderScale?.horse.x ?? horse.model.scale.x));
+    }
+    if (story.portalStarted && story.portal.model?.visible) pr.camToCore = Math.min(pr.camToCore, cam.camera.position.distanceTo(story.portal.center));
+    // The wide shot (while the lines are spoken, before the pull): AJ, Amy and the horse in frame.
+    if (story.portalStarted && cinematic.current?.step?.say && !story.pull && cinematic.moves.length === 0) {
+      pr.wideFrames++;
+      if (onScreen(hero.position.clone().setY(hero.position.y + 0.8)) && onScreen(boss.girl.position.clone().setY(boss.girl.position.y + 1)) && onScreen(horse.position.clone().setY(horse.position.y + 1))) pr.wideIn++;
+    }
+    if (view.complete && (readFor += dt) > 0.3) { readFor = 0; cinematic.tap(); }
+    if (state.is(STATES.ENDING)) { tEnd = t; break; }
+  }
   const stats = story.stats();
-  check(tEnd > 0 && horse.hold && horse.mode === 'riding' && gate.closed && story.gateRide?.done, `the gate cinematic: the horse rides into the castle in ${tEnd.toFixed(1)} s, the gates shut`);
+  check(tEnd > 0 && pr.shut && story.gateRide?.done, `the gate cinematic: the horse rides into the castle, the gates shut (${tEnd.toFixed(1)} s to the end)`);
+  check(JSON.stringify(view.lines) === JSON.stringify([`${S2.girl}: ${PL2.thanks}`, `${S2.hero}: ${PL2.amy}`, `${S2.girl}: ${PL2.wait}`]), `the portal scene's lines in order:\n       ${view.lines.join('\n       ')}`);
+  check(pr.down && pr.ahead >= PO.dismount.ahead - 0.5 && pr.faces < 0.35 && pr.wideFrames > 30 && pr.wideIn === pr.wideFrames,
+    `Amy gets down, walks ${pr.ahead.toFixed(1)} ahead and turns to face AJ (${pr.faces.toFixed(2)} rad off); a wide shot with AJ, Amy and the horse in frame (${pr.wideIn}/${pr.wideFrames})`);
+  check(pr.glow > PO.eyeGlow * 0.6 && pr.glow < PO.eyeGlow + 0.3 && pr.glowColor && !girl.eyesGlowing, `her eyes glow white-violet for a moment (${pr.glow.toFixed(2)} s, colour ${pr.glowColor ? 'white-violet' : 'WRONG'})`);
+  check(pr.opened && Math.abs(pr.side - PO.side) < 0.6 && sound.counts.portal_open === 1 && sound.counts.portal_whoosh === 1 && story.portal.model.userData.gears.count === PO.gears.count,
+    `a portal opens in the air beside AJ (${pr.side.toFixed(1)} to his side), gears flying in, a rumble and a whoosh`);
+  check(pr.reach && pr.pulledTo < 1.6 && pr.minScale < 0.6 && pr.camToCore < PO.radius, `Amy reaches for him; AJ and the horse are pulled into the portal (${pr.pulledTo.toFixed(2)} from its core, shrinking to ${pr.minScale.toFixed(2)}); the camera follows them into the light (${pr.camToCore.toFixed(2)})`);
+  check(!story.riderScale && Math.abs(horse.model.scale.x - scale0.horse) < 1e-6 && Math.abs(hero.model.scale.x - scale0.hero) < 1e-6 && story.part1Done, 'Part 1 is over (no Part 2 here: the ending screens); AJ and the horse back to full size');
   check(tEnd >= 0 && story.phase === 'done' && stats.time > rn.tt && stats.gems >= rn.gemsGot && stats.deaths === 0 && stats.gemsTotal === gems.gems.filter((g) => g.zone !== 'drop').length,
     `ending state; summary: gems ${stats.gems}/${stats.gemsTotal}, time ${stats.time.toFixed(1)} s, deaths ${stats.deaths}`);
   check(camBefore.distanceTo(cam.camera.position) > 1, 'the camera moved for the gate cinematic');

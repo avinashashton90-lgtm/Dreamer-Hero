@@ -140,6 +140,7 @@ export class Girl {
     this.smiling = false;
     this.talking = false; // one of her lines is up
     this.glanceBack = false; // a nervous glance back (the castle gates)
+    this.awakenT = 0; // her eyes glow white-violet (the castle courtyard, her memory returning)
     model.userData.onMount = () => (this.riding = true);
     model.userData.onDismount = () => (this.riding = false);
   }
@@ -157,7 +158,13 @@ export class Girl {
     this.lookAtHero = this.pointing = this.kneeling = this.walking = this.smiling = this.talking = this.glanceBack = false;
     this.hintT = 0;
     this.hints = 0;
+    this.awakenT = 0;
     this.shadow.visible = false;
+  }
+
+  /** Her eyes glow white-violet for `seconds` (the end of Part 1: her memory and magic return). */
+  awaken(seconds) {
+    this.awakenT = seconds;
   }
 
   /** The witch hint (eyes + shadow) for `seconds`. */
@@ -185,14 +192,20 @@ export class Girl {
     return CONFIG.girlWitchForm || (this.hinting && Math.sin(this.time * 47) > -0.3);
   }
 
-  /** The witch's eye glow — only with CONFIG.girlEyeGlow (off: no glow on her anywhere). */
+  /** The eye glow: the white-violet awakening, or the witch's (only with CONFIG.girlEyeGlow — off). */
   get eyesGlowing() {
-    return CONFIG.girlEyeGlow && this.#flicker;
+    return this.awakenT > 0 || (CONFIG.girlEyeGlow && this.#flicker);
+  }
+
+  /** The glow's colour: white-violet while awakening, else the witch hint's. */
+  get eyeColor() {
+    return this.awakenT > 0 ? CONFIG.part2.portal.eyeColor : CI.hintColor;
   }
 
   update(dt, groundY = 0) {
     this.time += dt;
     this.hintT = Math.max(0, this.hintT - dt);
+    this.awakenT = Math.max(0, this.awakenT - dt);
     const u = this.model.userData;
     if (u.animator) u.animator.update(dt, this);
     else this.#posePlaceholder();
@@ -262,6 +275,6 @@ export class Girl {
     const { neutral, smile } = this.model.userData.mouth;
     smile.visible = this.smiling;
     neutral.visible = !this.smiling;
-    eyeMat.color.setHex(this.eyesGlowing ? CI.hintColor : 0x222222);
+    eyeMat.color.setHex(this.eyesGlowing ? this.eyeColor : 0x222222);
   }
 }

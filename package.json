@@ -21,6 +21,7 @@
     "test:energy": "node scripts/energy-test.mjs",
     "test:arena": "node scripts/arena-test.mjs",
     "test:audio": "node scripts/audio-test.mjs",
+    "test:part2": "node scripts/part2-test.mjs",
     "audio:readme": "node scripts/audio-readme.mjs"
   },
   "dependencies": {

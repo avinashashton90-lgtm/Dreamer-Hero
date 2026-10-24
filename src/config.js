@@ -415,6 +415,9 @@ export const CONFIG = {
       distance: 35, height: 44, color: 0x2c2238, glow: 0xffb36b, // castle this far past the trail end
       // The gate passage through the curtain wall and its two leaves (loadCastleModel → userData.gates).
       gate: { width: 7, height: 8.5, thickness: 0.45, color: 0x4a3423, bandColor: 0x1d1a1f, passageColor: 0x0c0a10, insideStop: 3 },
+      // Behind the gate passage a walled courtyard (where Part 1 ends: the portal scene), its
+      // ground levelled (a flat in heightAt: `flat` [r0, r1] round its centre); the keep behind it.
+      courtyard: { depth: 16, halfWidth: 16, wall: 2, floorColor: 0x8a7562, wallColor: 0x4a3c58, flat: [18, 22] },
     },
     checkpoints: [0, 0.33, 0.66],
     // Rolling dunes: value noise (octaves of [wavelength, height]); gentle rolls on the trail.
@@ -596,7 +599,87 @@ export const CONFIG = {
   // The end of Part 1.
   ending: {
     brake: 10,               // the horse slows to a stop (cutscenes: the Lazarus Pit)
-    titleMs: 3200,           // ..."To be continued... Part 2" for this long, then the summary
+    titleMs: 3200,           // ..."To be continued..." for this long, then the summary
+  },
+
+  // Part 2 — Gearhaven (src/part2/, loaded by levelManager.js as its own chapter; STORY.md).
+  // `portal` is the bridge at the end of Part 1 (story.js + portal.js, in the Part 1 world).
+  part2: {
+    // After the castle gates slam shut: a wide shot; Amy gets down, walks a few steps ahead and
+    // turns to AJ; her eyes glow white-violet for a moment; the lines; a portal opens in the air
+    // beside AJ and pulls him and the horse in; the camera follows them into the light; white.
+    portal: {
+      hold: 0.8,               // s after the slam; then the horse walks on into the courtyard...
+      walkIn: { speed: 2.6, stop: 2.5 }, // ...at this speed, stopping this far short of its centre
+      dismount: { ahead: 3.4, side: 1.6, walkSpeed: 1.5 }, // she walks this far ahead of the horse (and to its side), then turns to AJ
+      eyeColor: 0xe9e0ff, eyeGlow: 1.6,  // white-violet (not pink), this long
+      side: 3.4, up: 2.3,      // the portal: in the air this far to the horse's right, this high
+      radius: 1.9, openTime: 1.1, spin: 2.2, // grows over openTime, its swirl turning at `spin` rad/s
+      ring: { tube: 0.16, color: 0xfff1c8, opacity: 0.95 },
+      core: { color: 0xffffff, glow: 0xc9b8ff, opacity: 0.9 },
+      swirl: { count: 48, size: [0.08, 0.2], speed: 2.8, color: 0xffe6a8, opacity: 0.85 },
+      gears: { count: 12, size: [0.16, 0.36], from: [4, 8], time: [0.9, 1.6], spin: 6, color: 0xc9a23a },
+      shake: 0.1, shakeTime: 1.2,
+      reachDelay: 0.25,        // Amy reaches for him this long after the pull begins
+      pullTime: 2.4,           // the portal pulls AJ and the horse in (accelerating, a little spiral)
+      spiral: 0.8, shrink: 0.35, // radians of spiral; their size at the core
+      shots: {
+        wide: { dist: 12, up: 3.4, along: 1.2, duration: 1.4 }, // side-on to the horse and Amy, everyone in frame
+        pull: { back: 4.5, up: 1.4, duration: 0.6 },            // following them in...
+        light: { duration: 0.9, into: 0.6 },                     // ...into the light
+      },
+      whiteOutMs: 650,         // fade to white, then Part 2 loads...
+      whiteInMs: 1200,         // ...and the white clears in Gearhaven
+    },
+    // Gearhaven: a brass courtyard under a sky of huge slow-turning gears, cogs and steam, the
+    // Dream Clock's face far away, warm lights (placeholders: loadGearhavenModel()).
+    gearhaven: {
+      background: 0x6a4a2c, fog: { color: 0x7a5636, near: 35, far: 190 },
+      hemi: { sky: 0xffd9a0, ground: 0x4a3020, intensity: 1.1 }, sun: { color: 0xffc27a, intensity: 1.3, dir: [0.4, 1, 0.3] },
+      floor: { radius: 24, wall: 23, color: 0xb8893e, inlay: 0x8a5a2b, ring: 0x6e4a26 },
+      wallRing: { height: 1.4, color: 0x7a4f25 },
+      pillars: { count: 10, radius: 0.55, height: 6, color: 0x8b5e2c, lampColor: 0xffc06a },
+      skyGears: { count: 7, radius: [14, 32], height: [38, 62], spread: 70, teeth: 18, speed: [0.03, 0.08], color: 0x8c6a32, dark: 0x4a3418 },
+      cogs: { count: 9, radius: [0.9, 2.2], color: 0xb07a30, speed: 0.6 },
+      clock: { at: [0, 46, -140], radius: 26, face: 0xf3e6c4, rim: 0x9c7432, hand: 0x3a2a1c, glow: 0xffd88a, slow: 0.02 },
+      steam: { vents: 5, puffs: 36, life: 2.6, rise: 2.2, size: [0.5, 1.3], color: 0xfff6ea, opacity: 0.28, every: 4, hiss: 0.25 },
+      doors: { radius: 20.5, height: 4.4, width: 2.8, reach: 1.8 }, // the element doors round the courtyard
+    },
+    // Tick: a small floating brass robot guide with a glowing eye (loadTickModel()).
+    tick: {
+      size: 0.42, color: 0xc89b45, dark: 0x6b4a22, eye: 0x7ff3ff, eyeGlow: 0.9,
+      float: 1.75, bob: 0.12, bobRate: 1.6, follow: { side: 1.3, back: -0.4, rate: 2.5 },
+      prop: 14,                // propeller spin (rad/s)
+      nervous: { yaw: 1.6, rate: 9, time: 1.8 }, // "I cannot say." — he looks over his shoulder, jittery
+    },
+    // The horse in Gearhaven: a small brass key on its back and brass armour plates (loadGearhavenHorseUpgrade()).
+    horseUpgrade: { brass: 0xc9a23a, copper: 0xb0643a, key: { at: [0, 1.95, -0.72], size: 0.34, spin: 1.2 } },
+    // The arrival scene: AJ and the horse drop out of the light into the courtyard.
+    arrival: {
+      start: [0, 0, 8], heading: Math.PI, // where they land (facing into the courtyard)
+      drop: 5, fallTime: 0.9,  // from this high
+      tickFrom: [6, 5, -6],    // Tick floats in from here
+      shots: {
+        sky: { pos: [10, 3, 18], look: [0, 22, -40], duration: 0.1 },        // the gear sky and the clock first
+        land: { pos: [6, 2.6, 14], look: [0, 1.2, 8], duration: 1.6 },       // then them landing
+        talk: { side: 3.2, up: 1.5, back: 1.2, duration: 1.2 },              // AJ and Tick talking
+      },
+      landHold: 0.6,
+    },
+    // After the arrival: the courtyard; walk into the Fire door (the first level, a stub for now).
+    courtyard: { spawn: [0, 0, 6], first: 'fire' },
+    // The levels (each a stub "coming soon" platform until built), and Amy's final fight.
+    levels: {
+      order: ['fire', 'lightning', 'steam', 'magnet', 'time'],
+      fire: { color: 0xff6a2a, angle: -0.7 },
+      lightning: { color: 0x9fd6ff, angle: -0.35 },
+      steam: { color: 0xf2f2ea, angle: 0 },
+      magnet: { color: 0xd04040, angle: 0.35 },
+      time: { color: 0xc9b8ff, angle: 0.7 },
+      final: { color: 0x9a6bff },
+      stub: { radius: 9, gap: 120, crystal: 0.8, back: 6.5 }, // a platform per level this far apart; a crystal; the door back
+    },
+    music: 'gearhaven',
   },
 
   // Small enemies (minions.js / minionModels.js): Quaternius Animated Monster Pack FBX files
@@ -1081,7 +1164,7 @@ export const CONFIG = {
       batRange: 40,          // a bat this close and attacking / waiting → the bat-attack music
       bossRange: 45,         // within this of the arena (boss alive) → the boss music
       // The section for each part of the story (see soundscape.js).
-      phases: { title: null, town: 'forest', forest: 'forest', bats: 'bats', boss: 'boss', afterBoss: 'pit', girlScene: 'pit', desertTired: 'pit', pit: 'pit', chase: 'chase', sandstorm: 'sandstorm', gate: 'gate', ending: 'ending', gameover: null },
+      phases: { title: null, town: 'forest', forest: 'forest', bats: 'bats', boss: 'boss', afterBoss: 'pit', girlScene: 'pit', desertTired: 'pit', pit: 'pit', chase: 'chase', sandstorm: 'sandstorm', gate: 'gate', ending: 'ending', gameover: null, gearhaven: 'gearhaven' },
     },
     loops: {                 // pulse loops: one hit every `period` s (÷ rate)
       hoof_walk: { period: 0.42, volume: 0.45 }, hoof_trot: { period: 0.3, volume: 0.55 }, hoof_gallop: { period: 0.36, volume: 0.7 },
@@ -1110,8 +1193,9 @@ export const CONFIG = {
         boss: { freq: 85, jitter: 0.1, type: 'sawtooth', volume: 0.35, length: 0.11, formant: 500 },
         // AJ weak and grunting (the Lazarus Pit's "I'm ok."): lower, slower, longer blips (own charsPerBlip).
         ajWeak: { freq: 175, jitter: 0.05, type: 'square', volume: 0.2, length: 0.14, formant: 650, charsPerBlip: 3 },
+        tick: { freq: 620, jitter: 0.06, type: 'square', volume: 0.14, length: 0.045, formant: 3200 }, // Tick: a small bright robot chirp
       },
-      speakers: { hero: 'aj', girl: 'amy', boss: 'boss' }, // cinematic speaker key → character
+      speakers: { hero: 'aj', girl: 'amy', boss: 'boss', tick: 'tick' }, // cinematic speaker key → character
     },
     gemPitch: { yellow: 1, blue: 1.26, pink: 1.5 },
     bossStepShake: 0.05,     // the camera shake linked to each heavy boss step (units)
@@ -1542,14 +1626,43 @@ export const DIALOGUE = {
   testMenu: {
     open: 'TEST', close: 'Close', hurdles: 'Forest hurdles',
     forest: 'Forest start', cave: 'Cave entrance', boss: 'Boss fight', afterBoss: 'After boss (Amy rescued)',
-    pit: 'Lazarus Pit scene', chase: 'Desert chase', storm: 'Sandstorm', gate: 'Castle gate cinematic', ending: 'Ending screen',
+    pit: 'Lazarus Pit scene', chase: 'Desert chase', storm: 'Sandstorm', gate: 'Castle gate cinematic',
     audio: 'Audio test',
+    part1: 'Part 1', part2: 'Part 2',
+    portal: 'Portal scene', arrival: 'Gearhaven arrival', fire: 'Fire level', lightning: 'Lightning level', steam: 'Steam level',
+    magnet: 'Magnet level', time: 'Time level', final: "Amy's final fight", part2Ending: 'Part 2 ending',
     on: 'Test menu on', off: 'Test menu off',
   },
   skip: 'Skip ▶▶',
   gameOver: 'You woke up with a jolt!',
   retry: 'Tap to dream again',
   toBeContinued: 'To be continued... Part 2',
+  // Part 2 — Gearhaven (src/part2/; the portal scene at the end of Part 1).
+  part2: {
+    portal: {
+      thanks: 'Thank you for bringing me home.',
+      amy: 'Amy?',               // (AJ, confused)
+      wait: 'No, wait!',         // (Amy, shocked, reaching for him as the portal pulls him in)
+    },
+    arrival: {
+      welcome: 'Welcome to Gearhaven. The Dream Clock is slowing.',
+      where: 'Where am I?',
+      stops: 'If it stops, your dream ends. Five elements can restart it.',
+      witch: 'But a witch took them. And only one person can stop her.',
+      amy: 'Amy?',
+      cannot: 'I cannot say.',   // (Tick, nervously, looking over his shoulder)
+    },
+    objectives: {
+      fire: 'Find the Fire Element', lightning: 'Find the Lightning Element', steam: 'Find the Steam Element',
+      magnet: 'Find the Magnet Element', time: 'Find the Time Element', final: 'Face Amy',
+    },
+    levelNames: { fire: 'Fire Element', lightning: 'Lightning Element', steam: 'Steam Element', magnet: 'Magnet Element', time: 'Time Element', final: "Amy's final fight" },
+    comingSoon: (name) => `${name} — coming soon`,
+    back: 'Back to Gearhaven',
+    toBeContinued: 'To be continued... Part 3',
+    summaryTitle: 'Part 2 complete',
+    nextPart: 'Part 3 (Coming soon)',
+  },
   quests: {
     rooftops: 'Jump across the rooftops',
     trees: 'Leap through the trees',
@@ -1594,7 +1707,7 @@ export const DIALOGUE = {
   retryRide: 'Retry',
   bossName: 'Cave Monster',
   // The girl's scene at the cave mouth (she is secretly a witch — only hinted).
-  speakers: { hero: 'Hero', girl: 'Girl' },
+  speakers: { hero: 'Hero', girl: 'Girl', tick: 'Tick' },
   girlScene: {
     safe: "You're safe now. The monster is gone.",
     thanks: 'My saviour, you have come at last! I am so thankful to you. My life is yours. Take me.',
