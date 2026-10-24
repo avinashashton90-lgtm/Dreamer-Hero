@@ -3,8 +3,10 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { CONFIG } from '../config.js';
 import { gearGeometry } from '../portal.js';
 import { loadCheckpointModel } from '../horse.js';
-import { makeDoor } from './gearhaven.js';
-import { loadKitPieces, kitMaterial, mergeStatic, placeMatrix, colorMerge } from '../kits.js';
+import { makeDoor, makeDreamClock } from './gearhaven.js';
+import { roleMaterial, roleInstances, roleMerge, lookGlow, steamMaterial, onLook } from './looks.js';
+import { makeFloorMaterial } from './floor.js';
+import { loadKitPieces, kitMaterial, mergeStatic, placeMatrix } from '../kits.js';
 import { loadGearShapes, buildGearDecor, spinInstances, isFallbackGear, loadSparkleModel } from './props.js';
 
 export { spinInstances };
@@ -20,7 +22,8 @@ export { spinInstances };
 // and Factory Kit cogs turning on the walls, floors and in the sky, Factory Kit conveyors, pipes,
 // catwalks, machines and boxes, Coaster Kit Monorail (brass) and Steel (copper) rails on bronze supports),
 // else the code-built placeholders. Static kit pieces are merged into a few meshes per material
-// and stretch of trail; everything moving is instanced; no lights, no shadows.
+// and stretch of trail; everything moving is instanced; no shadows. Every colour comes from the
+// Gearhaven look (looks.js) by role; the city floor is the silver engraved floor (floor.js).
 
 const R = CONFIG.part2.ride;
 const TAU = Math.PI * 2;
@@ -101,13 +104,22 @@ export async function loadGearhavenRideModel(world, opts = {}) {
   const group = new THREE.Group();
   group.name = 'gearhavenRide';
   const ST = R.street;
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(...R.ground.size).rotateX(-Math.PI / 2), lambert(R.ground.color));
+  const FL = CONFIG.part2.floor;
+  // The far land in the look's ground colour; the city floor silver and engraved either side of
+  // the trail; the path marked by a darker centre strip and brass (the look's) edge lines.
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(...R.ground.size).rotateX(-Math.PI / 2), roleMaterial('ground'));
   const mid = trackPoint(track, track.length / 2).pos;
-  ground.position.set(mid.x, -0.02, mid.z);
-  const edge = new THREE.Mesh(ribbon(track, -R.wall.offset - 0.4, R.wall.offset + 0.4, 0.005), lambert(ST.edge));
-  const street = new THREE.Mesh(ribbon(track, -R.wall.offset + 0.6, R.wall.offset - 0.6, 0.015), lambert(ST.color));
-  const curbs = new THREE.Mesh(mergeGeometries([curb(track, R.wall.offset + 0.2, ST.curbHeight, 0.5), curb(track, -R.wall.offset - 0.2, ST.curbHeight, 0.5)]), lambert(ST.curb));
-  group.add(ground, edge, street, curbs);
+  ground.position.set(mid.x, -0.05, mid.z);
+  const plaza = new THREE.Mesh(ribbon(track, -FL.plaza, FL.plaza, -0.01), makeFloorMaterial());
+  const centre = new THREE.Mesh(ribbon(track, -FL.centre, FL.centre, 0.008), makeFloorMaterial('centre'));
+  const edgeMat = new THREE.MeshLambertMaterial();
+  onLook((L) => {
+    edgeMat.color.set(L.path.edge);
+    edgeMat.emissive.set(L.path.edge).multiplyScalar(L.path.glow); // (gold and glowing at midnight)
+  });
+  const edges = new THREE.Mesh(mergeGeometries([ribbon(track, FL.edge[0], FL.edge[1], 0.012), ribbon(track, -FL.edge[1], -FL.edge[0], 0.012)]), edgeMat);
+  const curbs = new THREE.Mesh(mergeGeometries([curb(track, R.wall.offset + 0.2, ST.curbHeight, 0.5), curb(track, -R.wall.offset - 0.2, ST.curbHeight, 0.5)]), roleMaterial('trim'));
+  group.add(ground, plaza, centre, edges, curbs);
 
   // Buildings either side, outside the corridor (never over another stretch of the trail).
   const C = R.city;
@@ -124,26 +136,50 @@ export async function loadGearhavenRideModel(world, opts = {}) {
         const p = trackPoint(track, s + (rand() - 0.5) * 2, lat);
         const clear = track.nearest(p.pos.x, p.pos.z, 11 + Math.max(w, d) / 2 + 1);
         if (clear && clear.dist < 11 + Math.max(w, d) / 2 + 0.5) continue;
-        spots.push({ p, w, d, h, color: C.colors[Math.floor(rand() * C.colors.length)], roof: rand() < C.patinaShare ? C.patina : C.roof });
+        spots.push({ p, w, d, h, stone: Math.floor(rand() * 4), roof: rand() < C.patinaShare ? 0 : 1 });
       }
     }
   }
-  const body = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0), lambert(0xffffff), spots.length);
+  const body = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0), windowMaterial(), spots.length);
   const roof = new THREE.InstancedMesh(new THREE.ConeGeometry(Math.SQRT1_2, 1, 4).rotateY(Math.PI / 4).translate(0, 0.5, 0), lambert(0xffffff, { flatShading: true }), spots.length);
   const m = new THREE.Matrix4();
   const q = new THREE.Quaternion();
   const up = new THREE.Vector3(0, 1, 0);
-  const col = new THREE.Color();
   spots.forEach((b, i) => {
     q.setFromAxisAngle(up, b.p.heading);
     m.compose(b.p.pos, q, new THREE.Vector3(b.w, b.h, b.d));
     body.setMatrixAt(i, m);
-    body.setColorAt(i, col.setHex(b.color));
     m.compose(b.p.pos.clone().setY(b.h), q, new THREE.Vector3(b.w * 1.08, Math.min(b.w, b.d) * 0.55, b.d * 1.08));
     roof.setMatrixAt(i, m);
-    roof.setColorAt(i, col.setHex(b.roof));
   });
+  roleInstances(body, spots.map((b) => ['stone', b.stone])); // (the look's building stone and roofs)
+  roleInstances(roof, spots.map((b) => ['roof', b.roof]));
   group.add(body, roof);
+
+  // Lamp posts just outside the curbs (their heads glow; the look's point lights go to the nearest).
+  const LP = R.lamps;
+  const lampSpots = [];
+  const busy = [...R.hammers.map((h) => h.s), ...R.checkpoints, ...R.vents.flatMap((v) => [v.s - 5, v.s, v.s + 5]), R.door.s];
+  for (let s = LP.every / 2, i = 0; s < track.length - LP.every / 2; s += LP.every, i++) {
+    if (busy.some((x) => Math.abs(x - s) < LP.clear) || R.rails.some((r) => r.upper && s > r.s[0] - LP.clear && s < r.s[1] + LP.clear)) continue;
+    const p = trackPoint(track, s, (i % 2 ? 1 : -1) * LP.lat, LP.height);
+    const other = track.nearest(p.pos.x, p.pos.z, R.wall.offset + 2);
+    if (other && other.dist < R.wall.offset + 0.5) continue;
+    lampSpots.push(p.pos);
+  }
+  const posts = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.08, 0.13, LP.height, 6).translate(0, LP.height / 2, 0), roleMaterial('darkSteel'), Math.max(1, lampSpots.length));
+  const heads = new THREE.InstancedMesh(new THREE.SphereGeometry(LP.head, 8, 6), lookGlow((L) => [L.lamps.head]), Math.max(1, lampSpots.length));
+  const halos = new THREE.InstancedMesh(new THREE.SphereGeometry(LP.halo, 8, 6), lookGlow((L) => [L.lamps.head, L.lamps.halo], { additive: true }), Math.max(1, lampSpots.length));
+  lampSpots.forEach((p, i) => {
+    posts.setMatrixAt(i, m.makeTranslation(p.x, 0, p.z));
+    heads.setMatrixAt(i, m.makeTranslation(p.x, p.y, p.z));
+    halos.setMatrixAt(i, m);
+  });
+  for (const im of [posts, heads, halos]) {
+    im.count = lampSpots.length;
+    im.computeBoundingSphere();
+  }
+  group.add(posts, heads, halos);
 
   // Turning gears: on the building fronts facing the trail (the Factory Kit's cogs and the gear
   // props), lying on the ground beside the curbs, and floating in the warm gold sky.
@@ -175,27 +211,40 @@ export async function loadGearhavenRideModel(world, opts = {}) {
   const shapes = await loadGearShapes([...new Set(gearItems.map((g) => g.shape))], opts);
   const decor = buildGearDecor(gearItems, shapes);
   group.add(decor.group);
+  // The Dream Clock far off (the look's colours; gold and glowing at midnight).
   const CL = R.clock;
-  const clock = new THREE.Group();
+  const { group: clock, hour, minute } = makeDreamClock(CL.radius);
   clock.position.set(...CL.at);
   clock.lookAt(mid.x, CL.at[1], mid.z);
-  const unfog = (color) => new THREE.MeshBasicMaterial({ color, fog: false });
-  clock.add(new THREE.Mesh(new THREE.CircleGeometry(CL.radius, 48), unfog(CL.face)));
-  clock.add(new THREE.Mesh(new THREE.TorusGeometry(CL.radius, CL.radius * 0.06, 6, 48), unfog(CL.rim)));
-  const ticks = [];
-  for (let i = 0; i < 12; i++) ticks.push(new THREE.BoxGeometry(CL.radius * 0.04, CL.radius * 0.14, 0.2).translate(0, CL.radius * 0.82, 0.3).rotateZ((i / 12) * TAU));
-  clock.add(new THREE.Mesh(mergeGeometries(ticks), unfog(CL.hand)));
-  const hand = (len, w) => {
-    const h = new THREE.Mesh(new THREE.BoxGeometry(w, len, 0.3).translate(0, len / 2, 0.5), unfog(CL.hand));
-    clock.add(h);
-    return h;
-  };
-  const hour = hand(CL.radius * 0.5, CL.radius * 0.06);
-  const minute = hand(CL.radius * 0.78, CL.radius * 0.035);
-  hour.rotation.z = -1.1;
   group.add(clock);
-  group.userData = { decor, clock: { hour, minute } };
+  group.userData = { decor, clock: { hour, minute }, lampSpots };
   return group;
+}
+
+/**
+ * The buildings' material: Lambert in the instance's (the look's stone) colour with a grid of
+ * windows drawn on the walls in world space (no textures), glowing amber at dusk and midnight
+ * (the look's `window`, `windowGlow`; dark teal panes at sunrise).
+ */
+function windowMaterial() {
+  const mat = new THREE.MeshLambertMaterial({ color: 0xffffff });
+  const u = { uWindow: { value: new THREE.Color() }, uGlow: { value: 0 } };
+  onLook((L) => {
+    u.uWindow.value.set(L.palette.window);
+    u.uGlow.value = L.palette.windowGlow;
+  });
+  mat.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, u);
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vWinW;\nvarying vec3 vWinN;')
+      .replace('#include <project_vertex>', '#include <project_vertex>\nvWinW = ( modelMatrix * instanceMatrix * vec4( transformed, 1.0 ) ).xyz;\nvWinN = normalize( mat3( modelMatrix * instanceMatrix ) * objectNormal );');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform vec3 uWindow;\nuniform float uGlow;\nvarying vec3 vWinW;\nvarying vec3 vWinN;\nfloat winMask() {\n  if ( abs( vWinN.y ) > 0.5 || vWinW.y < 1.6 ) return 0.0;\n  float along = abs( vWinN.x ) > abs( vWinN.z ) ? vWinW.z : vWinW.x;\n  vec2 cell = fract( vec2( along / 3.0, vWinW.y / 3.4 ) );\n  return step( 0.36, cell.x ) * step( cell.x, 0.64 ) * step( 0.4, cell.y ) * step( cell.y, 0.72 );\n}')
+      .replace('#include <color_fragment>', '#include <color_fragment>\nfloat win = winMask();\ndiffuseColor.rgb = mix( diffuseColor.rgb, uWindow, win * 0.7 );')
+      .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += uWindow * win * uGlow;');
+  };
+  mat.customProgramCacheKey = () => 'gearhavenWindows';
+  return mat;
 }
 
 /** The height of a rail at `s`: low rails rise from the street over `grind.ramp`. */
@@ -395,8 +444,8 @@ export async function loadSteamVentModel() {
   const V = R.vent;
   const g = new THREE.Group();
   const bars = [];
-  for (let i = -3; i <= 3; i++) bars.push([new THREE.BoxGeometry(V.radius * 1.6 * Math.sqrt(1 - (i / 4) ** 2), 0.06, 0.12).translate(0, 0.18, i * V.radius * 0.24), V.grate]);
-  const body = colorMerge([[new THREE.CylinderGeometry(V.radius, V.radius * 1.1, 0.16, 20).translate(0, 0.08, 0), V.color], ...bars]); // (ring and grate: one draw)
+  for (let i = -3; i <= 3; i++) bars.push([new THREE.BoxGeometry(V.radius * 1.6 * Math.sqrt(1 - (i / 4) ** 2), 0.06, 0.12).translate(0, 0.18, i * V.radius * 0.24), 'brass']);
+  const body = roleMerge([[new THREE.CylinderGeometry(V.radius, V.radius * 1.1, 0.16, 20).translate(0, 0.08, 0), 'darkSteel'], ...bars]); // (ring and grate: one draw)
   const glow = new THREE.Mesh(new THREE.CircleGeometry(V.radius * 0.9, 20).rotateX(-Math.PI / 2), additive(V.glow, 0.35));
   glow.position.y = 0.17;
   g.add(body, glow);
@@ -414,7 +463,7 @@ export async function loadGearDeckModel(deck, opts = {}) {
   const g = new THREE.Group();
   const chains = new THREE.Mesh(
     mergeGeometries([-1, 1].flatMap((sx) => [-1, 1].map((sz) => new THREE.CylinderGeometry(0.05, 0.05, 30, 4).translate((sx * deck.width) / 2.2, 15, (sz * len) / 2.2)))),
-    lambert(R.grind.post),
+    roleMaterial('darkSteel'),
   );
   g.add(chains);
   const F = R.factory;
@@ -428,11 +477,11 @@ export async function loadGearDeckModel(deck, opts = {}) {
     g.userData = { fade: [mat], kit: true };
     return g;
   }
-  const slab = new THREE.Mesh(new THREE.BoxGeometry(deck.width, 0.4, len), lambert(deck.color, { transparent: true }));
+  const slab = new THREE.Mesh(new THREE.BoxGeometry(deck.width, 0.4, len), roleMaterial('structure', { transparent: true }));
   slab.position.y = -0.2;
   const trim = new THREE.Mesh(
     mergeGeometries([-1, 1].map((s) => new THREE.BoxGeometry(0.2, 0.25, len).translate((s * deck.width) / 2, 0.05, 0))),
-    lambert(deck.trim, { transparent: true }),
+    roleMaterial('trim', { transparent: true }),
   );
   g.add(slab, trim);
   g.userData = { fade: [slab.material, trim.material], kit: false };
@@ -450,14 +499,14 @@ export async function loadHammerModel() {
   const frame = [];
   for (const side of [-1, 1]) frame.push(new THREE.BoxGeometry(0.45, H.pivot + 0.5, 0.45).translate(side * H.gantryHalf, (H.pivot + 0.5) / 2, 0));
   frame.push(new THREE.BoxGeometry(H.gantryHalf * 2 + 0.5, 0.45, 0.6).translate(0, H.pivot + 0.4, 0));
-  g.add(new THREE.Mesh(mergeGeometries(frame), lambert(H.color)));
+  g.add(new THREE.Mesh(mergeGeometries(frame), roleMaterial('structure')));
   const pivot = new THREE.Group();
   pivot.position.y = H.pivot;
   // (arm, head and band: one draw; `head` marks the head's centre for the hit test)
-  pivot.add(colorMerge([
-    [new THREE.BoxGeometry(0.22, H.arm, 0.22).translate(0, -H.arm / 2, 0), H.color],
-    [new THREE.BoxGeometry(...H.head).translate(0, -H.arm, 0), H.headColor],
-    [new THREE.BoxGeometry(H.head[0] * 1.04, H.head[1] * 0.25, H.head[2] * 1.04).translate(0, -H.arm, 0), H.band],
+  pivot.add(roleMerge([
+    [new THREE.BoxGeometry(0.22, H.arm, 0.22).translate(0, -H.arm / 2, 0), 'darkSteel'],
+    [new THREE.BoxGeometry(...H.head).translate(0, -H.arm, 0), 'steel'],
+    [new THREE.BoxGeometry(H.head[0] * 1.04, H.head[1] * 0.25, H.head[2] * 1.04).translate(0, -H.arm, 0), 'brass'],
   ]));
   const head = new THREE.Object3D();
   head.position.y = -H.arm;
@@ -473,10 +522,10 @@ export async function loadCogPlatformModel() {
   const parts = [new THREE.CylinderGeometry(P.radius * 0.9, P.radius * 0.9, P.height, 32).translate(0, P.height / 2, 0)];
   for (let i = 0; i < P.teeth; i++) parts.push(new THREE.BoxGeometry(P.radius * 0.18, P.height, P.radius * 0.22).translate(0, P.height / 2, P.radius * 0.93).rotateY((i / P.teeth) * TAU));
   const g = new THREE.Group();
-  g.add(colorMerge([
-    ...parts.map((p) => [p, P.color]),
-    [new THREE.CylinderGeometry(P.radius * 0.3, P.radius * 0.3, P.height + 0.04, 16).translate(0, (P.height + 0.04) / 2, 0), P.hub],
-    ...[0, 1, 2].map((i) => [new THREE.BoxGeometry(P.radius * 1.5, 0.03, 0.3).translate(0, P.height + 0.015, 0).rotateY((i / 3) * Math.PI), P.hub]),
+  g.add(roleMerge([
+    ...parts.map((p) => [p, 'brass']),
+    [new THREE.CylinderGeometry(P.radius * 0.3, P.radius * 0.3, P.height + 0.04, 16).translate(0, (P.height + 0.04) / 2, 0), 'darkSteel'],
+    ...[0, 1, 2].map((i) => [new THREE.BoxGeometry(P.radius * 1.5, 0.03, 0.3).translate(0, P.height + 0.015, 0).rotateY((i / 3) * Math.PI), 'darkSteel']),
   ])); // (one draw)
   return g;
 }
@@ -505,10 +554,10 @@ export async function loadConveyorModel(track, conv, opts = {}) {
         items.push({ geometry: belt, matrix: placeMatrix({ pos: p.pos, yaw: p.heading, scale: [(R.wall.offset * 2) / across / F.beltLength, 1, len / rows] }) });
       }
     }
-    g.add(mergeStatic(items, kitMaterial('factory'), 'conveyorBelt'));
-  } else g.add(new THREE.Mesh(ribbon(track, -R.wall.offset, R.wall.offset, 0.04, conv.s[0], conv.s[1], 1), lambert(CV.color)));
+    g.add(mergeStatic(items, kitMaterial('factory', 'conveyor'), 'conveyorBelt')); // (its own tint: brass and steel)
+  } else g.add(new THREE.Mesh(ribbon(track, -R.wall.offset, R.wall.offset, 0.04, conv.s[0], conv.s[1], 1), roleMaterial('darkSteel')));
   const n = Math.ceil((R.wall.offset * 2) / CV.slat);
-  const slats = new THREE.InstancedMesh(new THREE.BoxGeometry(0.22, 0.05, len * 0.96), lambert(CV.slatColor), n);
+  const slats = new THREE.InstancedMesh(new THREE.BoxGeometry(0.22, 0.05, len * 0.96), roleMaterial('brass'), n); // (brass, never white)
   g.add(slats);
   const items = Array.from({ length: n }, (_, i) => -R.wall.offset + i * CV.slat);
   g.userData = { slats, items, mid: (conv.s[0] + conv.s[1]) / 2, kit: !!belt };
@@ -522,8 +571,11 @@ export async function loadConveyorModel(track, conv, opts = {}) {
 export async function loadGearPickupModel(count, opts = {}) {
   const GR = R.gears;
   const { collectible } = await loadGearShapes(['collectible'], opts);
-  const gears = new THREE.InstancedMesh(isFallbackGear(collectible) ? gearGeometry(GR.size, 9, GR.size * 0.35) : collectible.clone().scale(GR.size * GR.fit, GR.size * GR.fit, GR.size * GR.fit), lambert(GR.color, { emissive: GR.emissive }), count);
-  const halos = new THREE.InstancedMesh(new THREE.SphereGeometry(GR.size * 1.7, 8, 6), additive(GR.halo, 0.22), count);
+  // (a soft glow: the look's emissive on the gear and its halo's colour / strength)
+  const gearMat = lambert(GR.color);
+  onLook((L) => gearMat.emissive.set(L.gears.emissive));
+  const gears = new THREE.InstancedMesh(isFallbackGear(collectible) ? gearGeometry(GR.size, 9, GR.size * 0.35) : collectible.clone().scale(GR.size * GR.fit, GR.size * GR.fit, GR.size * GR.fit), gearMat, count);
+  const halos = new THREE.InstancedMesh(new THREE.SphereGeometry(GR.size * 1.7, 8, 6), lookGlow((L) => [L.gears.halo, L.gears.haloK], { additive: true }), count);
   const g = new THREE.Group();
   g.add(gears, halos);
   g.userData = { gears, halos, kit: !isFallbackGear(collectible) };
@@ -535,8 +587,9 @@ export async function loadRideFxModels() {
   const SP = R.sparks;
   const ST = R.steam;
   const sparks = new THREE.InstancedMesh(new THREE.BoxGeometry(SP.size, SP.size, SP.size * 3), additive(0xffffff, 1), SP.max);
-  const puffs = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 1), additive(0xffffff, ST.opacity), ST.puffs);
-  for (const mesh of [sparks, puffs]) {
+  const puffs = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 1), steamMaterial(), ST.puffs); // (warm white, lit: never lost against the silver floor)
+  puffs.frustumCulled = false;
+  for (const mesh of [sparks]) {
     mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(mesh.count * 3), 3);
     mesh.frustumCulled = false;
   }
@@ -546,7 +599,7 @@ export async function loadRideFxModels() {
 
 /** The Fire Element's door across the end of the trail (the courtyard's door, bigger). */
 export async function loadRideDoorModel() {
-  const door = makeDoor(CONFIG.part2.levels.fire.color);
+  const door = makeDoor(CONFIG.part2.levels.fire.accent[0]);
   door.scale.setScalar(R.door.scale);
   return door;
 }

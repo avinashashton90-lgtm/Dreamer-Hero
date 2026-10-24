@@ -145,12 +145,15 @@ export function kitMaterial(kit, tint = K[kit].tint, extra = {}) {
   const mat = new THREE.MeshLambertMaterial({ map: kitTexture(kit, K[kit].texture), color: 0xffffff, ...extra });
   materials.set(key, mat);
   if (!T) return mat; // (no tint: the kit's own colours)
-  const col = (c) => new THREE.Color(c);
+  // (the uniforms live on the material, so setKitTint can change them after it compiles)
+  const u = {
+    uWarm: { value: new THREE.Color() }, uCool: { value: new THREE.Color() }, uGrey: { value: new THREE.Color() }, uGreyK: { value: 0 },
+    uRim: { value: new THREE.Color() }, uBoost: { value: 1 },
+  };
+  mat.userData.uniforms = u;
+  setTintUniforms(u, T);
   mat.onBeforeCompile = (shader) => {
-    Object.assign(shader.uniforms, {
-      uWarm: { value: col(T.warm) }, uCool: { value: col(T.cool) }, uGrey: { value: col(T.grey) }, uGreyK: { value: T.greyK },
-      uRim: { value: col(T.rim ?? 0).multiplyScalar(T.rimK ?? 0) }, uBoost: { value: T.boost ?? 1 },
-    });
+    Object.assign(shader.uniforms, u);
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', '#include <common>\nuniform vec3 uWarm;\nuniform vec3 uCool;\nuniform vec3 uGrey;\nuniform float uGreyK;\nuniform vec3 uRim;\nuniform float uBoost;')
       .replace('#include <map_fragment>', `
@@ -180,6 +183,21 @@ export function kitMaterial(kit, tint = K[kit].tint, extra = {}) {
   mat.customProgramCacheKey = () => 'gearhavenKit';
   mat.userData.tint = tint;
   return mat;
+}
+
+function setTintUniforms(u, T) {
+  u.uWarm.value.set(T.warm);
+  u.uCool.value.set(T.cool);
+  u.uGrey.value.set(T.grey);
+  u.uGreyK.value = T.greyK;
+  u.uRim.value.set(T.rim ?? 0).multiplyScalar(T.rimK ?? 0);
+  u.uBoost.value = T.boost ?? 1;
+}
+
+/** Change a tint (`K.tints[tint]` ← T) on every kit material already made with it (a Gearhaven look). */
+export function setKitTint(tint, T) {
+  K.tints[tint] = { ...K.tints[tint], ...T };
+  for (const mat of materials.values()) if (mat.userData.tint === tint && mat.userData.uniforms) setTintUniforms(mat.userData.uniforms, K.tints[tint]);
 }
 
 /** Plain brass / copper / iron Lambert for the gear props (shared; `name` from `K.metals`). */
@@ -244,11 +262,14 @@ export function mergeStatic(items, material, name = 'kitStatic') {
 
 /**
  * Parts of one model in different flat colours merged into a single mesh (one draw): `parts` =
- * [[geometry, colour]] → a Mesh with vertex colours on a Lambert material (`extra` its options).
+ * [[geometry, colour, role?]] → a Mesh with vertex colours on a Lambert material (`extra` its
+ * options). `userData.colorParts` = [{ start, count, role }] (vertex ranges: recolorMerge).
  */
 export function colorMerge(parts, extra = {}) {
   const col = new THREE.Color();
-  const geos = parts.map(([geo, color]) => {
+  const ranges = [];
+  let start = 0;
+  const geos = parts.map(([geo, color, role]) => {
     const g = (geo.index ? geo.toNonIndexed() : geo.clone());
     for (const n of Object.keys(g.attributes)) if (n !== 'position' && n !== 'normal') g.deleteAttribute(n);
     if (!g.attributes.normal) g.computeVertexNormals();
@@ -256,7 +277,23 @@ export function colorMerge(parts, extra = {}) {
     const c = new Float32Array(g.attributes.position.count * 3);
     for (let i = 0; i < c.length; i += 3) c.set([col.r, col.g, col.b], i);
     g.setAttribute('color', new THREE.BufferAttribute(c, 3));
+    ranges.push({ start, count: g.attributes.position.count, role });
+    start += g.attributes.position.count;
     return g;
   });
-  return new THREE.Mesh(mergeGeometries(geos), new THREE.MeshLambertMaterial({ vertexColors: true, ...extra }));
+  const mesh = new THREE.Mesh(mergeGeometries(geos), new THREE.MeshLambertMaterial({ vertexColors: true, ...extra }));
+  mesh.userData.colorParts = ranges;
+  return mesh;
+}
+
+/** Repaint a colorMerge mesh: each part with a role gets `colorOf(role)` (a colour value). */
+export function recolorMerge(mesh, colorOf) {
+  const attr = mesh.geometry.attributes.color;
+  const col = new THREE.Color();
+  for (const r of mesh.userData.colorParts ?? []) {
+    if (!r.role) continue;
+    col.set(colorOf(r.role));
+    for (let i = r.start; i < r.start + r.count; i++) attr.setXYZ(i, col.r, col.g, col.b);
+  }
+  attr.needsUpdate = true;
 }

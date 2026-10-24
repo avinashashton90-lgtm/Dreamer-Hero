@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { CONFIG } from '../config.js';
 import { loadKitPieces, kitMaterial, mergeStatic, placeMatrix } from '../kits.js';
+import { roleMaterial, steamMaterial } from './looks.js';
 
 // A distant brass city on the horizon (CONFIG.part2.skyline): Castle Kit towers and walls tinted
 // brass, with factory pipes and tall chimneys puffing slow steam — low detail, no collision,
@@ -84,18 +85,18 @@ export async function loadSkylineModel(spots, opts = {}) {
     const merged = mergeStatic(items, kitMaterial('castle', 'skyline'), 'skylineKit');
     group.add(merged);
   } else if (fallback.length) {
-    const blocks = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0), new THREE.MeshLambertMaterial({ color: SK.fallback, fog }), fallback.length);
+    const blocks = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0), roleMaterial('structure', { fog }), fallback.length);
     fallback.forEach((b, i) => blocks.setMatrixAt(i, new THREE.Matrix4().compose(new THREE.Vector3(b.x, 0, b.z), new THREE.Quaternion(), new THREE.Vector3(b.w, b.h, b.w))));
     blocks.computeBoundingSphere();
     group.add(blocks);
   }
   // The chimneys (tapered brick-copper cylinders, one InstancedMesh) and their slow steam.
-  const chim = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.75, 1, 1, 8).translate(0, 0.5, 0), new THREE.MeshLambertMaterial({ color: SK.chimney.color, fog }), chimneys.length);
+  const chim = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.75, 1, 1, 8).translate(0, 0.5, 0), roleMaterial('copper', { fog }), chimneys.length);
   chimneys.forEach((c, i) => chim.setMatrixAt(i, new THREE.Matrix4().compose(c.pos.clone().setY(0), new THREE.Quaternion(), new THREE.Vector3(c.r, c.pos.y, c.r))));
   chim.computeBoundingSphere();
   group.add(chim);
   const ST = SK.steam;
-  const puffs = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 1), new THREE.MeshBasicMaterial({ color: ST.color, transparent: true, opacity: ST.opacity, depthWrite: false, fog }), chimneys.length * ST.perChimney);
+  const puffs = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 1), steamMaterial({ fog }), chimneys.length * ST.perChimney);
   puffs.frustumCulled = false;
   group.add(puffs);
   const m = new THREE.Matrix4();

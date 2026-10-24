@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { CONFIG } from '../config.js';
 import { loadGearShapes, buildGearDecor, spinGearDecor, ringAngles } from './props.js';
-import { colorMerge } from '../kits.js';
+import { roleMerge, lookGlow } from './looks.js';
 
 // The clock tower (CONFIG.part2.clockTower): built in code, no model file — a stepped plinth, a
 // tall square shaft with brass corner pilasters and bands, a clock stage with a big face on each
@@ -62,14 +62,15 @@ export async function loadClockTowerModel(opts = {}) {
   const group = new THREE.Group();
   group.name = 'clockTower';
   // (stone, brass and dark parts: one vertex-coloured mesh; the dials unlit)
-  const body = colorMerge(['stone', 'brass', 'dark'].flatMap((k) => parts[k].map((g) => [g, CT.colors[k]])), { fog });
+  const role = { stone: 'towerStone', brass: 'brass', dark: 'darkSteel' }; // (the look's colours)
+  const body = roleMerge(['stone', 'brass', 'dark'].flatMap((k) => parts[k].map((g) => [g, role[k]])), { fog });
   body.name = 'clockTower:body';
-  const dials = new THREE.Mesh(mergeGeometries(parts.face.map((g) => (g.index ? g.toNonIndexed() : g))), new THREE.MeshBasicMaterial({ color: CT.colors.face, fog }));
+  const dials = new THREE.Mesh(mergeGeometries(parts.face.map((g) => (g.index ? g.toNonIndexed() : g))), lookGlow((L) => [L.clock.face], { fog }));
   dials.name = 'clockTower:face';
   group.add(body, dials);
   // The hands: one instance per face (hour and minute), turned each frame.
   const handGeo = (len, w) => new THREE.BoxGeometry(w, len, 0.2).translate(0, len / 2 - len * 0.12, 0);
-  const handMat = new THREE.MeshLambertMaterial({ color: CT.colors.hand, fog });
+  const handMat = lookGlow((L) => [L.clock.hand], { fog });
   const hour = new THREE.InstancedMesh(handGeo(K.face * 0.55, K.face * 0.09), handMat, faces.length);
   const minute = new THREE.InstancedMesh(handGeo(K.face * 0.82, K.face * 0.055), handMat, faces.length);
   hour.name = 'clockTower:hour';

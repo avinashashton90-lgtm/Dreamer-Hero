@@ -567,6 +567,20 @@ async function boot() {
       ...Object.entries(jumps).map(item),
       { header: DIALOGUE.testMenu.part2 },
       ...Object.entries(part2Jumps).map(item),
+      // Gearhaven's look (verdigris / midnight / sunrise): cycles at once if Part 2 is loaded (else when it is).
+      {
+        label: () => DIALOGUE.testMenu.look(CONFIG.part2.looks[CONFIG.part2.gearhavenLook].name),
+        keepOpen: true,
+        run: () => {
+          const p2 = levels.chapters.get('part2');
+          if (p2?.setLook) p2.setLook();
+          else {
+            const order = CONFIG.part2.looks.order;
+            CONFIG.part2.gearhavenLook = order[(order.indexOf(CONFIG.part2.gearhavenLook) + 1) % order.length];
+          }
+          ui.toast(CONFIG.part2.looks[CONFIG.part2.gearhavenLook].name);
+        },
+      },
       { label: DIALOGUE.testMenu.audio, run: () => audioTest.open() }, // (every sound, the music sections)
     ]);
   }

@@ -59,6 +59,13 @@ chase | hurdles | energy | arena`). All of them pass.
 | Props test (?debug) | 112 | 65k | — |
 | Castle gate / portal scene, Castle Kit castle | 86 / 108 | 192k / 201k | — |
 
+Gearhaven looks (added later; same spots): the ride at its start 129 calls / 177k triangles, at
+the saws 112 / 150k, at the last rails 77 / 104k; the courtyard 95 calls / 46k (Tick alone is 21
+meshes); the Props test 113 / 58k. The silver floor's on-screen luminance (0–255, a floor patch
+in front of AJ): Verdigris Dusk ~170, Midnight Clockwork ~153, Sunrise Brass ~189 — no pixel
+clipped at 250+ in any look, the sky / far land well below it (21–133), so the floor stands out
+without glare on a bright phone and stays readable dimmed.
+
 The kit rows (Pixel 7 landscape) count the most draw calls / triangles over 3 s at that spot.
 Static kit pieces are merged per material and stretch of trail, so the kits brought the ride's
 meshes down from 103 (first pass) to 80 while adding the rails, factory, skyline and clock tower.

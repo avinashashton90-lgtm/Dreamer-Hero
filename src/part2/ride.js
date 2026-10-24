@@ -698,10 +698,10 @@ export class Ride {
       }
       p.age += dt;
       const k = p.age / ST.life;
-      const s = p.size * (0.5 + k);
+      // (normal-blended, lit: it swells and shrinks away instead of fading by colour)
+      const s = p.size * (0.5 + k) * Math.sin(Math.PI * Math.min(1, k * 0.9 + 0.1));
       m.makeScale(s, s, s).setPosition(p.p.x, p.p.y + ST.rise * k, p.p.z);
       puffs.setMatrixAt(i, m);
-      puffs.setColorAt(i, col.setHex(ST.color).multiplyScalar(Math.sin(Math.PI * Math.min(1, k)) * 0.9));
     }
     // Pickup sparkles: out and up, twinkling, fading.
     const { sparkles } = this.parts.fx;

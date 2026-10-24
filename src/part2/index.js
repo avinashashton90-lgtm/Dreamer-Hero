@@ -7,6 +7,8 @@ import { loadRobotModel } from './robots.js';
 import { spinGearDecor } from './props.js';
 import { loadClockTowerModel } from './clockTower.js';
 import { buildPropsShowcase } from './propsTest.js';
+import { buildLookRig, applyLook, nextLook, look, primeLookTints } from './looks.js';
+import { makeFloorMaterial } from './floor.js';
 import { RideWorld, Ride, loadRide } from './ride.js';
 import { trackPoint } from './rideModel.js';
 
@@ -45,12 +47,12 @@ class Part2 {
 
   async init() {
     const scene = (this.scene = new THREE.Scene());
-    scene.background = new THREE.Color(GH.background);
-    scene.fog = new THREE.Fog(GH.fog.color, GH.fog.near, GH.fog.far);
-    scene.add(new THREE.HemisphereLight(GH.hemi.sky, GH.hemi.ground, GH.hemi.intensity));
-    const sun = new THREE.DirectionalLight(GH.sun.color, GH.sun.intensity);
-    sun.position.set(...GH.sun.dir).multiplyScalar(50);
-    scene.add(sun);
+    // The look (looks.js, `part2.gearhavenLook`): its kit tints first (before any kit material
+    // is made), then the sky dome, fog, hemisphere, sun and amber point lights.
+    primeLookTints();
+    scene.background = new THREE.Color(look().fog);
+    scene.fog = new THREE.Fog(look().fog, GH.fog.near, GH.fog.far);
+    this.rig = buildLookRig(scene);
     this.world = new GearhavenWorld();
     this.world.addFloor(0, 0, GH.floor.radius, GH.floor.wall);
     this.gearhaven = await loadGearhavenModel(this.assets ?? {});
@@ -65,7 +67,7 @@ class Part2 {
     this.timeTower = await loadClockTowerModel(this.assets ?? {});
     this.timeTower.scale.setScalar(CT.time.scale);
     this.timeTower.position.set(0, 0, -CT.time.back);
-    const isle = new THREE.Mesh(new THREE.CylinderGeometry(CT.base.steps[0][0] * CT.time.scale, CT.base.steps[0][0] * CT.time.scale * 0.5, 1.6, 24), new THREE.MeshLambertMaterial({ color: GH.floor.color }));
+    const isle = new THREE.Mesh(new THREE.CylinderGeometry(CT.base.steps[0][0] * CT.time.scale, CT.base.steps[0][0] * CT.time.scale * 0.5, 1.6, 24), makeFloorMaterial());
     isle.position.set(0, -0.8, -CT.time.back);
     this.stubs.time.group.add(this.timeTower, isle);
     this.steam = Array.from({ length: GH.steam.puffs }, () => ({ age: Infinity }));
@@ -89,13 +91,13 @@ class Part2 {
       const x = (i + 1) * L.stub.gap;
       const g = new THREE.Group();
       g.position.set(x, 0, 0);
-      const disc = new THREE.Mesh(new THREE.CylinderGeometry(L.stub.radius, L.stub.radius * 0.7, 1.2, 32), new THREE.MeshLambertMaterial({ color: GH.floor.color }));
+      const disc = new THREE.Mesh(new THREE.CylinderGeometry(L.stub.radius, L.stub.radius * 0.7, 1.2, 32), makeFloorMaterial());
       disc.position.y = -0.6;
-      const crystal = new THREE.Mesh(new THREE.OctahedronGeometry(L.stub.crystal, 0), new THREE.MeshBasicMaterial({ color: L[id].color }));
+      const crystal = new THREE.Mesh(new THREE.OctahedronGeometry(L.stub.crystal, 0), new THREE.MeshBasicMaterial({ color: L[id].accent[0] })); // (the level's accent colour)
       crystal.position.set(0, 2.2, -L.stub.radius * 0.45);
-      const halo = new THREE.Mesh(new THREE.SphereGeometry(L.stub.crystal * 2.2, 12, 8), new THREE.MeshBasicMaterial({ color: L[id].color, transparent: true, opacity: 0.25, blending: THREE.AdditiveBlending, depthWrite: false }));
+      const halo = new THREE.Mesh(new THREE.SphereGeometry(L.stub.crystal * 2.2, 12, 8), new THREE.MeshBasicMaterial({ color: L[id].accent[1], transparent: true, opacity: 0.25, blending: THREE.AdditiveBlending, depthWrite: false }));
       halo.position.copy(crystal.position);
-      const back = makeDoor(GH.floor.color);
+      const back = makeDoor(L[id].accent[0]);
       back.position.set(0, 0, L.stub.back);
       back.rotation.y = Math.PI; // (facing the platform)
       g.add(disc, crystal, halo, back);
@@ -414,12 +416,17 @@ class Part2 {
   }
 
   /** The hero, horse and camera on `world`; the sky and fog of `look` ({ background, fog }). */
-  #useWorld(world, look) {
+  #useWorld(world, area) {
     this.hero.world = this.horse.world = this.cam.world = world;
-    this.scene.background.set(look.background);
-    this.scene.fog.color.set(look.fog.color);
-    this.scene.fog.near = look.fog.near;
-    this.scene.fog.far = look.fog.far;
+    // (the colours are the look's; the fog's reach is the area's — the courtyard's or the ride's)
+    this.scene.fog.near = area.fog.near;
+    this.scene.fog.far = area.fog.far;
+  }
+
+  /** Switch Gearhaven's look (looks.js; `name`, or the next one): everything repainted at once. */
+  setLook(name = null) {
+    const L = name ? applyLook(name) : nextLook();
+    return L;
   }
 
   /** A level: today a stub platform ("coming soon") with its crystal and the door back. */
@@ -532,7 +539,7 @@ class Part2 {
       const show = await buildPropsShowcase(this.assets ?? {});
       if (this.at !== 'props') return;
       show.group.position.z = PT.z;
-      const strip = new THREE.Mesh(new THREE.BoxGeometry(show.width + 12, 0.6, PT.floor.depth), new THREE.MeshLambertMaterial({ color: PT.floor.color }));
+      const strip = new THREE.Mesh(new THREE.BoxGeometry(show.width + 12, 0.6, PT.floor.depth), makeFloorMaterial());
       strip.position.y = -0.3;
       show.group.add(strip);
       this.world.addFloor(show.items[0].x - 4, PT.z + 2.5, 4, 3.5); // (where AJ and the horse stand)
@@ -661,6 +668,9 @@ class Part2 {
     else if (cinematic.active) cinematic.update(paused ? 0 : realDt);
     else cam.update(realDt, hero.position, { mounted: horse.mounted, speed: riding ? horse.speedRatio : 0, gallop: riding && horse.galloping, heading: horse.heading });
     if (!cinematic.active) hero.cameraOpacity = cam.heroOpacity;
+    // (the sky dome round the camera; the amber point lights on the lamps nearest AJ)
+    const spots = riding ? this.rideParts.city.userData.lampSpots : this.at === 'courtyard' || this.at === 'arrival' ? this.gearhaven.userData.lampSpots : [];
+    this.rig.update(cam.camera, hero.position, spots);
   }
 
   /** Walking into a doorway: the objective's door opens its level; a level's back door the courtyard. */

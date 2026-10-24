@@ -333,6 +333,34 @@ const scale0 = horse.model.scale.x;
     `the Credits list: ${C.entries.length} entries (Quaternius, Kenney — CC0; the Poly by Google gear's exact attribution)`);
 }
 
+// 7c) Gearhaven's looks: each one repaints the sky, fog, lights, floor, path and kit tints; the
+// floor stays silver (never pure white) and the conveyors brass / steel in every look.
+{
+  await levels.load('part2', { start: 'courtyard' });
+  const p2 = levels.current;
+  const LK = P2.looks;
+  const start = P2.gearhavenLook;
+  const hex = (n) => [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  const inBox = (c) => { const [r, g, b] = hex(c); return r >= 0xc9 && g >= 0xd1 && b >= 0xd6 && r <= 0xe3 && g <= 0xe8 && b <= 0xeb; };
+  const floorMat = p2.gearhaven.userData.floor.material;
+  const seen = [];
+  for (const name of LK.order) {
+    p2.setLook(name);
+    await frame();
+    const L = LK[name];
+    const conv = CONFIG.kits.tints.conveyor;
+    const greyOk = Math.max(...hex(conv.grey)) < 0xb0 && Math.max(...hex(conv.cool)) < 0xc0; // (dark enough: the belt never renders white)
+    seen.push(`${L.name}: fog #${p2.scene.fog.color.getHexString()}, floor #${floorMat.color.getHexString()}, edge #${L.path.edge.toString(16)}`);
+    check(P2.gearhavenLook === name && p2.scene.fog.color.getHex() === L.fog && p2.rig.hemi.color.getHex() === L.hemi.sky && floorMat.color.getHex() === L.floor.base && inBox(L.floor.base) && L.floor.base !== 0xffffff
+      && CONFIG.kits.tints.factory.cool === L.tints.factory.cool && greyOk && p2.rig.points.length === LK.lights,
+      `the "${L.name}" look: sky, fog, lights, the silver floor (#${L.floor.base.toString(16)}, in #c9d1d6–#e3e8eb), kit tints, the conveyors brass / steel`);
+  }
+  p2.setLook(); // (cycles)
+  check(P2.gearhavenLook !== LK.order[LK.order.length - 1] && typeof DIALOGUE.testMenu.look('x') === 'string', `the ?debug "Look" button cycles them (${seen.length} looks)`);
+  p2.setLook(start);
+  check(P2.levels.order.every((id) => P2.levels[id].accent?.length === 2) && P2.levels.final.accent, 'a pair of accent colours per level (Fire, Lightning, Steam, Magnet, Time, the final fight)');
+}
+
 // 8) A chapter that fails to load leaves the game where it is.
 {
   const bad = new LevelManager({ part1: async () => part1, broken: async () => { throw new Error('boom'); } });

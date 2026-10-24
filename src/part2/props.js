@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { CONFIG } from '../config.js';
 import { loadPropGear, loadKitGear, colorMerge } from '../kits.js';
 import { bigGearGeometry } from './gearhaven.js';
+import { roleMaterial } from './looks.js';
 
 // Gearhaven's gear props (CONFIG.part2.props): the Poly Pizza / Quaternius gears and the Factory
 // Kit's cogs as one regular shape each (centred, axle along +Z, radius 1 — kits.js), turning
@@ -93,7 +94,7 @@ export async function loadSawModel(opts = {}) {
   const g = new THREE.Group();
   g.name = 'saw';
   const slotLen = S.travel * 2 + S.radius * 2;
-  const slot = new THREE.Mesh(new THREE.BoxGeometry(slotLen, 0.05, S.slotWidth), new THREE.MeshLambertMaterial({ color: S.slot }));
+  const slot = new THREE.Mesh(new THREE.BoxGeometry(slotLen, 0.05, S.slotWidth), roleMaterial('darkSteel'));
   slot.position.y = 0.025;
   const blade = new THREE.Group();
   // (the blade and its brass hub: one draw; its axle along local z — the blade's face across the trail)

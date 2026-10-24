@@ -5,6 +5,7 @@ import { loadGearShapes, buildGearDecor, spinGearDecor, loadSawModel } from './p
 import { loadClockTowerModel } from './clockTower.js';
 import { loadCastleModel } from '../world.js';
 import { applyCastleKit } from '../castleKit.js';
+import { roleMaterial, steamMaterial } from './looks.js';
 
 // The "Props test" (?debug; CONFIG.part2.propsTest): every kind of kit prop in a row, so they can
 // be looked at — the turning gears (gear_01, the gear cluster, a Factory Kit cog, the collectible
@@ -58,8 +59,8 @@ export async function buildPropsShowcase(opts = {}) {
   // A conveyor: three belt sections side by side, slats sliding across them.
   {
     const g = new THREE.Group();
-    if (K[F.belt]) g.add(mergeStatic([-1, 0, 1].map((i) => piece(K[F.belt], new THREE.Vector3(0, 0, i), [1, 1, 1])), mat));
-    const slats = new THREE.InstancedMesh(new THREE.BoxGeometry(0.16, 0.04, 2.9), new THREE.MeshLambertMaterial({ color: R.conveyor.slatColor }), PT.slats);
+    if (K[F.belt]) g.add(mergeStatic([-1, 0, 1].map((i) => piece(K[F.belt], new THREE.Vector3(0, 0, i), [1, 1, 1])), kitMaterial('factory', 'conveyor')));
+    const slats = new THREE.InstancedMesh(new THREE.BoxGeometry(0.16, 0.04, 2.9), roleMaterial('brass'), PT.slats);
     g.add(slats);
     let off = 0;
     const m = new THREE.Matrix4();
@@ -81,7 +82,7 @@ export async function buildPropsShowcase(opts = {}) {
       if (K[F.valve]) items2.push(piece(K[F.valve], new THREE.Vector3(1.2, 0, 0), 1));
     }
     if (items2.length) g.add(mergeStatic(items2, mat));
-    const puffs = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 1), new THREE.MeshBasicMaterial({ color: R.steam.color, transparent: true, opacity: R.steam.opacity * 0.5, blending: THREE.AdditiveBlending, depthWrite: false }), PT.puffs);
+    const puffs = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 1), steamMaterial(), PT.puffs);
     puffs.frustumCulled = false;
     g.add(puffs);
     let pt = 0;

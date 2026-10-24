@@ -649,6 +649,7 @@ export const CONFIG = {
       railBrass: { warm: 0xd89a2c, cool: 0xc88e2a, grey: 0xc08a2a, greyK: 0.9, boost: 1.1, rim: 0xfff0c8, rimK: 0.3 },     // the Monorail track: brass
       railCopper: { warm: 0xc8703a, cool: 0xb8643a, grey: 0xc06a3a, greyK: 0.9, boost: 1.1, rim: 0xffe0c8, rimK: 0.3 },    // the Steel track: copper
       railSupports: { warm: 0x7a5a30, cool: 0x6a4a2a, grey: 0x5e4428, greyK: 0.8, boost: 1.0, rim: 0xffe0c0, rimK: 0.12 }, // their supports: dark bronze
+      conveyor: { warm: 0xd9a441, cool: 0x5a6873, grey: 0x46525c, greyK: 0.85, boost: 1.0, rim: 0xbfe8e0, rimK: 0.1 },       // conveyor belts: brass and steel (the look sets it)
       skyline: { warm: 0xc9a23a, cool: 0xa45a32, grey: 0x9a7a48, greyK: 0.75, boost: 0.9, rim: 0xffe6c0, rimK: 0.0 }, // the distant brass city
     },
     metals: {
@@ -699,18 +700,123 @@ export const CONFIG = {
       whiteOutMs: 650,         // fade to white, then Part 2 loads...
       whiteInMs: 1200,         // ...and the white clears in Gearhaven
     },
+    // Gearhaven's look (part2/looks.js): one of `looks` — the sky (a gradient dome), the fog, the
+    // lights, the far land, the floor, the path marks and the colours every part takes by role.
+    // The ?debug menu's "Look" button cycles them while playing.
+    gearhavenLook: 'verdigris',
+    looks: {
+      order: ['verdigris', 'midnight', 'sunrise'],
+      // A) A deep teal-to-navy dusk; verdigris structures and dark steel; brass and copper only on
+      // gears, rails, trim and Tick; warm amber lamps as point lights.
+      verdigris: {
+        name: 'Verdigris Dusk',
+        sky: { top: 0x1b2a41, horizon: 0x3b6e8f, below: 0x24384a },
+        fog: 0x24384a,
+        ground: 0x2e3b45,     // the far land beyond the city floor (and the path's dark mark in the far distance)
+        hemi: { sky: 0xa9c8d8, ground: 0x2e3b45, intensity: 0.95 },
+        sun: { color: 0xffd6a8, intensity: 0.95, dir: [0.4, 0.75, 0.5] },
+        lamps: { color: 0xffb347, intensity: 26, distance: 20, head: 0xffc56a, halo: 0.4 },
+        floor: { base: 0xc9d1d6, centre: 0xaab4bb, lift: 0.3, engrave: 0x9faab2, engraveK: 0.55, specular: 0x2c3236, shininess: 36, sheen: 0x3b6e8f, sheenK: 0.22 },
+        path: { edge: 0xd9a441, glow: 0.18 },
+        palette: {
+          structure: 0x3fa796, steel: 0x4a5863, darkSteel: 0x26303a, brass: 0xd9a441, copper: 0xb8693d, trim: 0xd9a441,
+          towerStone: 0x34424c, ground: 0x2e3b45,
+          stone: [0x34424d, 0x3b4a55, 0x2e3b45, 0x435260], roof: [0x3fa796, 0x2f8577],
+          window: 0xffb347, windowGlow: 0.5,
+        },
+        tints: {
+          factory: { warm: 0xd9a441, cool: 0x3fa796, grey: 0x3a4650, greyK: 0.85, boost: 1.0, rim: 0xbfe8e0, rimK: 0.15 },
+          railSupports: { warm: 0x4a5863, cool: 0x3a4650, grey: 0x2e3a44, greyK: 0.85, boost: 1.0, rim: 0xbfe8e0, rimK: 0.1 },
+          conveyor: { warm: 0xd9a441, cool: 0x5a6873, grey: 0x46525c, greyK: 0.85, boost: 1.0, rim: 0xbfe8e0, rimK: 0.1 }, // (the belts: brass and steel, never white)
+          skyline: { warm: 0x3fa796, cool: 0x2f7f72, grey: 0x2a3a46, greyK: 0.85, boost: 0.9, rim: 0, rimK: 0 },
+        },
+        clock: { face: 0xf3e6c4, rim: 0xd9a441, hand: 0x1b2a41, glow: 0xffd88a, glowK: 0.3 },
+        steam: { color: 0xfff1e0, emissive: 0x2b2722, opacity: 0.55 },
+        gears: { halo: 0xffd27a, haloK: 0.3, emissive: 0x4a3008 },
+      },
+      // B) An indigo-purple night lit by the huge golden clock face; dark blue-grey structures,
+      // a glowing gold path edge, brass props, amber windows; deep violet fog.
+      midnight: {
+        name: 'Midnight Clockwork',
+        sky: { top: 0x0e0a26, horizon: 0x3a2466, below: 0x1e1438 },
+        fog: 0x2a1840,
+        ground: 0x1e2438,
+        hemi: { sky: 0x5a4a9a, ground: 0x141830, intensity: 0.85 },
+        sun: { color: 0xffc860, intensity: 1.05, dir: [0.15, 0.55, -1] }, // (from the clock face's side: the courtyard's clock stands at −z)
+        lamps: { color: 0xffb347, intensity: 22, distance: 18, head: 0xffc56a, halo: 0.45 },
+        floor: { base: 0xcdd4da, centre: 0xadb6be, lift: 0.36, engrave: 0x9faab2, engraveK: 0.5, specular: 0x30302c, shininess: 40, sheen: 0x5a3c8c, sheenK: 0.25 },
+        path: { edge: 0xf2c040, glow: 0.9 },
+        palette: {
+          structure: 0x34405a, steel: 0x3a4466, darkSteel: 0x1e2236, brass: 0xe0b04a, copper: 0xb8693d, trim: 0xe0b04a,
+          towerStone: 0x2a2e48, ground: 0x1e2438,
+          stone: [0x2a3050, 0x323a5c, 0x262b47, 0x383f63], roof: [0x4a3f7a, 0x6a5428],
+          window: 0xffb347, windowGlow: 0.7,
+        },
+        tints: {
+          factory: { warm: 0xe0b04a, cool: 0xb08a3a, grey: 0x2e3654, greyK: 0.85, boost: 1.0, rim: 0xffd48a, rimK: 0.2 },
+          railSupports: { warm: 0x3a4466, cool: 0x2e3654, grey: 0x262c46, greyK: 0.85, boost: 1.0, rim: 0xffd48a, rimK: 0.12 },
+          conveyor: { warm: 0xe0b04a, cool: 0x4a5272, grey: 0x3a4262, greyK: 0.85, boost: 1.0, rim: 0xffd48a, rimK: 0.12 },
+          skyline: { warm: 0x3a3466, cool: 0x2a2550, grey: 0x1e2238, greyK: 0.9, boost: 0.9, rim: 0, rimK: 0 },
+        },
+        clock: { face: 0xffcf4a, rim: 0xffe08a, hand: 0x3a2466, glow: 0xffc040, glowK: 0.7 },
+        steam: { color: 0xffeacc, emissive: 0x3a3022, opacity: 0.55 },
+        gears: { halo: 0xffd060, haloK: 0.5, emissive: 0x6a4410 },
+      },
+      // C) A pale cream-to-peach morning with teal shadows; light stone, a teal-edged path, brass
+      // and copper props, a soft warm sun; pale warm-grey fog.
+      sunrise: {
+        name: 'Sunrise Brass',
+        sky: { top: 0xf3e7cf, horizon: 0xf6c9a2, below: 0xcfc6ba },
+        fog: 0xcfc6ba,
+        ground: 0xd6cab4,
+        hemi: { sky: 0xfff1dc, ground: 0x4e8c8a, intensity: 0.95 }, // (teal from below: teal shadows)
+        sun: { color: 0xffe2b8, intensity: 1.05, dir: [0.6, 0.85, 0.3] },
+        lamps: { color: 0xffb347, intensity: 0, distance: 18, head: 0xffd9a0, halo: 0.12 }, // (daylight: the lamps unlit)
+        floor: { base: 0xdbe1e5, centre: 0xbac4ca, lift: 0.2, engrave: 0x9faab2, engraveK: 0.45, specular: 0x262829, shininess: 30, sheen: 0xf2c9a0, sheenK: 0.1 },
+        path: { edge: 0x2f9c94, glow: 0.05 },
+        palette: {
+          structure: 0x4e8c8a, steel: 0x7a868e, darkSteel: 0x4b5660, brass: 0xd9a441, copper: 0xc27548, trim: 0xd9a441,
+          towerStone: 0xd8cdb8, ground: 0xd6cab4,
+          stone: [0xe2d6c2, 0xd8cab4, 0xe8dcc8, 0xcfc0a8], roof: [0x3f8e8a, 0xc27548],
+          window: 0x3e6e73, windowGlow: 0.0,
+        },
+        tints: {
+          factory: { warm: 0xe0aa3a, cool: 0xb8693d, grey: 0x7f8a8c, greyK: 0.75, boost: 1.0, rim: 0xfff0d8, rimK: 0.12 },
+          railSupports: { warm: 0x7a5a30, cool: 0x6a4a2a, grey: 0x5e4428, greyK: 0.8, boost: 1.0, rim: 0xffe0c0, rimK: 0.12 },
+          conveyor: { warm: 0xd9a441, cool: 0x6e7a82, grey: 0x5e6a72, greyK: 0.85, boost: 1.0, rim: 0xfff0d8, rimK: 0.1 },
+          skyline: { warm: 0x4e8c8a, cool: 0x3f7a78, grey: 0x5f7a7c, greyK: 0.85, boost: 0.95, rim: 0, rimK: 0 },
+        },
+        clock: { face: 0xf6eedc, rim: 0xc27548, hand: 0x2f4f55, glow: 0xffe6b8, glowK: 0.18 },
+        steam: { color: 0xfff4e8, emissive: 0x000000, opacity: 0.6 },
+        gears: { halo: 0xffe7a0, haloK: 0.22, emissive: 0x3a2404 },
+      },
+      lights: 3,              // amber point lights, put on the lamps nearest AJ each frame (a fixed number: no shader rebuilds)
+      dome: { radius: 600, horizon: 0.18 }, // the sky dome round the camera; the horizon band's height (of the up direction)
+    },
+    // The silver floor (part2/floor.js; every look): polished silver-white (never pure white, kept
+    // below full brightness against glare; each look's floor `lift` is a little self-light so it
+    // reads silver-white at dusk and midnight too) with a faint sheen and faint engravings in a slightly
+    // darker silver — fine seams every `seam`, concentric clock rings round a centre every
+    // `ringCell` (and on the courtyard's middle), big gear outlines every `gearCell` — faded out
+    // with distance (`fade`) so they never shimmer. On the ride the city floor runs `plaza` either
+    // side of the trail, the path's darker centre strip is ±`centre` and its edge lines run `edge`
+    // out from the centre line.
+    floor: {
+      seam: 8, seamWidth: 0.05, ringCell: 96, ringStep: 4, ringMax: 34, ringWidth: 0.08, ticks: 12,
+      gearCell: 64, gearRadius: 13, gearTeeth: 18, gearTooth: 1.3, gearWidth: 0.1, fade: [22, 80],
+      plaza: 42, centre: 1.4, edge: [6.3, 6.75],
+    },
     // Gearhaven: a brass courtyard under a sky of huge slow-turning gears, cogs and steam, the
     // Dream Clock's face far away, warm lights (placeholders: loadGearhavenModel()).
     gearhaven: {
-      background: 0x6a4a2c, fog: { color: 0x7a5636, near: 35, far: 190 },
-      hemi: { sky: 0xffd9a0, ground: 0x4a3020, intensity: 1.1 }, sun: { color: 0xffc27a, intensity: 1.3, dir: [0.4, 1, 0.3] },
-      floor: { radius: 24, wall: 23, color: 0xb8893e, inlay: 0x8a5a2b, ring: 0x6e4a26 },
-      wallRing: { height: 1.4, color: 0x7a4f25 },
-      pillars: { count: 10, radius: 0.55, height: 6, color: 0x8b5e2c, lampColor: 0xffc06a },
+      fog: { near: 35, far: 190 },  // (its colour, the sky, the lights and every colour here: the look's — gearhavenLook)
+      floor: { radius: 24, wall: 23 },
+      wallRing: { height: 1.4 },
+      pillars: { count: 10, radius: 0.55, height: 6 },
       skyGears: { count: 7, radius: [14, 32], height: [38, 62], spread: 70, speed: [0.03, 0.08], depth: 1.6, shapes: ['gear01', 'cluster'] }, // (depth: a little thicker, they're huge)
       cogs: { count: 9, radius: [0.9, 2.2], speed: 0.6, shapes: ['cogA', 'cogC'], metals: ['brass', 'copper'] }, // (few shapes: one draw each)
-      clock: { at: [0, 46, -140], radius: 26, face: 0xf3e6c4, rim: 0x9c7432, hand: 0x3a2a1c, glow: 0xffd88a, slow: 0.02 },
-      steam: { vents: 5, puffs: 36, life: 2.6, rise: 2.2, size: [0.5, 1.3], color: 0xfff6ea, opacity: 0.28, every: 4, hiss: 0.25 },
+      clock: { at: [0, 46, -140], radius: 26, slow: 0.02 },
+      steam: { vents: 5, puffs: 36, life: 2.6, rise: 2.2, size: [0.5, 1.3], every: 4, hiss: 0.25 },
       doors: { radius: 20.5, height: 4.4, width: 2.8, reach: 1.8 }, // the element doors round the courtyard
     },
     // Tick: a small floating brass robot guide (loadTickModel(): the Quaternius Animated Robot,
@@ -775,7 +881,7 @@ export const CONFIG = {
     // floating at `z`, `gap` apart, with a label each; the camera slides along the row and back (a swipe
     // moves it). Gears: [label, shape, radius, metal].
     propsTest: {
-      z: 90, gap: 2.4, floor: { depth: 14, color: 0xa87a3a }, // (on its own brass strip, away from the courtyard)
+      z: 90, gap: 2.4, floor: { depth: 14 }, // (on its own strip of silver floor, away from the courtyard)
       gears: [['Gear (gear_01)', 'gear01', 1.2, 'brass'], ['Gear cluster', 'cluster', 1.4, 'copper'], ['Cog (Factory Kit)', 'cogA', 1, 'brass'], ['Collectible gear', 'collectible', 0.6, 'gold']],
       spin: 0.8, sawScale: 0.8, kitScale: 1.6, railGap: 2.2, slats: 10, puffs: 8, towerScale: 0.3, castleScale: 0.25, gatePeriod: 6,
       camera: { dist: 12, height: 3.6, look: 1.8, speed: 3, ahead: 2, swipe: 40 },
@@ -810,12 +916,15 @@ export const CONFIG = {
     // The levels (each a stub "coming soon" platform until built), and Amy's final fight.
     levels: {
       order: ['fire', 'lightning', 'steam', 'magnet', 'time'],
-      fire: { color: 0xff6a2a, angle: -0.7 },
-      lightning: { color: 0x9fd6ff, angle: -0.35 },
-      steam: { color: 0xf2f2ea, angle: 0 },
-      magnet: { color: 0xd04040, angle: 0.35 },
-      time: { color: 0xc9b8ff, angle: 0.7 },
-      final: { color: 0x9a6bff },
+      // Each level's accent colours [main, second] (its door's glow, its crystal; the levels to
+      // come will build on them): Fire red-orange, Lightning blue-violet, Steam white-teal,
+      // Magnet steel and magenta, Time gold on deep blue.
+      fire: { accent: [0xff4a1c, 0xffa040], angle: -0.7 },
+      lightning: { accent: [0x6f6bff, 0xb48cff], angle: -0.35 },
+      steam: { accent: [0xeef8f5, 0x3fb8a8], angle: 0 },
+      magnet: { accent: [0xd63fa8, 0x8c98a4], angle: 0.35 },
+      time: { accent: [0xf0c048, 0x14204a], angle: 0.7 },
+      final: { accent: [0x9a6bff, 0xe0d4ff] },
       stub: { radius: 9, gap: 120, crystal: 0.8, back: 6.5 }, // a platform per level this far apart; a crystal; the door back
     },
     music: 'gearhaven',
@@ -836,7 +945,6 @@ export const CONFIG = {
       shaft: { width: 9, height: 38, pilaster: 1.1, bands: 3, windows: 4 },
       stage: { width: 11, height: 11, face: 4.4 },               // the clock stage, a face on each side
       roof: { height: 15, spire: 6 },                             // the pointed brass roof and its spire
-      colors: { stone: 0x8a6440, brass: 0xc9a23a, dark: 0x2a1c12, face: 0xf3e6c4, hand: 0x2a1c12 },
       gears: { count: 6, ring: 9.6, radius: 3.4, up: 0.7, speed: 0.25, shapes: ['cogA', 'cogC'], metals: ['brass', 'copper'] }, // turning round the base
       minutesPerSecond: 3, startMinute: 130,
       courtyard: { dist: 112, scale: 1 }, // toward the Time door, this far from the courtyard's centre
@@ -850,9 +958,8 @@ export const CONFIG = {
       seed: 21, scale: [7, 11], hexShare: 0.3, twinShare: 0.55,
       towers: { square: ['tower-square-base', 'tower-square-mid', 'tower-square-roof'], hexagon: ['tower-hexagon-base', 'tower-hexagon-base', 'tower-hexagon-roof'], mids: [1, 3] },
       wall: 'wall', pipe: 'pipe-large-long',
-      chimney: { height: [3.5, 5.5], radius: 0.35, color: 0x6e4028 },
+      chimney: { height: [3.5, 5.5], radius: 0.35 },
       steam: { perChimney: 3, life: 7, every: 7, grow: 2.2, rise: 9, drift: [4, 1.5], color: 0xfff1e0, opacity: 0.32 },
-      fallback: 0x9a7a48,
       courtyard: { count: 14, radius: [108, 140], clearOfLevels: 0.55, clearOfTower: 40 }, // (none toward the level platforms at +x, nor at the clock tower)
       ride: { every: 66, lat: [72, 110], minClear: 55 },
     },
@@ -869,20 +976,19 @@ export const CONFIG = {
       wall: { offset: 7.3, height: 7 }, // invisible side walls along the whole ride (the horse rails along them)
       checkpoints: [0, 205, 335, 495, 625], // s of each (the first is the start)
       checkpointRadius: 9, checkpointSide: 8.6, // reached within this of the trail point; the flag stands this far right of the centre
-      sky: { background: 0xe9b866, fog: { color: 0xe2ad5c, near: 45, far: 260 } }, // a warm gold sky, a gentle fog
-      ground: { color: 0x7a5a2e, size: [900, 760] },
-      street: { color: 0x9a6a3a, edge: 0x5e3f22, curb: 0xb8893e, curbHeight: 0.35 },
+      sky: { fog: { near: 45, far: 260 } }, // the fog's reach on the ride (its colour, the sky, the lights: the look's)
+      ground: { size: [900, 760] },   // the far land (the look's ground colour; the city floor is silver: part2.floor)
+      street: { curbHeight: 0.35 },
       city: {
         step: 9, rows: [[12, 22], [26, 40]], height: [6, 20], depth: [7, 11], width: [6, 9], // buildings either side, outside the corridor
-        colors: [0x8c5a34, 0x7a4a2e, 0x9a6a40, 0x6e4a32, 0xa0784a], roof: 0xb8683a, patina: 0x6aa58a, patinaShare: 0.3,
-        windows: 0xffd98a, seed: 7,
+        patinaShare: 0.3, seed: 7, // (their stone, roofs and windows: the look's palette)
       },
       // Turning gears (part2/props.js shapes, brass or copper): on the building fronts facing the
       // trail, lying beside the curbs, and floating in the sky.
       cogs: { every: 26, lat: 11.6, radius: [1.6, 3], height: [3, 9], speed: [0.4, 1.1], shapes: ['cogA', 'cogC', 'cluster'], metals: ['brass', 'copper'] }, // (few shapes: one draw each; gear_01 is 1.7k triangles: only in the sky)
       floorGears: { every: 34, lat: 8.6, y: 0.08, radius: [1.1, 1.8], speed: 0.5, shapes: ['cogC', 'cogA'], metals: ['copper', 'brass'] },
       skyGears: { count: 9, radius: [10, 26], height: [45, 75], spread: 140, speed: [0.03, 0.09], shapes: ['gear01', 'cluster'], metals: ['darkBrass', 'brass', 'copper'] },
-      clock: { at: [720, 70, 900], radius: 46, face: 0xf3e6c4, rim: 0x9c7432, hand: 0x3a2a1c, slow: 0.015 }, // the Dream Clock, far off past the end
+      clock: { at: [720, 70, 900], radius: 46, slow: 0.015 }, // the Dream Clock, far off past the end
       // Rails: grind along automatically (`grind.speed`, faster than the street) with sparks and a
       // steel scrape; steer to hop to the next rail of the group; Jump to leave; off the end the
       // horse hops down. Low rails rise from the street on a short ramp (ride or jump onto them);
@@ -928,30 +1034,33 @@ export const CONFIG = {
       },
       sparks: { max: 90, perSecond: 70, life: 0.35, speed: 4, size: 0.09, color: 0xffc24a, hot: 0xfff2c0 },
       grindVolume: 0.5,
+      // Lamp posts along the street, just outside the curbs (their heads glow; the look's point lights sit on the nearest).
+      lamps: { every: 30, lat: 8.1, height: 4.2, head: 0.28, halo: 1.1, clear: 4 },
       // Steam vents on the street: stepping on one launches the horse high (a puff, a whoosh).
       vents: [{ s: 50, lat: 3.5 }, { s: 350, lat: 0 }, { s: 580, lat: -3 }],
-      vent: { radius: 1.6, launch: 16, cooldown: 1, color: 0x3a2c22, grate: 0x8a6a3a, glow: 0xfff0d0, puff: 14, stackPuff: 5 }, // (stackPuff: puffs from each of its pipe stacks)
-      steam: { puffs: 70, life: 1.6, rise: 3.2, size: [0.6, 1.6], color: 0xfff6ea, opacity: 0.32, idleEvery: 1.3 },
+      vent: { radius: 1.6, launch: 16, cooldown: 1, glow: 0xfff0d0, puff: 14, stackPuff: 5 }, // (stackPuff: puffs from each of its pipe stacks)
+      steam: { puffs: 70, life: 1.6, rise: 3.2, size: [0.6, 1.6], idleEvery: 1.3 }, // (warm white, lit: the look's `steam`)
       // A floating gear deck, reached from the first steam vent (its gears on top).
-      decks: [{ s: [62, 92], lat: 3.5, width: 5, top: 4.0, color: 0x9a7a3a, trim: 0xc9a23a }],
+      decks: [{ s: [62, 92], lat: 3.5, width: 5, top: 4.0 }],
       deckFade: { opacity: 0.18, above: 1.2, rate: 6 }, // the deck fades while the camera is under it (or within `above` over its top)
       // Hazards (a hit staggers the horse, never costs a heart).
       hammers: [{ s: 225, phase: 0 }, { s: 250, phase: 1.6 }, { s: 540, phase: 0.8 }],
-      hammer: { pivot: 7.6, arm: 6, amp: 1.05, period: 3.0, head: [1.6, 1.3, 1.6], reach: 1.6, push: 7, gantryHalf: 8.6, color: 0x5a4632, headColor: 0x8a8f96, band: 0xc9a23a },
+      hammer: { pivot: 7.6, arm: 6, amp: 1.05, period: 3.0, head: [1.6, 1.3, 1.6], reach: 1.6, push: 7, gantryHalf: 8.6 },
       cogPlatforms: [{ s: 388, lat: -3, dir: 1 }, { s: 412, lat: 3, dir: -1 }, { s: 565, lat: 0, dir: 1 }],
-      cogPlatform: { radius: 3.6, speed: 0.9, height: 0.12, teeth: 14, color: 0xb08030, hub: 0x6b4a22 },
+      cogPlatform: { radius: 3.6, speed: 0.9, height: 0.12, teeth: 14 },
       conveyors: [{ s: [265, 281], dir: 1 }, { s: [505, 521], dir: -1 }],
-      conveyor: { speed: 6, slat: 0.9, color: 0x2e2620, slatColor: 0xc9a23a, stripe: 0xc9a23a },
+      conveyor: { speed: 6, slat: 0.9 },
       // Spinning saws (the spiky gear): a blade standing in a slot across the street, sliding from
       // side to side (`travel` either way, one round trip every `period` s), spinning; touching it
       // staggers the horse and knocks it aside (never a heart); a jump clears it.
       saws: [{ s: 304, phase: 0 }, { s: 318, phase: Math.PI }, { s: 468, phase: 1.2 }],
-      saw: { radius: 1.25, sink: 0.3, thickness: 0.22, travel: 4.4, period: 3.6, spin: 10, reach: 1.0, push: 6, slotWidth: 0.4, color: 0xb9c0c8, emissive: 0x141418, slot: 0x241a12 },
+      saw: { radius: 1.25, sink: 0.3, thickness: 0.22, travel: 4.4, period: 3.6, spin: 10, reach: 1.0, push: 6, slotWidth: 0.4, color: 0xb9c0c8, emissive: 0x141418 },
       stagger: 0.9,               // seconds of stagger (slower) after a hit
       hitCooldown: 1.2,
       // Brass gears: the currency (like Part 1's gems), on the rails, the deck and above the vents.
       gears: {
-        size: 0.42, fit: 1.25, color: 0xe2b23c, emissive: 0x3a2400, halo: 0xffe7a0, spin: 1.6, bob: 0.12, reach: 1.7, pop: 0.35, // (fit: the collectible model's radius × size)
+        size: 0.42, fit: 1.25, color: 0xe2b23c, spin: 1.6, // (its glow and halo: the look's `gears`)
+        bob: 0.12, reach: 1.7, pop: 0.35, // (fit: the collectible model's radius × size)
         sparkle: { max: 48, count: 10, life: 0.55, speed: 3.2, size: 0.09, color: 0xfff2b0 }, // a sparkle burst on pickup
         rows: [[28, 44, 0, 4]], // street rows: [s0, s1, lat, count]
         railRows: [['a', 0, 108, 124, 3], ['a', 1, 126, 140, 3], ['a', 2, 142, 156, 3], ['u', 0, 372, 428, 6], ['b', 0, 652, 676, 3], ['b', 1, 684, 708, 3], ['b', 0, 714, 730, 2]], // [group, index in the group, s0, s1, count]
@@ -1912,7 +2021,7 @@ export const DIALOGUE = {
     audio: 'Audio test',
     part1: 'Part 1', part2: 'Part 2',
     portal: 'Portal scene', arrival: 'Gearhaven arrival', fire: 'Fire level', lightning: 'Lightning level', steam: 'Steam level',
-    magnet: 'Magnet level', time: 'Time level', final: "Amy's final fight", part2Ending: 'Part 2 ending', robots: 'Robots test', ride: 'Gearhaven ride', props: 'Props test',
+    magnet: 'Magnet level', time: 'Time level', final: "Amy's final fight", part2Ending: 'Part 2 ending', robots: 'Robots test', ride: 'Gearhaven ride', props: 'Props test', look: (name) => `Look: ${name}`,
     on: 'Test menu on', off: 'Test menu off',
   },
   skip: 'Skip ▶▶',
