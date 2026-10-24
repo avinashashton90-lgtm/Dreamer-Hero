@@ -18,7 +18,7 @@ export { spinInstances };
 // (loadGearPickupModel), grind sparks and steam puffs (loadRideFxModels), the Fire Element's
 // door (loadRideDoorModel). Built from the model kits where they load (kits.js: the gear props
 // and Factory Kit cogs turning on the walls, floors and in the sky, Factory Kit conveyors, pipes,
-// catwalks, machines and boxes, Coaster Kit rails and supports — tinted brass, copper and gold),
+// catwalks, machines and boxes, Coaster Kit Monorail (brass) and Steel (copper) rails on bronze supports),
 // else the code-built placeholders. Static kit pieces are merged into a few meshes per material
 // and stretch of trail; everything moving is instanced; no lights, no shadows.
 
@@ -206,68 +206,73 @@ export function railHeight(rail, s) {
 }
 
 /**
- * The rails (`userData.rails` = one mesh per group of rails): the Coaster Kit's monorail
- * track in gold — straight pieces along the trail, each low rail rising from the street on its
- * slope pieces (hill beginning + end) — on copper supports, the upper rail hanging from gantries
+ * The rails (`userData.rails` = one mesh per group of rails): the Coaster Kit's Monorail and
+ * Steel tracks (`railKit.groups`: a style per group; Monorail brass, Steel copper) — straight
+ * pieces along the trail, each low rail rising from the street on its style's slope pieces
+ * (hill beginning + end) — on dark bronze supports, the upper rail hanging from gantries
  * outside the walls. If the kit fails: steel tubes on posts (placeholderRails).
  */
 export async function loadRailModel(track, opts = {}) {
   const KR = R.railKit;
-  const P = await loadKitPieces('rails', [KR.straight, KR.slope[0], KR.slope[1], KR.support, KR.post, KR.beam], opts);
+  const styles = [...new Set(R.rails.map((r) => KR.groups[r.group]))];
+  const names = [KR.support, KR.post, KR.beam, ...styles.flatMap((st) => [KR.styles[st].straight, ...KR.styles[st].slope])];
+  const P = await loadKitPieces('rails', names, opts);
   if (Object.values(P).some((g) => !g)) return placeholderRails(track);
   const G = R.grind;
   const top = (rail, s) => railHeight(rail, s) + KR.lift; // (the track's top: just over the rail's line, where the hooves are)
-  const items = [];
+  const items = Object.fromEntries(styles.map((st) => [st, []]));
   const supports = [];
   const yaw = (a, b) => Math.atan2(b.x - a.x, b.z - a.z);
-  const m = new THREE.Matrix4();
-  R.rails.forEach((rail, i) => {
-    // Straight pieces along the trail (each a chord, scaled to its length).
+  for (const rail of R.rails) {
+    const ST = KR.styles[KR.groups[rail.group]];
+    const out = items[KR.groups[rail.group]];
+    // Straight pieces along the trail (each a chord, stretched to its span).
     const s0 = rail.upper ? rail.s[0] : rail.s[0] + G.ramp;
-    const n = Math.max(1, Math.round((rail.s[1] - s0) / KR.length));
+    const n = Math.max(1, Math.round((rail.s[1] - s0) / ST.span));
     for (let k = 0; k < n; k++) {
-      const a = trackPoint(track, s0 + ((rail.s[1] - s0) * k) / n, rail.lat, top(rail, rail.s[1]) + KR.drop).pos;
-      const b = trackPoint(track, s0 + ((rail.s[1] - s0) * (k + 1)) / n, rail.lat, top(rail, rail.s[1]) + KR.drop).pos;
-      items.push({ geometry: P[KR.straight], matrix: placeMatrix({ pos: a, yaw: yaw(a, b), scale: [1, 1, a.distanceTo(b) / KR.length] }, new THREE.Matrix4()), chunk: rail.group });
+      const a = trackPoint(track, s0 + ((rail.s[1] - s0) * k) / n, rail.lat, top(rail, rail.s[1]) + ST.drop).pos;
+      const b = trackPoint(track, s0 + ((rail.s[1] - s0) * (k + 1)) / n, rail.lat, top(rail, rail.s[1]) + ST.drop).pos;
+      out.push({ geometry: P[ST.straight], matrix: placeMatrix({ pos: a, yaw: yaw(a, b), scale: [1, 1, a.distanceTo(b) / ST.length] }), chunk: rail.group });
     }
     if (!rail.upper) {
-      // The slope up from the street: the two hill pieces, re-stacked onto the ramp's own curve.
+      // The slope up from the street: the style's two hill pieces, re-stacked onto the ramp's own curve.
       const a = trackPoint(track, rail.s[0], rail.lat).pos;
       const b = trackPoint(track, rail.s[0] + G.ramp, rail.lat).pos;
-      items.push({ geometry: rampGeometry(P[KR.slope[0]], P[KR.slope[1]], rail), matrix: placeMatrix({ pos: a, yaw: yaw(a, b) }, new THREE.Matrix4()), chunk: rail.group });
+      out.push({ geometry: rampGeometry(P[ST.slope[0]], P[ST.slope[1]], rail, ST), matrix: placeMatrix({ pos: a, yaw: yaw(a, b) }), chunk: rail.group });
       for (let s = rail.s[0] + G.ramp * 0.6; s <= rail.s[1]; s += G.postEvery) {
         const p = trackPoint(track, s, rail.lat).pos;
-        supports.push({ geometry: P[KR.support], matrix: placeMatrix({ pos: p, scale: [1, Math.max(0.1, top(rail, s) - KR.depth), 1] }, m.clone()), chunk: rail.group });
+        supports.push({ geometry: P[KR.support], matrix: placeMatrix({ pos: p, scale: [1, Math.max(0.1, top(rail, s) - ST.depth), 1] }), chunk: rail.group });
       }
     } else {
       // Gantries: posts outside the walls, a beam across, a hanger down to the rail.
       for (let s = rail.s[0]; s <= rail.s[1]; s += G.gantryEvery) {
         const p = trackPoint(track, s);
         const h = rail.h + 0.7;
-        for (const side of [-1, 1]) supports.push({ geometry: P[KR.post], matrix: placeMatrix({ pos: trackPoint(track, s, side * G.gantryHalf).pos, scale: [1.4, h, 1.4] }, new THREE.Matrix4()), chunk: rail.group });
-        supports.push({ geometry: P[KR.beam], matrix: placeMatrix({ pos: p.pos.clone().setY(h - 0.3), yaw: p.heading + Math.PI / 2, scale: [1.3, 1.3, G.gantryHalf * 2] }, new THREE.Matrix4()), chunk: rail.group });
-        supports.push({ geometry: P[KR.support], matrix: placeMatrix({ pos: trackPoint(track, s, rail.lat, top(rail, s) - KR.depth + 0.05).pos, scale: [0.7, h - 0.3 - (top(rail, s) - KR.depth), 0.7] }, new THREE.Matrix4()), chunk: rail.group });
+        for (const side of [-1, 1]) supports.push({ geometry: P[KR.post], matrix: placeMatrix({ pos: trackPoint(track, s, side * G.gantryHalf).pos, scale: [1.4, h, 1.4] }), chunk: rail.group });
+        supports.push({ geometry: P[KR.beam], matrix: placeMatrix({ pos: p.pos.clone().setY(h - 0.3), yaw: p.heading + Math.PI / 2, scale: [1.3, 1.3, G.gantryHalf * 2] }), chunk: rail.group });
+        supports.push({ geometry: P[KR.support], matrix: placeMatrix({ pos: trackPoint(track, s, rail.lat, top(rail, s) - ST.depth + 0.05).pos, scale: [0.7, h - 0.3 - (top(rail, s) - ST.depth), 0.7] }), chunk: rail.group });
       }
     }
-  });
+  }
   const group = new THREE.Group();
   group.name = 'rails';
-  const rails = mergeStatic(items, kitMaterial('rails'), 'railTrack');
-  group.add(rails, mergeStatic(supports, kitMaterial('rails', KR.supportTint), 'railSupports'));
-  group.userData = { rails: rails.children, kit: true }; // (one mesh per group of rails: a, the upper rail, b)
+  const tracks = styles.map((st) => mergeStatic(items[st], kitMaterial('rails', KR.styles[st].tint), `railTrack:${st}`));
+  group.add(...tracks, mergeStatic(supports, kitMaterial('rails', KR.supportTint), 'railSupports'));
+  // (one mesh per group of rails; `styles`: which style each group is in)
+  group.userData = { rails: tracks.flatMap((t) => t.children), styles: Object.fromEntries(tracks.map((t, i) => [styles[i], t])), kit: true };
   return group;
 }
 
 /**
- * A low rail's slope: the kit's hill-beginning and hill-end pieces end to end, fitted to the
+ * A low rail's slope: its style's hill-beginning and hill-end pieces end to end, fitted to the
  * ramp's length, every vertex moved up or down so the track's top follows railHeight (its own
  * profile and thickness kept). Local: +z along the trail from the ramp's foot.
  */
-function rampGeometry(begin, end, rail) {
+function rampGeometry(begin, end, rail, ST) {
   const G = R.grind;
   const KR = R.railKit;
-  const k = G.ramp / (KR.length * 2);
-  const parts = [[begin, 0], [end, KR.length]].map(([src, dz]) => {
+  const k = G.ramp / (ST.length * 2);
+  const parts = [[begin, 0], [end, ST.length]].map(([src, dz]) => {
     const g = src.clone();
     const pos = g.attributes.position;
     // (the piece's own top line along z, measured from its vertices)

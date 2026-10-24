@@ -637,7 +637,7 @@ export const CONFIG = {
   // props (Poly Pizza / Quaternius) — loaded piece by piece when a level needs them, one shared
   // palette texture per kit, its colours re-tinted in one Lambert shader (`tints`: warm palette
   // colours → `warm`, cool ones → `cool`, greys mixed `greyK` toward `grey`). The Coaster Kit has
-  // only the one colormap (no gold / copper variant), so the rails are tinted gold; the Factory
+  // only the one colormap (no gold / copper variant), so the rails are tinted brass / copper; the Factory
   // Kit's variation-a is another cool palette, so the colormap is tinted too.
   kits: {
     factory: { path: 'models/gearhaven/factory/glb/', texture: 'colormap.png', tint: 'factory' },
@@ -646,8 +646,9 @@ export const CONFIG = {
     props: { path: 'models/gearhaven/props/' },
     tints: {
       factory: { warm: 0xe0aa3a, cool: 0xb8643a, grey: 0xa07440, greyK: 0.8, boost: 1.05, rim: 0xffe6c0, rimK: 0.18 }, // orange → brass, blue → copper, the slate greys → dark copper-bronze
-      rails: { warm: 0xf0c048, cool: 0xe8b440, grey: 0xe0b048, greyK: 0.9, boost: 1.1, rim: 0xfff0c8, rimK: 0.3 },     // the track all gold
-      railSupports: { warm: 0xb8683a, cool: 0x9a5430, grey: 0x7a4a2a, greyK: 0.7, boost: 1.0, rim: 0xffe0c0, rimK: 0.15 }, // its supports copper
+      railBrass: { warm: 0xd89a2c, cool: 0xc88e2a, grey: 0xc08a2a, greyK: 0.9, boost: 1.1, rim: 0xfff0c8, rimK: 0.3 },     // the Monorail track: brass
+      railCopper: { warm: 0xc8703a, cool: 0xb8643a, grey: 0xc06a3a, greyK: 0.9, boost: 1.1, rim: 0xffe0c8, rimK: 0.3 },    // the Steel track: copper
+      railSupports: { warm: 0x7a5a30, cool: 0x6a4a2a, grey: 0x5e4428, greyK: 0.8, boost: 1.0, rim: 0xffe0c0, rimK: 0.12 }, // their supports: dark bronze
       skyline: { warm: 0xc9a23a, cool: 0xa45a32, grey: 0x9a7a48, greyK: 0.75, boost: 0.9, rim: 0xffe6c0, rimK: 0.0 }, // the distant brass city
     },
     metals: {
@@ -776,7 +777,7 @@ export const CONFIG = {
     propsTest: {
       z: 90, gap: 2.4, floor: { depth: 14, color: 0xa87a3a }, // (on its own brass strip, away from the courtyard)
       gears: [['Gear (gear_01)', 'gear01', 1.2, 'brass'], ['Gear cluster', 'cluster', 1.4, 'copper'], ['Cog (Factory Kit)', 'cogA', 1, 'brass'], ['Collectible gear', 'collectible', 0.6, 'gold']],
-      spin: 0.8, sawScale: 0.8, kitScale: 1.6, slats: 10, puffs: 8, towerScale: 0.3, castleScale: 0.25, gatePeriod: 6,
+      spin: 0.8, sawScale: 0.8, kitScale: 1.6, railGap: 2.2, slats: 10, puffs: 8, towerScale: 0.3, castleScale: 0.25, gatePeriod: 6,
       camera: { dist: 12, height: 3.6, look: 1.8, speed: 3, ahead: 2, swipe: 40 },
     },
     // "Robots test" (?debug): all five in a row in the courtyard, each going through its clips.
@@ -899,13 +900,20 @@ export const CONFIG = {
         hopOff: 7,                // the hop when leaving a rail (Jump or its end)
         radius: 0.11, color: 0xd8dde2, post: 0x5a4a3a, postEvery: 6, gantryEvery: 12, gantryHalf: 8.6,
       },
-      // The rails' look (loadRailModel): the Coaster Kit's monorail track in gold (`length` a
-      // piece; its top `drop` under its origin, `depth` deep; laid `lift` over the rail's line),
-      // the hill pieces as each low rail's slope, copper supports; the tubes above if it fails.
+      // The rails' look (loadRailModel): the Coaster Kit's Monorail and Steel track styles (not
+      // Wood or Flume) — each group of rails one style (`groups`), Monorail tinted brass, Steel
+      // copper — on dark bronze supports. Per style: its pieces (`straight`, the hill beginning +
+      // end as each low rail's `slope`), the kit's piece `length` 4, laid `span` long each along
+      // the trail (Steel stretched to 8: half the triangles), its top `drop` under the piece's
+      // origin, `depth` deep. The track's top lies `lift` over the grind line. Tubes if it fails.
       railKit: {
-        straight: 'coaster-monorail-straight', slope: ['coaster-monorail-straight-hill-beginning', 'coaster-monorail-straight-hill-end'],
+        styles: {
+          monorail: { straight: 'coaster-monorail-straight', slope: ['coaster-monorail-straight-hill-beginning', 'coaster-monorail-straight-hill-end'], length: 4, span: 4, drop: 0.8, depth: 0.23, tint: 'railBrass' },
+          steel: { straight: 'coaster-steel-straight', slope: ['coaster-steel-straight-hill-beginning', 'coaster-steel-straight-hill-end'], length: 4, span: 8, drop: 0.7, depth: 0.3, tint: 'railCopper' },
+        },
+        groups: { a: 'monorail', b: 'steel', u: 'steel' }, // (the three low rails Monorail; the pair and the upper rail Steel)
         support: 'support-small', post: 'support-large', beam: 'support-large-horizontal', supportTint: 'railSupports',
-        length: 4, drop: 0.8, depth: 0.23, lift: 0.06,
+        lift: 0.06,
       },
       // The Factory Kit along the street (loadFactoryDecorModel; tinted brass and copper): side
       // decoration outside the walls ([piece, scale]), each steam vent's pipes, the conveyor belts

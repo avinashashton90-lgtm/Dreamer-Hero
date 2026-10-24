@@ -101,7 +101,16 @@ const place = (s, lat = 0, { speed = CONFIG.horse.maxSpeed, y = 0, vy = 0 } = {}
     && parts.conveyors.every((c) => c.model.userData.kit) && parts.decks.every((d) => d.model.userData.kit) && parts.pickups.userData.kit
     && parts.skyline.userData.kit && parts.skyline.userData.chimneys.length >= 4 && parts.tower.userData.height > 50 && parts.saws.length === R.saws.length
     && decorShapes.some((n) => n.includes('cog')) && decorShapes.some((n) => n.includes('gear01')) && decorShapes.some((n) => n.includes('cluster')),
-    `the kits: Coaster Kit rails (${R.rails.length} in ${railMeshes.length} meshes, gold on copper supports), Factory Kit pipes by each vent / conveyors / the deck's catwalk / ${R.factory.decor.length} kinds of decoration, the collectible gear, gears turning (${decorShapes.join(', ')}), ${parts.saws.length} saws, the brass skyline (${parts.skyline.userData.chimneys.length} chimneys), the clock tower (${parts.tower.userData.height.toFixed(0)} tall)`);
+    `the kits: Coaster Kit rails (${R.rails.length} in ${railMeshes.length} meshes, Monorail brass / Steel copper on bronze supports), Factory Kit pipes by each vent / conveyors / the deck's catwalk / ${R.factory.decor.length} kinds of decoration, the collectible gear, gears turning (${decorShapes.join(', ')}), ${parts.saws.length} saws, the brass skyline (${parts.skyline.userData.chimneys.length} chimneys), the clock tower (${parts.tower.userData.height.toFixed(0)} tall)`);
+  // The rails' styles: Monorail (brass) and Steel (copper) only — never Wood or Flume.
+  if (!heroAssets.placeholder) {
+    const st = parts.rails.userData.styles;
+    const KR = R.railKit;
+    const names = Object.values(KR.styles).flatMap((x) => [x.straight, ...x.slope]);
+    check(st.monorail && st.steel && st.monorail.children[0].material.userData.tint === 'railBrass' && st.steel.children[0].material.userData.tint === 'railCopper'
+      && Object.values(KR.groups).every((g) => g === 'monorail' || g === 'steel') && names.every((n) => /coaster-(monorail|steel)-/.test(n)),
+      `the rails: the Coaster Kit's Monorail (brass: groups ${Object.keys(KR.groups).filter((g) => KR.groups[g] === 'monorail').join(', ')}) and Steel (copper: ${Object.keys(KR.groups).filter((g) => KR.groups[g] === 'steel').join(', ')}) tracks — no Wood or Flume`);
+  }
   // Each rail's kit track runs at the grinding height (the hooves on its top).
   const box = new THREE.Box3();
   for (const m of railMeshes) box.union(new THREE.Box3().setFromObject(m)); // (the highest track: the upper rail's)

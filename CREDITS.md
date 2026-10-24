@@ -37,7 +37,7 @@ The four mech robots **George, Leela, Mike and Stan** (`public/models/gearhaven/
 From [Kenney](https://kenney.nl), each licensed [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) (public domain):
 
 - **Factory Kit** (`public/models/gearhaven/factory/glb/`): conveyors, pipes, cogs, catwalks, machines, boxes, hoppers, cranes, robot arms — the Gearhaven ride's conveyor belts, the pipes and stacks by its steam vents, the gear deck's catwalk, side decoration, turning cogs; the skyline's pipes.
-- **Coaster Kit** (`public/models/gearhaven/rails/glb/`): the monorail track pieces (straight, hill beginning / end as the slopes) and supports — the ride's grind rails. The kit has only its one palette texture, so the track is tinted gold and the supports copper in the game.
+- **Coaster Kit** (`public/models/gearhaven/rails/glb/`): the Monorail and Steel track pieces (straight, hill beginning / end as the slopes) and supports — the ride's grind rails. The kit has only its one palette texture, so in the game the Monorail track is tinted brass, the Steel track copper and the supports dark bronze.
 - **Castle Kit** (`public/models/castle/glb/`): walls, towers, gates and flags — the castle at the end of Part 1 (its own colours; the gate leaves cut from the kit's gate) and, tinted brass, Gearhaven's distant skyline.
 
 In the game the Factory Kit's blue / orange palette is re-tinted brass and copper in one shader (`src/kits.js`); only the pieces a level uses are loaded.

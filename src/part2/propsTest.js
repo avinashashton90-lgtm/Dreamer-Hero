@@ -9,7 +9,7 @@ import { applyCastleKit } from '../castleKit.js';
 // The "Props test" (?debug; CONFIG.part2.propsTest): every kind of kit prop in a row, so they can
 // be looked at — the turning gears (gear_01, the gear cluster, a Factory Kit cog, the collectible
 // gear), the spinning saw, a Factory Kit conveyor with moving slats, a pipe stack puffing steam,
-// a catwalk, a Coaster Kit rail on its supports, the clock tower and the Castle Kit gate (its
+// a catwalk, the Coaster Kit's Monorail and Steel rails on their supports, the clock tower and the Castle Kit gate (its
 // leaves opening and shutting). Each `item` = { name, x, width, height }; `update(dt)` animates.
 
 const PT = CONFIG.part2.propsTest;
@@ -105,18 +105,21 @@ export async function buildPropsShowcase(opts = {}) {
     g.scale.setScalar(PT.kitScale);
     slot('Catwalk (Factory Kit)', 2 * PT.kitScale, 2 * PT.kitScale, g);
   }
-  // A rail: the Coaster Kit's monorail track in gold on copper supports, its slope rising onto it.
+  // The rails: the Coaster Kit's Monorail (brass) and Steel (copper) tracks side by side on
+  // their dark bronze supports.
   {
     const KR = R.railKit;
-    const P = await loadKitPieces('rails', [KR.straight, KR.slope[0], KR.support], opts);
     const g = new THREE.Group();
     const h = R.rails[0].h;
-    if (P[KR.straight]) {
-      g.add(mergeStatic([0, 1].map((i) => piece(P[KR.straight], new THREE.Vector3(0, h + KR.lift + KR.drop, -4 + i * 4), 1)), kitMaterial('rails')));
-      g.add(mergeStatic([-3, 0, 3].map((z) => piece(P[KR.support], new THREE.Vector3(0, 0, z), [1, h + KR.lift - KR.depth, 1])), kitMaterial('rails', KR.supportTint)));
-    }
+    const P = await loadKitPieces('rails', [KR.support, ...Object.values(KR.styles).map((st) => st.straight)], opts);
+    Object.values(KR.styles).forEach((ST, i) => {
+      if (!P[ST.straight] || !P[KR.support]) return;
+      const x = (i - 0.5) * PT.railGap;
+      g.add(mergeStatic([0, 1].map((k) => piece(P[ST.straight], new THREE.Vector3(x, h + KR.lift + ST.drop, -4 + k * 4), 1)), kitMaterial('rails', ST.tint)));
+      g.add(mergeStatic([-3, 0, 3].map((z) => piece(P[KR.support], new THREE.Vector3(x, 0, z), [1, h + KR.lift - ST.depth, 1])), kitMaterial('rails', KR.supportTint)));
+    });
     g.rotation.y = Math.PI / 2; // (along the row)
-    slot('Rail (Coaster Kit)', 8, h + 0.5, g);
+    slot('Rails: Monorail + Steel (Coaster Kit)', 8, h + 0.5, g);
   }
   // The clock tower.
   {
