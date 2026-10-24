@@ -352,6 +352,7 @@ async function boot() {
     if (prev === STATES.INTRO) {
       // New game: everything back to the start.
       story.resetAll();
+      levels.chapters.get('part2')?.newGame?.(); // (Gearhaven's gear rewards)
       rescue.reset();
       minions.clear();
       ui.setGems(gems.counts);
@@ -469,6 +470,7 @@ async function boot() {
       if (!state.is(STATES.PLAY)) state.set(STATES.PLAY);
       while (!state.is(STATES.PLAY)) await nextFrame();
       story.resetAll(); // (the same full reset as Play Again)
+      levels.chapters.get('part2')?.newGame?.();
       rescue.reset();
       minions.clear();
     };
@@ -579,6 +581,19 @@ async function boot() {
             CONFIG.part2.gearhavenLook = order[(order.indexOf(CONFIG.part2.gearhavenLook) + 1) % order.length];
           }
           ui.toast(CONFIG.part2.looks[CONFIG.part2.gearhavenLook].name);
+        },
+      },
+      // Gear rewards: collects `giveGears` of the Gearhaven ride's gears (onto the ride first if
+      // not on it — press again for the next tier).
+      {
+        label: DIALOGUE.testMenu.giveGears(TM.giveGears),
+        run: async () => {
+          if (levels.id !== 'part2' || levels.current.at !== 'ride') {
+            await freshPlay();
+            await part2Jumps.ride();
+            kit();
+          }
+          levels.current.giveGears?.(TM.giveGears);
         },
       },
       { label: DIALOGUE.testMenu.audio, run: () => audioTest.open() }, // (every sound, the music sections)

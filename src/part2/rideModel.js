@@ -454,11 +454,13 @@ export async function loadSteamVentModel() {
 }
 
 /**
- * The floating gear deck: Factory Kit catwalk sections end to end (railings along both edges),
- * hanging on chains from the sky; its materials can fade (`userData.fade`: the riding camera
- * passes under it — Ride.animate). If the kit fails: a brass slab with trim.
+ * A deck hanging over the street: a belt deck (`deck.belt`: loadBeltDeckModel) or the floating
+ * gear deck — Factory Kit catwalk sections end to end (railings along both edges), hanging on
+ * chains from the sky. Its materials can fade (`userData.fade`: the riding camera passes under
+ * it — Ride.animate). If the kit fails: a brass slab with trim.
  */
 export async function loadGearDeckModel(deck, opts = {}) {
+  if (deck.belt) return loadBeltDeckModel(deck, opts);
   const len = deck.s[1] - deck.s[0];
   const g = new THREE.Group();
   const chains = new THREE.Mesh(
@@ -485,6 +487,58 @@ export async function loadGearDeckModel(deck, opts = {}) {
   );
   g.add(slab, trim);
   g.userData = { fade: [slab.material, trim.material], kit: false };
+  return g;
+}
+
+/**
+ * The belt deck (local: x across the trail — lateral + is local −x —, z along it, its top at
+ * y 0): Factory Kit belt sections laid across it on a dark frame, hanging on chains, a brass
+ * railing along the edge the belt runs to, and brass slats sliding across it at the belt's speed
+ * (`userData.slats` / `items`: their local x; `userData.fade`: every material, for the camera
+ * under it). If the kit fails: a dark slab for the belt.
+ */
+async function loadBeltDeckModel(deck, opts = {}) {
+  const F = R.factory;
+  const len = deck.s[1] - deck.s[0];
+  const w = deck.width;
+  const g = new THREE.Group();
+  const fade = [];
+  const { [F.belt]: belt } = await loadKitPieces('factory', [F.belt], opts);
+  if (belt) {
+    const across = F.beltDeckAcross;
+    const rows = Math.max(1, Math.round(len / F.beltDeckRow));
+    const items = [];
+    for (let r = 0; r < rows; r++) {
+      for (let i = 0; i < across; i++) {
+        const pos = new THREE.Vector3(-w / 2 + (w * (i + 0.5)) / across, -F.beltTop, -len / 2 + (len * (r + 0.5)) / rows);
+        items.push({ geometry: belt, matrix: placeMatrix({ pos, yaw: 0, scale: [w / across / F.beltLength, 1, len / rows] }) });
+      }
+    }
+    const mat = kitMaterial('factory', 'conveyor', { transparent: true });
+    g.add(mergeStatic(items, mat, 'beltDeck'));
+    fade.push(mat);
+  } else {
+    const slab = new THREE.Mesh(new THREE.BoxGeometry(w, F.beltTop, len).translate(0, -F.beltTop / 2, 0), roleMaterial('darkSteel', { transparent: true }));
+    g.add(slab);
+    fade.push(slab.material);
+  }
+  // The frame under it, the chains, and the railing on the edge the belt runs to (one draw).
+  const edge = -deck.belt * (w / 2); // (local x of that edge)
+  const frame = roleMerge([
+    [new THREE.BoxGeometry(w, F.beltFrame, len).translate(0, -F.beltTop - F.beltFrame / 2, 0), 'darkSteel'],
+    ...[-1, 1].flatMap((sx) => [-1, 1].map((sz) => [new THREE.CylinderGeometry(0.06, 0.06, 30, 4).translate((sx * w) / 2.1, 15, (sz * len) / 2.1), 'darkSteel'])),
+    [new THREE.BoxGeometry(0.16, 0.16, len).translate(edge, 1.0, 0), 'brass'],
+    ...Array.from({ length: Math.round(len / 4) + 1 }, (_, i) => [new THREE.BoxGeometry(0.12, 1.0, 0.12).translate(edge, 0.5, -len / 2 + (len * i) / Math.round(len / 4)), 'brass']),
+  ], { transparent: true });
+  g.add(frame);
+  fade.push(frame.material);
+  const CV = R.conveyor;
+  const n = Math.ceil(w / CV.slat);
+  const slatMat = roleMaterial('brass', { transparent: true });
+  const slats = new THREE.InstancedMesh(new THREE.BoxGeometry(0.22, 0.05, len * 0.98), slatMat, n);
+  g.add(slats);
+  fade.push(slatMat);
+  g.userData = { fade, kit: !!belt, belt: true, slats, items: Array.from({ length: n }, (_, i) => -w / 2 + i * CV.slat), offset: 0 };
   return g;
 }
 

@@ -1,7 +1,9 @@
 // Headless test: the Gearhaven ride (src/part2/ride.js, rideModel.js; CONFIG.part2.ride) — the
 // first playable section of Part 2, behind the courtyard's Fire door. Its layout (a trail ≥ 700
 // long with side walls, rails, vents, the deck, hammers, cog platforms, conveyors, gears,
-// checkpoints, the Fire Element's door) and draw budget; the walls hold at a gallop; rails
+// checkpoints, the Fire Element's door) and draw budget; the belt deck after the first vent (landing
+// on it riding, galloping and galloping with a jump into the steam, and staying on ≥ 2 s; the belt
+// carrying the horse sideways against its railing; the landing snap; the coyote time); the walls hold at a gallop; rails
 // (riding up a ramp onto one → grinding at speed with sparks and the scrape, steering hops to
 // the next rail, Jump leaves it, its end hops the horse down, jumping down onto one from above,
 // low rails are fences on the street); steam vents (a launch high onto the gear deck and onto
@@ -27,6 +29,8 @@ import { characterBodies } from '../src/fade.js';
 import { LevelManager } from '../src/levelManager.js';
 import { railHeight, trackPoint } from '../src/part2/rideModel.js';
 import { RideWorld, loadRide } from '../src/part2/ride.js';
+import { Lives } from '../src/lives.js';
+import { gearTiers } from '../src/part2/gearRewards.js';
 
 const P2 = CONFIG.part2, R = P2.ride, D2 = DIALOGUE.part2;
 const dt = 1 / 60;
@@ -42,13 +46,13 @@ const state = new GameState(STATES.PLAY);
 const view = { lines: [], complete: false, show() {}, hide() {}, dialogue(s, t, c) { this.complete = c; }, clearDialogue() { this.complete = false; } };
 const cinematic = new Cinematic(cam, view);
 cinematic.bodies = characterBodies({ hero, girlModel: new THREE.Group(), horse });
-const ui = { quest: null, dist: null, toasts: [], gears: null,
+const ui = { quest: null, dist: null, toasts: [], gears: null, banners: [], banner(t) { this.banners.push(t); },
   toast(t) { this.toasts.push(t); }, setQuest(t, d) { this.quest = t; this.dist = d; }, fadeOut(ms, then) { then(); }, fadeIn() {},
-  showGems() {}, setHorseEnergy() {}, setBossBar() {}, setGears(n, total, show) { this.gears = { n, total, show }; } };
+  showGems() {}, setHorseEnergy() {}, setBossBar() {}, setGears(n, total, show, pulse, tiers = []) { this.gears = { n, total, show, tiers }; } };
 let held = { moveX: 0, moveY: 0, jumpPressed: false, gallop: false };
 const input = { enabled: true, setEnabled(on) { this.enabled = on; }, read: () => ({ ...held, lookDX: 0, lookDY: 0, lookSensitivity: 0 }),
   setCombatButtons(m) { this.mounted = m; }, setMountButton() {}, setDismountButton() {}, setGallopButton(on) { this.gallopShown = on; } };
-const lives = { hearts: CONFIG.lives.hearts, damage() { this.hearts -= 1; } };
+const lives = new Lives();
 const part1 = { id: 'part1', scene: world.scene, enter: () => { for (const o of [hero.model, hero.shadow, horse.model, horse.shadow]) world.scene.add(o); }, exit() {} };
 const levels = new LevelManager({
   part1: async () => part1,
@@ -63,6 +67,13 @@ const p2 = await levels.load('part2', { start: 'ride' });
 const ride = p2.ride;
 const track = p2.rideWorld.track;
 const near = () => track.nearest(horse.position.x, horse.position.z, 20);
+/** The stick a player would push to ride along the line `lat` off the centre (the bot's steering; none while grinding). */
+const steerTo = (lat) => {
+  const n = near();
+  if (!n || ride.grinding) return 0;
+  const want = track.headingAt(n.s + 3) - THREE.MathUtils.clamp(Math.atan((lat - n.lateral) * 0.3), -0.4, 0.4);
+  return THREE.MathUtils.clamp(Math.atan2(Math.sin(horse.heading - want), Math.cos(horse.heading - want)) * 3, -1, 1);
+};
 /** Put the horse at `s`, `lat` (and `y`), riding along the trail at `speed`. */
 const place = (s, lat = 0, { speed = CONFIG.horse.maxSpeed, y = 0, vy = 0 } = {}) => {
   ride.stop();
@@ -86,7 +97,7 @@ const place = (s, lat = 0, { speed = CONFIG.horse.maxSpeed, y = 0, vy = 0 } = {}
   check(p2.at === 'ride' && state.is(STATES.PLAY) && horse.mode === 'riding' && hero.riding && horse.world === p2.rideWorld && hero.world === p2.rideWorld && cam.world === p2.rideWorld && parts.root.visible && !p2.gearhaven.visible,
     `the ride starts: AJ on the horse in the brass city (its own world: the street, walls, rails), the courtyard hidden`);
   check(track.length >= 700 && R.rails.length >= 6 && new Set(R.rails.filter((r) => !r.upper).map((r) => r.group)).size >= 2 && R.rails.some((r) => r.upper) && parts.vents.length >= 3 && parts.hammers.length >= 2 && parts.cogs.length >= 2 && parts.conveyors.length >= 2 && ride.total >= 30 && parts.flags.length === R.checkpoints.length - 1,
-    `layout: a ${track.length.toFixed(0)}-long trail; ${R.rails.length} rails (groups of 3 and 2, an upper rail), ${parts.vents.length} steam vents, a gear deck, ${parts.hammers.length} hammers, ${parts.cogs.length} cog platforms, ${parts.conveyors.length} conveyors, ${ride.total} gears, ${R.checkpoints.length} checkpoints, the Fire door`);
+    `layout: a ${track.length.toFixed(0)}-long trail; ${R.rails.length} rails (groups of 3 and 2, an upper rail), ${parts.vents.length} steam vents, the belt deck, ${parts.hammers.length} hammers, ${parts.cogs.length} cog platforms, ${parts.conveyors.length} conveyors, ${ride.total} gears, ${R.checkpoints.length} checkpoints, the Fire door`);
   await frame();
   check(input.mounted && input.gallopShown && ui.quest === D2.ride.quest && ui.dist > 700 && ui.gears?.show && ui.gears.total === ride.total,
     `the HUD: the riding buttons (Jump, Gallop), "${ui.quest}" (${ui.dist} to go), the gear counter ${ui.gears?.n} / ${ui.gears?.total}`);
@@ -173,20 +184,87 @@ const place = (s, lat = 0, { speed = CONFIG.horse.maxSpeed, y = 0, vy = 0 } = {}
   check(dropped && ended && down, 'coming down onto a rail from above, it grinds; at the rail\'s end the horse hops down onto the street');
 }
 
-// 4) Steam vents: up onto the gear deck; up onto the upper rail; missing it, the street.
+// 4) Steam vents: up onto the belt deck (at a ride, galloping, galloping with a jump into the
+//    steam — it lands on it and stays on, the belt carrying it sideways; the landing snap and the
+//    coyote time at its edges); up onto the upper rail; missing it, the street.
 {
-  const v0 = R.vents[0], deck = R.decks[0];
-  place(v0.s - 14, v0.lat);
-  held = { moveX: 0, moveY: 1, jumpPressed: false, gallop: false };
-  const launches = ride.stats.launches, whoosh = sound.counts.steam_launch ?? 0;
-  let onDeck = 0, peak = 0;
-  for (let i = 0; i < 240; i++) {
-    await frame();
-    peak = Math.max(peak, horse.position.y);
-    if (horse.grounded && Math.abs(horse.position.y - deck.top) < 0.05) onDeck++;
+  const v0 = R.vents[0], deck = R.decks[0], DA = R.deckAssist;
+  const rw = p2.rideWorld;
+  const onBelt = () => horse.grounded && Math.abs(horse.position.y - deck.top) < 0.05 && rw.deckAt(horse.position.x, horse.position.z, DA.snap) === deck;
+  // Ride at the first vent (galloping or not, jumping `jumpAt` before it or not) and on (the stick
+  // forward; a gallop let go once it lands): where it lands, how long it stays on the belt.
+  const beltRun = async ({ gallop = false, jumpAt = null } = {}) => {
+    place(v0.s - 40, v0.lat, { speed: gallop ? 34 : CONFIG.horse.maxSpeed });
+    held = { moveX: 0, moveY: 1, jumpPressed: false, gallop };
+    const launches = ride.stats.launches, whoosh = sound.counts.steam_launch ?? 0, belted = ride.stats.belted;
+    let peak = 0, land = null, on = 0, jumped = false, maxLat = 0, top = 0;
+    for (let i = 0; i < 60 * 10; i++) {
+      const n = near();
+      if (jumpAt != null && !jumped && n.s >= v0.s - jumpAt) { held.jumpPressed = true; jumped = true; }
+      held.moveX = land ? 0 : steerTo(v0.lat); // (lined up on the vent; on the belt the stick only forward)
+      await frame();
+      peak = Math.max(peak, horse.position.y);
+      top = Math.max(top, horse.speed);
+      maxLat = Math.max(maxLat, Math.abs(near().lateral));
+      if (onBelt()) {
+        if (!land) { land = { s: near().s, lat: near().lateral, speed: horse.speed }; held.gallop = false; }
+        on += dt;
+      } else if (land) break;
+    }
+    return { launched: ride.stats.launches > launches, whoosh: (sound.counts.steam_launch ?? 0) > whoosh, peak, land, on, belted: ride.stats.belted - belted, maxLat, jumped, top };
+  };
+  const mid = (deck.s[0] + deck.s[1]) / 2;
+  for (const [name, o] of [['riding', {}], ['galloping', { gallop: true }], ['galloping with a jump into the steam', { gallop: true, jumpAt: 4 }]]) {
+    const r = await beltRun(o);
+    const room = r.land ? Math.min(r.land.s - deck.s[0], deck.s[1] - r.land.s) : 0;
+    check(r.launched && r.whoosh && r.land && room > (o.gallop ? 15 : 5) && r.on >= 2 && r.belted > 1 && r.maxLat <= R.wall.offset && (!o.jumpAt || r.jumped),
+      `${name} (${r.top.toFixed(0)}) onto the first vent: launched ${r.peak.toFixed(1)} high (a whoosh) onto the belt deck ${deck.top} up — landing at s ${r.land?.s.toFixed(0)} (${room.toFixed(0)} in from its nearer end; its middle is ${mid}), on it ${r.on.toFixed(1)} s (≥ 2), carried sideways ${r.belted.toFixed(1)} s, inside the walls`);
   }
-  check(ride.stats.launches > launches && (sound.counts.steam_launch ?? 0) > whoosh && peak > deck.top && onDeck > 10,
-    `a steam vent launches the horse (${peak.toFixed(1)} high, a whoosh) up onto the gear deck (${(onDeck * dt).toFixed(1)} s on it, ${deck.top} up)`);
+  // The belt: a standing horse is carried sideways at the belt's speed, up against the wall and
+  // its railing — and stays on (the top is solid at its height).
+  {
+    place(mid, 0, { speed: 0, y: deck.top });
+    held = { moveX: 0, moveY: 0, jumpPressed: false, gallop: false };
+    await frame();
+    const lat0 = near().lateral;
+    await run(1);
+    const moved = (near().lateral - lat0) * deck.belt;
+    await run(3);
+    const stayed = onBelt() && Math.abs(near().lateral) <= R.wall.offset && Math.abs(near().lateral) > deck.width / 2 - 1.5;
+    check(moved > R.conveyor.speed * 0.85 && moved < R.conveyor.speed * 1.15 && stayed,
+      `on the belt a standing horse is carried sideways at its speed (${moved.toFixed(1)} in 1 s ≈ ${R.conveyor.speed}), then held against the wall by its railing — still on it after 4 s (${near().lateral.toFixed(1)} off-centre, ${horse.position.y.toFixed(2)} up)`);
+  }
+  // The landing snap: coming down within `snap` of its start edge, it lands on it (pulled in);
+  // further out it drops past.
+  {
+    const snaps = ride.stats.snaps;
+    place(deck.s[0] - DA.snap + 0.4, 0, { speed: 2, y: deck.top + 0.5, vy: -2 });
+    held = { moveX: 0, moveY: 0, jumpPressed: false, gallop: false };
+    let landed = false;
+    for (let i = 0; i < 60 && !landed; i++) { await frame(); landed = onBelt(); }
+    const inside = near().s >= deck.s[0];
+    place(deck.s[0] - DA.snap - 1.2, 0, { speed: 0, y: deck.top + 0.5, vy: -2 });
+    let streetY = 9;
+    for (let i = 0; i < 90; i++) { await frame(); streetY = horse.position.y; }
+    check(landed && inside && ride.stats.snaps > snaps && streetY < 0.05,
+      `the landing assist: coming down ${(DA.snap - 0.4).toFixed(1)} short of the belt deck it snaps onto it (pulled inside), ${(DA.snap + 1.2).toFixed(1)} short it drops past to the street`);
+  }
+  // The coyote time: riding off its end, the horse holds at its height a moment, then drops.
+  {
+    place(deck.s[1] - 6, 0, { speed: CONFIG.horse.maxSpeed, y: deck.top });
+    held = { moveX: 0, moveY: 1, jumpPressed: false, gallop: false };
+    let leftAt = null, dropAt = null, t = 0;
+    for (let i = 0; i < 120 && dropAt == null; i++) {
+      await frame();
+      t += dt;
+      const n = near();
+      if (leftAt == null && n.s > deck.s[1] + DA.snap) leftAt = t;
+      if (horse.position.y < deck.top - 0.05) dropAt = t;
+    }
+    const held_ = leftAt != null && dropAt != null ? dropAt - leftAt : 0;
+    check(held_ >= DA.coyote - 2 * dt && held_ <= DA.coyote + 4 * dt,
+      `the coyote time: riding off the belt deck's end (past its ${DA.snap} margin) the horse holds at its height ${held_.toFixed(2)} s (≈ ${DA.coyote}) before dropping`);
+  }
   // Riding along under it on the street, the deck fades out of the camera's way (and back after).
   const pd = p2.rideParts.decks[0];
   place((deck.s[0] + deck.s[1]) / 2 - 8, deck.lat, { speed: 6 });
@@ -204,6 +282,19 @@ const place = (s, lat = 0, { speed = CONFIG.horse.maxSpeed, y = 0, vy = 0 } = {}
   for (let i = 0; i < 240 && !onUpper; i++) { await frame(); onUpper = ride.grinding && ride.grind.rail === u; }
   const grindY = horse.position.y;
   check(onUpper && Math.abs(grindY - u.h) < 0.05, `the vent before the upper rail launches the horse onto it: it grinds ${grindY.toFixed(1)} up`);
+  for (const [name, gallop, jumpAt] of [['galloping', true, null], ['galloping with a jump into the steam', true, 4], ['riding with a jump into the steam', false, 4]]) {
+    place(v1.s - 30, v1.lat, { speed: gallop ? 34 : CONFIG.horse.maxSpeed });
+    held = { moveX: 0, moveY: 1, jumpPressed: false, gallop };
+    let caught = false, jumped = false;
+    for (let i = 0; i < 300 && !caught; i++) {
+      if (jumpAt != null && !jumped && near().s >= v1.s - jumpAt) { held.jumpPressed = true; jumped = true; }
+      held.moveX = steerTo(v1.lat);
+      await frame();
+      caught = ride.grinding && ride.grind.rail === u;
+    }
+    check(caught, `${name} into the vent before the upper rail: it lands on the rail and grinds`);
+    ride.stop();
+  }
   // Missing it (launched off to the side): down on the street, no harm — and the street is slower.
   const h0 = lives.hearts;
   place(v1.s - 3, v1.lat, { y: 0 });
@@ -214,7 +305,7 @@ const place = (s, lat = 0, { speed = CONFIG.horse.maxSpeed, y = 0, vy = 0 } = {}
   let landedStreet = false, caught = false;
   for (let i = 0; i < 200 && !landedStreet; i++) { await frame(); if (ride.grinding) caught = true; landedStreet = horse.grounded && horse.position.y < 0.05; }
   await run(1);
-  check(!caught && landedStreet && lives.hearts === h0 && horse.speed <= CONFIG.horse.maxSpeed + 0.01 && R.grind.speed > CONFIG.horse.maxSpeed,
+  check(!caught && landedStreet && lives.hearts >= h0 && horse.speed <= CONFIG.horse.maxSpeed + 0.01 && R.grind.speed > CONFIG.horse.maxSpeed,
     `missing the rail: the horse lands on the street below — no hearts lost, just slower (${horse.speed.toFixed(1)} vs the rail's ${R.grind.speed})`);
 }
 
@@ -230,7 +321,7 @@ const place = (s, lat = 0, { speed = CONFIG.horse.maxSpeed, y = 0, vy = 0 } = {}
   for (let i = 0; i < 60 * R.hammer.period && !hit; i++) { await frame(); hit = ride.stats.hits > hits; }
   await run(0.4);
   knocked = Math.abs(near().lateral - lat0);
-  check(hit && horse.stumbles > stumbles && (sound.counts.hammer_hit ?? 0) > clang && knocked > 0.5 && lives.hearts === h0,
+  check(hit && horse.stumbles > stumbles && (sound.counts.hammer_hit ?? 0) > clang && knocked > 0.5 && lives.hearts >= h0,
     `a swinging hammer hits: the horse staggers (slower) and is knocked ${knocked.toFixed(1)} aside, a clang — no hearts lost`);
   const c = R.conveyors[0];
   place((c.s[0] + c.s[1]) / 2, 0, { speed: 0 });
@@ -255,7 +346,7 @@ const place = (s, lat = 0, { speed = CONFIG.horse.maxSpeed, y = 0, vy = 0 } = {}
     const lat0 = near().lateral;
     await run(0.35);
     const thrown = Math.abs(near().lateral - lat0);
-    check(hit && horse.stumbles > st && (sound.counts.saw_hit ?? 0) > snd && thrown > 0.4 && lives.hearts === h1,
+    check(hit && horse.stumbles > st && (sound.counts.saw_hit ?? 0) > snd && thrown > 0.4 && lives.hearts >= h1,
       `a spinning saw catches the standing horse: it staggers, a screech, thrown ${thrown.toFixed(1)} clear — no hearts lost`);
   }
   {
@@ -301,13 +392,80 @@ const place = (s, lat = 0, { speed = CONFIG.horse.maxSpeed, y = 0, vy = 0 } = {}
   check(p2.at === R.quest && t < 120 && stuck <= 3, `a bot rides the whole level in ${t.toFixed(1)} s and reaches the Fire Element's door (never stuck)`);
   check(reached.size === R.checkpoints.length - 1 && p2.rideParts.flags.every((f) => f.userData.flag.material.color.getHex() === CONFIG.checkpoints.reachedColor) && ui.toasts.filter((x) => x === DIALOGUE.checkpoint).length >= R.checkpoints.length - 1,
     `every checkpoint reached (${reached.size}), its flag green, a toast`);
-  check(ride.count > 5 && sparkleMax >= R.gears.sparkle.count && (sound.counts.gear_pickup ?? 0) - pick0 === ride.count && ride.stats.grinds > reachedGrinds && lives.hearts === h0 && maxLat <= R.wall.offset,
+  check(ride.count > 5 && sparkleMax >= R.gears.sparkle.count && (sound.counts.gear_pickup ?? 0) - pick0 === ride.count && ride.stats.grinds > reachedGrinds && lives.hearts >= h0 && maxLat <= R.wall.offset,
     `on the way: ${ride.count} gears collected (a chime each, ${sparkleMax} sparkles at most), ${ride.stats.grinds - reachedGrinds} grinds, ${ride.stats.launches} launches, ${ride.stats.hits} hits (hammers ${ride.stats.hits - ride.stats.sawHits}, saws ${ride.stats.sawHits}) — hearts never lost, always inside the walls`);
   check(p2.at === 'fire' && ui.toasts.includes(D2.comingSoon(D2.levelNames.fire)) && !p2.rideParts.root.visible && p2.gearhaven.visible && horse.world === p2.world && hero.world === p2.world && !hero.riding && !ui.gears.show,
     `the Fire Element's door → its stub ("${D2.comingSoon(D2.levelNames.fire)}"): the ride put away, AJ on foot, the courtyard's world back`);
 }
 
-// 7) The courtyard's Fire door opens onto the ride; the ?debug menu has "Gearhaven ride".
+// 7) Gear rewards: a third of the ride's gears → +1 max heart and a full heal; two thirds → the
+//    horse's armour (its brass plates; 30% less damage, stumbles half as long); all → a bonus
+//    charge for the Fire Element and a golden glow round Tick. Each a banner and a chime, tick
+//    marks on the counter; kept between sections and applied in every Part 2 level; Part 1 untouched.
+{
+  await levels.load('part2', { start: 'ride' });
+  p2.newGame();
+  await frame();
+  const GRW = P2.gearRewards;
+  const plates = p2.upgrade.userData.plates;
+  const glow = p2.tick.model.getObjectByName('tickGlow');
+  const tiers = gearTiers(ride.total);
+  check(P2.gearsInLevel.ride === ride.total && tiers.map((t) => t.count).join() === '14,28,42' && P2.gearRewardTiers.map((t) => t.reward).join() === 'heart,armour,charge',
+    `the tiers scale with the level: ${P2.gearRewardTiers.map((t) => t.at.toFixed(2)).join(' / ')} of its ${P2.gearsInLevel.ride} gears = ${tiers.map((t) => t.count).join(' / ')}`);
+  check(ui.gears.tiers.length === 3 && ui.gears.tiers.every((t) => !t.reached) && plates.every((p) => !p.visible) && !glow.visible && lives.maxHearts === CONFIG.lives.hearts && horse.stumbleScale === 1,
+    'before any reward: the counter shows 3 tick marks (none lit), no plates on the horse, no glow round Tick, 5 hearts');
+  const chime0 = sound.counts.gear_reward ?? 0, banners0 = ui.banners.length;
+  lives.damage(2);
+  ride.giveGears(13);
+  await run(0.2);
+  const noneYet = ui.banners.length === banners0 && lives.maxHearts === CONFIG.lives.hearts;
+  ride.giveGears(1);
+  await run(0.2);
+  check(noneYet && ride.count === 14 && ui.banners.at(-1) === D2.gearReward.banner(D2.gearReward.heart) && ui.banners.at(-1) === 'Gear reward unlocked: +1 heart!' && (sound.counts.gear_reward ?? 0) === chime0 + 1
+    && lives.maxHearts === CONFIG.lives.hearts + GRW.heart && lives.hearts === lives.maxHearts && ui.gears.tiers[0].reached && !ui.gears.tiers[1].reached,
+    `13 gears: nothing yet; the 14th: "${ui.banners.at(-1)}" with a chime, ${lives.maxHearts} max hearts and a full heal (${lives.hearts}), the first tick mark lit`);
+  ride.giveGears(14);
+  await run(GRW.bannerMs / 1000 + 0.2);
+  horse.stumbleFor(1);
+  const stumble = horse.stumble;
+  horse.stumble = 0;
+  check(ui.banners.at(-1) === D2.gearReward.banner(D2.gearReward.armour) && plates.every((p) => p.visible) && Math.abs(stumble - GRW.armourStumble) < 1e-9 && Math.abs(horse.damageTaken(10) - 10 * GRW.armourDamage) < 1e-9 && (sound.counts.gear_reward ?? 0) === chime0 + 2,
+    `28 gears: "${ui.banners.at(-1)}" — the brass plates on the horse, a 1 s stumble now ${stumble.toFixed(2)} s, 10 damage now ${horse.damageTaken(10).toFixed(1)}`);
+  ride.giveGears(20);
+  await run(GRW.bannerMs / 1000 + 0.2);
+  check(ride.count === ride.total && ui.banners.at(-1) === D2.gearReward.banner(D2.gearReward.charge) && glow.visible && p2.rewards.bonusCharges(R.quest) === GRW.charges && ui.gears.tiers.every((t) => t.reached) && (sound.counts.gear_reward ?? 0) === chime0 + 3,
+    `all ${ride.total}: "${ui.banners.at(-1)}" — ${p2.rewards.bonusCharges(R.quest)} bonus charge for the ${R.quest} level, a soft golden glow round Tick, every tick mark lit`);
+  // Several at once: the banners queue (each shown in turn, each with its chime).
+  p2.newGame();
+  p2.enterRide();
+  const b0 = ui.banners.length, c0 = sound.counts.gear_reward ?? 0;
+  ride.giveGears(ride.total);
+  await run(3 * GRW.bannerMs / 1000 + 0.5);
+  check(ui.banners.length - b0 === 3 && (sound.counts.gear_reward ?? 0) - c0 === 3, 'every gear at once: the three banners one after another, a chime each');
+  // Kept between sections, applied in every Part 2 level.
+  p2.toCourtyard();
+  await frame();
+  const court = lives.maxHearts === CONFIG.lives.hearts + GRW.heart && plates.every((p) => p.visible) && glow.visible;
+  p2.enterLevel('fire');
+  await frame();
+  const fire = lives.maxHearts === CONFIG.lives.hearts + GRW.heart && glow.visible && horse.stumbleScale === GRW.armourStumble;
+  p2.enterRide();
+  const b1 = ui.banners.length;
+  ride.giveGears(ride.total);
+  await run(1);
+  const again = ui.banners.length === b1 && ride.count === ride.total;
+  await levels.load('part1');
+  const part1 = lives.maxHearts === CONFIG.lives.hearts && horse.stumbleScale === 1 && horse.damageScale === 1;
+  await levels.load('part2', { start: 'courtyard' });
+  const back = lives.maxHearts === CONFIG.lives.hearts + GRW.heart && plates.every((p) => p.visible) && glow.visible;
+  check(court && fire && again && part1 && back,
+    'the rewards are kept between sections — the courtyard, the Fire stub, the ride again (no second banner) — and back in Part 1 the hearts and the horse are as they were; into Part 2 again, the rewards return');
+  p2.newGame();
+  check(lives.maxHearts === CONFIG.lives.hearts && plates.every((p) => !p.visible) && !glow.visible && p2.rewards.unlocked.size === 0, 'a new game: no rewards');
+  check(DIALOGUE.testMenu.giveGears(CONFIG.testMenu.giveGears) === 'Give 14 gears' && CONFIG.testMenu.giveGears === tiers[0].count, '?debug menu: "Give 14 gears" (the first tier)');
+}
+
+// 8) The courtyard's Fire door opens onto the ride; the ?debug menu has "Gearhaven ride".
 {
   await levels.load('part2', { start: 'courtyard' });
   const d = p2.gearhaven.userData.doors.fire;
@@ -320,7 +478,7 @@ const place = (s, lat = 0, { speed = CONFIG.horse.maxSpeed, y = 0, vy = 0 } = {}
   check(horse.world === world && hero.world === world && cam.world === world && !p2.rideParts.root.visible, 'back in Part 1: the hero, horse and camera handed back');
 }
 
-// 8) If the kit files fail, the ride is built from the placeholders (and still plays the same).
+// 9) If the kit files fail, the ride is built from the placeholders (and still plays the same).
 {
   const { forgetKits } = await import('../src/kits.js');
   forgetKits();

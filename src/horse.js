@@ -248,6 +248,9 @@ export class Horse {
     this.stumble = 0; // seconds left of a stumble
     this.stumbleStop = 0; // seconds it still stands still (stopped by a giant wall)
     this.stumbles = 0;
+    // Armour (Gearhaven's gear reward; 1 = none): the share of damage it takes and of a stumble's time.
+    this.damageScale = 1;
+    this.stumbleScale = 1;
     this.obstaclesCleared = 0;
     this.inWater = false;
     this.sound = null; // { play(name) } — see audio.js
@@ -484,6 +487,11 @@ export class Horse {
 
   /** After a fall: back on the horse at the last checkpoint reached. */
   /** Energy lost (a bat bite); energy.js decides when it is tired. */
+  /** Damage to the horse after its armour (`damageScale`). */
+  damageTaken(amount) {
+    return amount * this.damageScale;
+  }
+
   drainEnergy(amount) {
     this.energy = Math.max(0, this.energy - amount);
   }
@@ -760,6 +768,7 @@ export class Horse {
    * stands still that long (the giant forest wall), then goes on.
    */
   stumbleFor(time, { stop = false } = {}) {
+    time *= this.stumbleScale; // (armoured: half as long)
     this.stumble = time;
     this.stumbleTotal = time;
     this.stumbleStop = stop ? time : 0;

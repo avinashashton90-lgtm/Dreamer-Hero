@@ -430,7 +430,7 @@ export class SealedArena {
   }
 
   #hurtHorse(n) {
-    this.horseHealth = Math.max(0, this.horseHealth - n);
+    this.horseHealth = Math.max(0, this.horseHealth - (this.horse.damageTaken?.(n) ?? n));
     this.stats.horseHits++;
     this.sound?.play('horseHurt');
     if (this.horseHealth > 0) return;

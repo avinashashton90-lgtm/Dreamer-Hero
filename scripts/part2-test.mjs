@@ -1,7 +1,7 @@
 // Headless test: Part 2's start (src/part2/, loaded by levelManager.js). The level manager loads
 // Part 2 as its own chapter (the hero, horse and camera borrowed into its scene and floors) and
 // hands everything back to Part 1; the Gearhaven arrival (the riders drop into the courtyard, he
-// gets down, the horse's brass key and plates, Tick floats in, the lines in order, Tick's nervous
+// gets down, the horse's brass key (its plates a gear reward), Tick floats in, the lines in order, Tick's nervous
 // glance, Skip), the courtyard (the gear sky, cogs, the clock's hands and steam moving, walking
 // around inside its wall, "Find the Fire Element" with its distance), walking into the Fire door
 // → the Gearhaven ride (test:ride plays it), its end → the Fire Element's stub
@@ -80,17 +80,26 @@ const scale0 = horse.model.scale.x;
   check(p2 && levels.id === 'part2' && borrowed && state.is(STATES.CUTSCENE) && soundscape.musicPhase === P2.music,
     `Part 2 loads as its own chapter (${ms.toFixed(0)} ms): the hero, horse and camera in its scene and on its floors, a cutscene, the Gearhaven music`);
   const up = p2.upgrade;
-  check(up.parent === horse.model && up.userData.key && up.userData.plates.length >= 4, `the horse has a brass key on its back and ${up.userData.plates.length} brass armour plates`);
+  check(up.parent === horse.model && up.userData.key && up.userData.plates.length >= 4 && up.userData.plates.every((p) => !p.visible), `the horse has a brass key on its back (its ${up.userData.plates.length} brass armour plates wait for the gear reward)`);
   const tick = p2.tick;
   const tu = tick.model.userData;
-  const tickOk = heroAssets.placeholder
-    ? tu.placeholder && tu.eye && tu.prop
-    : !tu.placeholder && tu.animator?.clipName && /Idle/.test(tu.animator.clipName) && tu.materials.Main.color.getHex() === P2.tick.tint.Main && tu.materials.Black.color.getHex() === P2.tick.tint.Black
-      && tu.eye?.children[0].material.color.getHex() === P2.tick.goggleEye.color;
+  // Two flat sky-blue eyes (unlit, no glow / emissive / halo), one each side of his middle, and
+  // nothing additive on him but the reward glow (hidden until every gear of a level is found).
+  tick.model.updateMatrixWorld(true); // (its bones' matrices, as a render would)
+  const eyes = tu.eyes ?? [];
+  const eyeX = eyes.map((e) => tu.body.worldToLocal(e.getWorldPosition(new THREE.Vector3())).x);
+  const additive = [];
+  tick.model.traverse((o) => { if ((o.isMesh || o.isSprite) && o.material.blending === THREE.AdditiveBlending && o.name !== 'tickGlow') additive.push(o.name); });
+  const eyesOk = eyes.length === 2 && eyes.every((e) => e.material.isMeshBasicMaterial && !e.material.transparent && e.material.blending === THREE.NormalBlending && e.material.color.getHex() === P2.tick.eyes.color)
+    && Math.sign(eyeX[0]) !== Math.sign(eyeX[1]) && additive.length === 0;
+  const tickOk = eyesOk && (heroAssets.placeholder
+    ? tu.placeholder && tu.prop
+    : !tu.placeholder && tu.animator?.clipName && /Idle/.test(tu.animator.clipName) && tu.materials.Main.color.getHex() === P2.tick.tint.Main && tu.materials.Black.color.getHex() === P2.tick.tint.Black);
   const tickGlow = tick.model.getObjectByName('tickGlow');
+  check(tickGlow && !tickGlow.visible, 'no glow round Tick before the all-gears reward');
   const tbox = new THREE.Box3().setFromObject(tu.body, true);
   check(tick.model.parent === p2.scene && tickOk && tickGlow?.isSprite && tickGlow.material.blending === THREE.AdditiveBlending && Math.abs(tbox.max.y - tbox.min.y - (heroAssets.placeholder ? tbox.max.y - tbox.min.y : P2.tick.height)) < P2.tick.height * 0.12, // (its idle pose stands a little taller than the fitted bind pose)
-    `Tick: ${heroAssets.placeholder ? 'the placeholder (shapes)' : `the Animated Robot glb, ${(tbox.max.y - tbox.min.y).toFixed(2)} tall, a bright brass-yellow body / copper limbs / dark goggles with a glowing cyan eye, playing ${tu.animator?.clipName}`}; a soft glow round him`);
+    `Tick: ${heroAssets.placeholder ? 'the placeholder (shapes)' : `the Animated Robot glb, ${(tbox.max.y - tbox.min.y).toFixed(2)} tall, a bright brass-yellow body / copper limbs / dark goggles, playing ${tu.animator?.clipName}`}; two flat sky-blue eyes (#6EC6FF, unlit, no glow or halo) on the goggles`);
   // Play it through.
   let dropped = false, landedOnFoot = false, nervousSeen = 0, tickNear = Infinity, tickHorse = Infinity, tickBob = [Infinity, -Infinity], glanceMax = 0, chime = sound.counts.clock_chime ?? 0;
   const gear = p2.gearhaven.userData.decor.sets.flatMap((st) => st.items).find((it) => it.sky), gearRot = gear.angle;

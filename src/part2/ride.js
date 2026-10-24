@@ -13,15 +13,16 @@ import { loadSkylineModel, trailSpots } from './skyline.js';
 // The first playable section of Gearhaven (CONFIG.part2.ride): a ride through a brass city on
 // the trail / spline system. RideWorld is the world the shared Horse, Hero and FollowCamera use
 // while riding it (the same small interface as Part 1's World: a flat street with invisible side
-// walls, the low rails as fences in it, a floating gear deck). Ride runs it: rails (land on one —
+// walls, the low rails as fences in it, the belt deck hanging over it). Ride runs it: rails (land on one —
 // riding up its ramp or jumping onto it — and the horse grinds along it with sparks and a steel
 // scrape; steer to hop to the next rail; Jump, or its end, to leave), steam vents (launch the
-// horse high), swinging hammers, spinning saws, turning cog platforms and conveyor belts (a hit
+// horse high — the first up onto the belt deck, a conveyor belt hanging wall to wall), swinging hammers, spinning saws, turning cog platforms and conveyor belts (a hit
 // staggers the horse; never a heart), brass gears to collect, checkpoints, and the Fire
 // Element's door. Its models come from the kits where they load (rideModel.js).
 
 const R = CONFIG.part2.ride;
 const G = R.grind;
+const DA = R.deckAssist;
 const HC = CONFIG.horse;
 const { clamp, lerp } = THREE.MathUtils;
 
@@ -44,23 +45,30 @@ export class RideWorld {
     this.decks = R.decks;
     this.fences = R.rails.filter((r) => !r.upper);
     this.wallHit = null;
+    this.coyote = null; // { deck, t }: just ridden off a deck's edge — it holds a moment (Ride sets it)
   }
 
   heightAt() {
     return 0;
   }
 
-  /** The gear deck over (x, z), if any. */
-  deckAt(x, z) {
-    const n = this.track.nearest(x, z, R.wall.offset + 4);
+  /** The deck over (x, z), if any (`margin`: counting this much past its edges). */
+  deckAt(x, z, margin = 0) {
+    const n = this.track.nearest(x, z, R.wall.offset + 4 + margin);
     if (!n) return null;
-    return this.decks.find((d) => n.s >= d.s[0] && n.s <= d.s[1] && Math.abs(n.lateral - d.lat) <= d.width / 2) ?? null;
+    return this.decks.find((d) => n.s >= d.s[0] - margin && n.s <= d.s[1] + margin && Math.abs(n.lateral - d.lat) <= d.width / 2 + margin) ?? null;
   }
 
-  /** The street, or the gear deck's top when coming down onto it from above. */
+  /**
+   * The street, or a deck's top when at or above it (or up to `deckAssist.catch` through it, so a
+   * fast fall never steps through): its solid top over the deck, and the landing assist — within
+   * `deckAssist.snap` of its edge, or just after riding off it (the coyote time).
+   */
   groundAt(x, z, maxY = Infinity) {
-    const d = this.deckAt(x, z);
-    if (d && maxY >= d.top - 0.05) return { y: d.top, platform: d };
+    const d = this.deckAt(x, z) ?? this.deckAt(x, z, DA.snap);
+    if (d && maxY >= d.top - DA.catch) return { y: d.top, platform: d };
+    const c = this.coyote;
+    if (c && c.t > 0 && maxY >= c.deck.top - DA.catch && this.deckAt(x, z, DA.coyoteReach) === c.deck) return { y: c.deck.top, platform: c.deck };
     return { y: 0, platform: null };
   }
 
@@ -276,7 +284,9 @@ export class Ride {
     this.puffs = [];
     this.sparkles = [];
     this.puffT = 0;
-    this.stats = { grinds: 0, switches: 0, launches: 0, hits: 0, sawHits: 0, carried: 0, conveyed: 0, hopsOff: 0, ends: 0, maxY: 0 };
+    this.stats = { grinds: 0, switches: 0, launches: 0, hits: 0, sawHits: 0, carried: 0, conveyed: 0, belted: 0, snaps: 0, hopsOff: 0, ends: 0, maxY: 0 };
+    this.airborne = false;
+    this.world.coyote = null;
     this.gears = this.parts.gearSpots.map((p) => ({ pos: p.clone(), taken: false, pop: 0 }));
     for (const v of this.parts.vents) v.wait = 0;
     for (const h of this.parts.hammers) h.wait = 0;
@@ -298,6 +308,8 @@ export class Ride {
   update(dt, input) {
     this.time += dt;
     const { horse } = this;
+    this.airborne = !horse.grounded;
+    if (this.world.coyote) this.world.coyote.t -= dt;
     if (this.grind) this.#grindStep(dt, input);
     else if (horse.mode === 'riding' && dt > 0) {
       const onStreet = horse.grounded && horse.position.y < 0.5;
@@ -310,6 +322,7 @@ export class Ride {
           this.stats.conveyed += dt;
         }
         for (const c of this.parts.cogs) {
+          // (cog platforms: on the street)
           const dx = horse.position.x - c.at.x;
           const dz = horse.position.z - c.at.z;
           if (Math.hypot(dx, dz) > R.cogPlatform.radius) continue;
@@ -319,6 +332,13 @@ export class Ride {
           horse.heading += a;
           this.stats.carried += dt;
         }
+      }
+      // On a belt deck: its belt carries the horse sideways (up against the wall and the railing).
+      const d = horse.grounded ? this.#deckUnder() : null;
+      if (d?.belt && n) {
+        horse.position.x += -n.tz * d.belt * R.conveyor.speed * dt;
+        horse.position.z += n.tx * d.belt * R.conveyor.speed * dt;
+        this.stats.belted += dt;
       }
       if (this.push) {
         const k = this.push.t / this.push.time;
@@ -334,6 +354,7 @@ export class Ride {
     const { horse } = this;
     if (horse.mode !== 'riding') return;
     this.stats.maxY = Math.max(this.stats.maxY, horse.position.y);
+    if (!this.grind) this.#deckLanding();
     if (!this.grind) this.#tryRail();
     if (!this.grind) this.#vents(dt);
     this.#hammers(dt);
@@ -343,6 +364,38 @@ export class Ride {
       this.finished = true;
       this.onFinish?.();
     }
+  }
+
+  // --- decks --------------------------------------------------------------------
+
+  /** The deck the horse stands on (on its top, over it or in its landing margin), if any. */
+  #deckUnder() {
+    const { horse } = this;
+    const d = this.world.deckAt(horse.position.x, horse.position.z, DA.snap);
+    return d && Math.abs(horse.position.y - d.top) < 0.05 ? d : null;
+  }
+
+  /**
+   * The landing assist: coming down in a deck's edge margin it is snapped onto the deck (pulled
+   * `inset` inside); standing on it keeps the coyote time topped up, so riding off its edge it
+   * holds `coyote` s before it drops.
+   */
+  #deckLanding() {
+    const { horse, world } = this;
+    if (!horse.grounded) return;
+    const d = this.#deckUnder();
+    if (!d) return;
+    if (world.deckAt(horse.position.x, horse.position.z) === d) {
+      world.coyote = { deck: d, t: DA.coyote };
+      return;
+    }
+    if (!this.airborne) return; // (riding off its edge: the coyote time / margin hold it a moment)
+    const n = this.track.nearest(horse.position.x, horse.position.z, R.wall.offset + 4 + DA.snap);
+    const s = clamp(n.s, d.s[0] + DA.inset, d.s[1] - DA.inset);
+    const lat = clamp(n.lateral, d.lat - d.width / 2 + DA.inset, d.lat + d.width / 2 - DA.inset);
+    horse.position.copy(trackPoint(this.track, s, lat, d.top).pos);
+    world.coyote = { deck: d, t: DA.coyote };
+    this.stats.snaps++;
   }
 
   // --- rails --------------------------------------------------------------------
@@ -445,7 +498,8 @@ export class Ride {
     const { horse } = this;
     for (const v of this.parts.vents) {
       v.wait = Math.max(0, v.wait - dt);
-      if (v.wait > 0 || horse.position.y > 0.5) continue;
+      // (a horse hopping over it, up to `catchHeight`, is launched too)
+      if (v.wait > 0 || horse.position.y > R.vent.catchHeight || horse.velocity.y > R.vent.launch * 0.5) continue;
       if (Math.hypot(horse.position.x - v.at.x, horse.position.z - v.at.z) > R.vent.radius) continue;
       v.wait = R.vent.cooldown;
       horse.velocity.y = R.vent.launch;
@@ -525,14 +579,25 @@ export class Ride {
 
   #gears() {
     const p = this.horse.collectPoint;
+    for (const g of this.gears) if (!g.taken && g.pos.distanceTo(p) <= R.gears.reach) this.#take(g);
+  }
+
+  #take(g) {
+    g.taken = true;
+    g.pop = R.gears.pop;
+    this.#sparkle(g.pos);
+    this.count++;
+    this.sound?.play('gear_pickup', { position: g.pos });
+    this.onGear?.(this.count);
+  }
+
+  /** (?debug "Give 14 gears") Collects the next `n` gears not yet taken, as if ridden through. */
+  giveGears(n) {
     for (const g of this.gears) {
-      if (g.taken || g.pos.distanceTo(p) > R.gears.reach) continue;
-      g.taken = true;
-      g.pop = R.gears.pop;
-      this.#sparkle(g.pos);
-      this.count++;
-      this.sound?.play('gear_pickup', { position: g.pos });
-      this.onGear?.(this.count);
+      if (n <= 0) break;
+      if (g.taken) continue;
+      this.#take(g);
+      n--;
     }
   }
 
@@ -656,6 +721,18 @@ export class Ride {
       for (const m of d.model.userData.fade) {
         m.opacity = d.opacity;
         m.depthWrite = d.opacity > 0.99;
+      }
+      // A belt deck's slats slide across it (lateral + is the deck's local −x).
+      const bu = d.model.userData;
+      if (bu.belt) {
+        bu.offset = (bu.offset - d.belt * R.conveyor.speed * dt) % R.conveyor.slat;
+        bu.items.forEach((x0, i) => {
+          let x = x0 + bu.offset;
+          if (x > d.width / 2) x -= d.width;
+          if (x < -d.width / 2) x += d.width;
+          bu.slats.setMatrixAt(i, m.makeTranslation(x, 0.03, 0));
+        });
+        bu.slats.instanceMatrix.needsUpdate = true;
       }
     }
     for (const g of this.gears) if (g.taken && g.pop > 0) g.pop = Math.max(0, g.pop - dt);

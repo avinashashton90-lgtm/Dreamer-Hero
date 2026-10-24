@@ -12,25 +12,35 @@ export class Lives {
   constructor(events = {}) {
     this.events = events;
     this.deaths = 0; // all deaths this game (kept through Retry; cleared by newGame)
+    this.bonusHearts = 0; // extra max hearts (Gearhaven's gear reward, while in Part 2)
     this.reset();
   }
 
   /** Play Again: hearts, respawns and the death count all back to the start. */
   newGame() {
     this.deaths = 0;
+    this.bonusHearts = 0;
     this.reset();
   }
 
   /** Full hearts and all respawns (new game, or Retry after Game Over). */
   reset() {
-    this.hearts = LV.hearts;
+    this.hearts = this.maxHearts;
     this.respawns = LV.respawns;
     this.dead = false;
     this.events.onChange?.(this);
   }
 
   get maxHearts() {
-    return LV.hearts;
+    return LV.hearts + this.bonusHearts;
+  }
+
+  /** Extra max hearts (a gear reward); the hearts are kept within the new maximum. */
+  setBonusHearts(n) {
+    if (n === this.bonusHearts) return;
+    this.bonusHearts = n;
+    this.hearts = Math.min(this.hearts, this.maxHearts);
+    this.events.onChange?.(this);
   }
 
   /**
@@ -73,7 +83,7 @@ export class Lives {
     if (!this.dead) return null;
     if (this.respawns > 0) {
       this.respawns--;
-      this.hearts = LV.hearts;
+      this.hearts = this.maxHearts;
       this.dead = false;
       this.events.onChange?.(this);
       return 'respawn';

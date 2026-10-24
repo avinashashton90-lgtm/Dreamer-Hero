@@ -104,6 +104,7 @@ Layer files only play over a music file of their track (they start together, so 
 | hammer_hit | hammer_hit.ogg | Gearhaven ride: a swinging hammer knocks the horse — a heavy clang |
 | saw_hit | saw_hit.ogg | Gearhaven ride: a spinning saw blade catches the horse — a sharp metal screech and sparks |
 | gear_pickup | gear_pickup.ogg | Gearhaven ride: a brass gear collected — a bright little tick-chime |
+| gear_reward | gear_reward.ogg | Gearhaven: a gear reward unlocked (a third, two thirds, all of a level’s gears) — a short rising brass chime |
 | sandstorm_wind ↻ | sandstorm_wind.ogg | The sandstorm’s wind (loop, follows its strength) |
 | thunder_soft | thunder_soft.ogg | Distant soft thunder (the witch hint) |
 | heart_lost | heart_lost.ogg | A heart lost |

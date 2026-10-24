@@ -11,6 +11,7 @@ import { buildLookRig, applyLook, nextLook, look, primeLookTints } from './looks
 import { makeFloorMaterial } from './floor.js';
 import { RideWorld, Ride, loadRide } from './ride.js';
 import { trackPoint } from './rideModel.js';
+import { GearRewards, gearTiers } from './gearRewards.js';
 
 // Part 2 — Gearhaven (STORY.md): a chapter for levelManager.js with its own scene, floors and
 // loop; it borrows the shared systems (state machine, HUD, input, camera, cutscene player,
@@ -18,7 +19,8 @@ import { trackPoint } from './rideModel.js';
 // the horse drop out of the light into a brass courtyard; Tick), the courtyard with its five
 // element doors (the first objective: "Find the Fire Element"), the Gearhaven ride behind the
 // Fire door (ride.js: rails, steam vents, hazards, gears, checkpoints) to the Fire Element's
-// door, a "coming soon" stub platform per element level and for Amy's final fight, the Part 2
+// door — its brass gears unlocking the gear rewards (gearRewards.js: +1 heart, the horse's
+// armour, a bonus charge and Tick's glow; kept between sections, applied everywhere) —, a "coming soon" stub platform per element level and for Amy's final fight, the Part 2
 // ending screen, and (?debug) the "Robots test" showcase of Tick and the four mech robots.
 
 const P2 = CONFIG.part2;
@@ -43,6 +45,9 @@ class Part2 {
     this.at = null; // 'arrival' | 'courtyard' | a level id | 'final' | 'ending'
     this.tweens = [];
     this.stats = { arrivals: 0, stubs: {} };
+    this.rewards = new GearRewards(); // (kept between sections; a new game resets them)
+    this.banners = []; // gear-reward banners waiting to show (one after another)
+    this.bannerT = 0;
   }
 
   async init() {
@@ -78,7 +83,7 @@ class Part2 {
     this.ride = new Ride({ parts: this.rideParts, world: this.rideWorld, horse: this.horse, hero: this.hero, sound: this.sound, cam: this.cam, ui: this.ui });
     this.ride.onGear = (n) => {
       this.gears = (this.gears ?? 0) + 1; // (the currency, kept across rides)
-      this.ui.setGears?.(n, this.ride.total, true, true);
+      this.#gearProgress(true);
     };
     this.ride.onFinish = () => this.#travel(() => this.enterLevel(RD.quest)); // (the Fire Element's door: its stub)
   }
@@ -122,7 +127,8 @@ class Part2 {
     horse.scripted = false;
     horse.hold = false;
     horse.speed = 0;
-    horse.model.add(this.upgrade); // (brass plates and a key on its back)
+    horse.model.add(this.upgrade); // (a key on its back; the brass plates once earned)
+    this.#applyRewards();
     hero.model.visible = horse.model.visible = true;
     this.soundscape && (this.soundscape.musicPhase = P2.music);
     this.tweens.length = 0;
@@ -153,11 +159,71 @@ class Part2 {
       this.saved = null;
     }
     this.upgrade.removeFromParent();
+    // (the gear rewards are Part 2's: Part 1 has its own hearts and an unarmoured horse)
+    this.lives?.setBonusHearts?.(0);
+    horse.damageScale = horse.stumbleScale = 1;
     if (this.showcase) this.showcase.group.visible = false;
     if (this.props) this.props.group.visible = false;
     if (this.soundscape) this.soundscape.musicPhase = null;
     this.tweens.length = 0;
     this.at = null;
+  }
+
+  // --- gear rewards ------------------------------------------------------------
+
+  /** A new game (Play Again, the test menu's fresh start): no rewards, no gears. */
+  newGame() {
+    this.rewards.reset();
+    this.gears = 0;
+    this.banners.length = 0;
+    if (this.saved) this.#applyRewards();
+  }
+
+  /** The level's gears now (the ride's): the counter with its tier marks; tiers reached unlock their rewards. */
+  #gearProgress(pulse = false) {
+    const { ride } = this;
+    const total = ride.total;
+    const now = this.rewards.progress('ride', ride.count, total, RD.quest);
+    const tiers = gearTiers(total).map((t) => ({ at: t.at, reached: ride.count >= t.count }));
+    this.ui.setGears?.(ride.count, total, true, pulse, tiers);
+    for (const r of now) {
+      this.banners.push(D2.gearReward.banner(D2.gearReward[r]));
+      if (r === 'heart') {
+        this.#applyRewards();
+        this.lives?.setHearts?.(this.lives.maxHearts); // (+1 heart and a full heal)
+      }
+    }
+    if (now.length) this.#applyRewards();
+  }
+
+  /** The rewards earned so far, on everything: the extra heart, the horse's armour, Tick's glow. */
+  #applyRewards() {
+    const GR = P2.gearRewards;
+    const rw = this.rewards;
+    this.lives?.setBonusHearts?.(rw.bonusHearts);
+    const armour = rw.has('armour');
+    this.horse.damageScale = armour ? GR.armourDamage : 1;
+    this.horse.stumbleScale = armour ? GR.armourStumble : 1;
+    for (const p of this.upgrade.userData.plates) p.visible = armour; // (the brass plates appear)
+    this.tick.setGlow(rw.has('charge'));
+  }
+
+  /** The waiting banners, one after another, each with the chime. */
+  #showBanners(realDt) {
+    this.bannerT -= realDt;
+    if (this.bannerT > 0 || !this.banners.length) return;
+    const text = this.banners.shift();
+    this.ui.banner?.(text, P2.gearRewards.bannerMs, { small: true });
+    this.sound?.play('gear_reward');
+    this.stats.rewardBanners = [...(this.stats.rewardBanners ?? []), text];
+    this.bannerT = P2.gearRewards.bannerMs / 1000;
+  }
+
+  /** (?debug "Give 14 gears") On the ride: collect the next `n` of its gears. */
+  giveGears(n) {
+    if (this.at !== 'ride') return false;
+    this.ride.giveGears(n);
+    return true;
   }
 
   // --- placing the riders ------------------------------------------------------
@@ -386,7 +452,7 @@ class Part2 {
     this.tick.place(start.pos.clone().setY(P2.tick.float), start.heading);
     this.#behind(start.heading);
     if (!state.is(STATES.PLAY)) state.set(STATES.PLAY);
-    ui.setGears?.(0, ride.total, true);
+    this.#gearProgress();
     ui.toast(D2.ride.start);
   }
 
@@ -661,6 +727,7 @@ class Part2 {
     if (riding && playing) this.ride.after(dt);
     spinHorseKey(this.upgrade, live ? dt : 0);
     this.tick.update(live ? dt : 0, { position: hero.position, facing: hero.facing }); // (beside AJ, unless sent somewhere)
+    this.#showBanners(paused ? 0 : realDt);
     if (riding) this.ride.animate(live ? dt : 0);
     else this.#animate(live ? realDt : 0);
     if (this.at === 'robots') this.#updateShowcase(live ? dt : 0, live ? realDt : 0, inp);

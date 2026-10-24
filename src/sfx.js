@@ -442,6 +442,12 @@ export const RECIPES = {
     k.tone(o, t + 0.06, { type: 'triangle', f: 1760 * p, d: 0.18, v: 0.07 });
     return 0.3;
   },
+  gear_reward: (k, o, t, p) => {
+    // (a short rising arpeggio of bright triangle bells over a soft low ring)
+    [1046, 1318, 1568, 2093].forEach((f, i) => k.tone(o, t + i * 0.08, { type: 'triangle', f: f * p, d: 0.32, v: 0.07 }));
+    k.tone(o, t, { f: 523 * p, d: 0.6, v: 0.05 });
+    return 0.75;
+  },
   tick_whir: (k, o, t, p) => {
     k.tone(o, t, { type: 'square', f: 880 * p, f2: 1320 * p, a: 0.02, d: 0.18, v: 0.04 });
     k.noise(o, t, { filter: 'bandpass', f: 1800 * p, q: 3, a: 0.05, d: 0.35, v: 0.06 });

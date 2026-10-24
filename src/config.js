@@ -825,11 +825,11 @@ export const CONFIG = {
     tick: {
       file: 'models/gearhaven/tick/tick.glb', height: 1.4, // (1.5× his first size: he reads from across the courtyard)
       tint: { Main: 0xf5c832, Grey: 0xc27a3a, Black: 0x141210 }, // material name → colour (bright brass-yellow body, copper limbs, dark goggles)
-      goggleEye: { color: 0x5ff6ff, halo: 0x9ffaff, size: 0.05, haloSize: 2.4, haloOpacity: 0.5 }, // a glowing cyan eye on the goggles (fractions of his height)
-      glow: { color: 0xffe9a8, size: 2.2, opacity: 0.32 }, // a soft light round him (an additive sprite, × his height; no light)
+      eyes: { color: 0x6ec6ff, size: 0.055, depth: 0.35, out: 0.006 }, // two sky-blue eyes, one on each goggle lens: flat colour (unlit), no glow / emissive / halo (size: radius × his height)
+      glow: { color: 0xffc94a, size: 2.2, opacity: 0.3 }, // a soft golden light round him — only once every gear of a level is found (gear rewards; an additive sprite × his height, no light)
       clips: { idle: ['Robot_Idle', 'Idle'], wave: ['Robot_Wave'], yes: ['Robot_Yes'], no: ['Robot_No'] },
       crossfade: 0.3,
-      size: 0.6, color: 0xf0c03a, dark: 0x6b4a22, eye: 0x7ff3ff, eyeGlow: 0.9,
+      size: 0.6, color: 0xf0c03a, dark: 0x6b4a22, eye: 0x7ff3ff, // (the placeholder; its eyes use `eyes`)
       float: 1.9, bob: 0.12, bobRate: 1.6, follow: { side: 1.6, back: -0.4, rate: 6 }, // (at AJ's head height, beside him)
       prop: 14,                // propeller spin (rad/s)
       nervous: { yaw: 1.6, rate: 9, time: 1.8 }, // "I cannot say." — he looks over his shoulder, jittery
@@ -889,7 +889,25 @@ export const CONFIG = {
     // "Robots test" (?debug): all five in a row in the courtyard, each going through its clips.
     showcase: { z: -8, gap: 1.6, clipTime: 2.6, roleOrder: ['idle', 'walk', 'run', 'attack', 'hit', 'wave', 'yes', 'no', 'death'], orbit: { radius: 17, height: 5.5, speed: 0.12, look: 2.6 }, labelScale: 0.85 }, // (each robot's slot is as wide as its label or its body, whichever is wider, plus `gap`)
     // The horse in Gearhaven: a small brass key on its back and brass armour plates (loadGearhavenHorseUpgrade()).
-    horseUpgrade: { brass: 0xc9a23a, copper: 0xb0643a, key: { at: [0, 1.95, -0.72], size: 0.34, spin: 1.2 } },
+    horseUpgrade: { brass: 0xc9a23a, copper: 0xb0643a, key: { at: [0, 1.95, -0.72], size: 0.34, spin: 1.2 } }, // (the key from the arrival; the plates are the gear reward `armour`)
+    // Brass gears → rewards (part2/gearRewards.js). Each Gearhaven level has `gearsInLevel`
+    // gears; reaching a tier's share of the level's total (`at`, a fraction, so it scales —
+    // rounded up: 14 / 28 / 42 of 42) unlocks its reward for the rest of Part 2, kept between
+    // sections and applied in every Part 2 level (once each; missing gears never blocks anything).
+    // A banner, a chime (`gear_reward`), and tick marks at the tiers on the gear counter.
+    gearsInLevel: { ride: 42 },
+    gearRewardTiers: [
+      { at: 1 / 3, reward: 'heart' },  // +1 max heart and a full heal
+      { at: 2 / 3, reward: 'armour' }, // the brass plates on the horse: 30% less damage, stumbles half as long
+      { at: 1, reward: 'charge' },     // a bonus ability charge for the element level, a soft golden glow round Tick
+    ],
+    gearRewards: {
+      heart: 1,                // extra max hearts
+      armourDamage: 0.7,       // the armoured horse takes this share of any damage
+      armourStumble: 0.5,      // and stumbles / staggers this share of the time
+      charges: 1,              // bonus ability charges for the level's element
+      bannerMs: 2400,
+    },
     // The arrival scene: AJ and the horse drop out of the light into the courtyard.
     arrival: {
       start: [0, 0, 8], heading: Math.PI, // where they land (facing into the courtyard)
@@ -994,14 +1012,14 @@ export const CONFIG = {
       // horse hops down. Low rails rise from the street on a short ramp (ride or jump onto them);
       // the upper rail is reached only from a steam vent. Low rails are fences on the street.
       rails: [
-        { group: 'a', s: [100, 160], lat: -4, h: 1.1 }, { group: 'a', s: [100, 160], lat: 0, h: 1.1 }, { group: 'a', s: [100, 160], lat: 4, h: 1.1 },
+        { group: 'a', s: [148, 204], lat: -4, h: 1.1 }, { group: 'a', s: [148, 204], lat: 0, h: 1.1 }, { group: 'a', s: [148, 204], lat: 4, h: 1.1 }, // (just past the belt deck: dropping off its end, the street then the ramps)
         { group: 'u', s: [362, 436], lat: 0, h: 4.2, upper: true },
         { group: 'b', s: [642, 735], lat: -2.6, h: 1.1 }, { group: 'b', s: [642, 735], lat: 2.6, h: 1.1 },
       ],
       grind: {
         speed: 22, maxSpeed: 30,  // grinding speed (at least this, at most maxSpeed)
         ramp: 6,                  // low rails rise from the street over this length
-        capture: 1.3, above: 0.7, // landing on a rail: within this of its line, from up to this above it
+        capture: 1.5, above: 0.7, // landing on a rail: within this of its line (the landing assist), from up to this above it
         switchTime: 0.32, switchArc: 0.9, switchStick: 0.55, // hopping across to the next rail
         hopOff: 7,                // the hop when leaving a rail (Jump or its end)
         radius: 0.11, color: 0xd8dde2, post: 0x5a4a3a, postEvery: 6, gantryEvery: 12, gantryHalf: 8.6,
@@ -1024,24 +1042,38 @@ export const CONFIG = {
       // The Factory Kit along the street (loadFactoryDecorModel; tinted brass and copper): side
       // decoration outside the walls ([piece, scale]), each steam vent's pipes, the conveyor belts
       // (`belt` sections `beltLength` long laid across the trail, `beltRow` deep, let in `beltSink`)
-      // and the gear deck's catwalk (along its x, `catwalkWidth` wide).
+      // and the gear deck's catwalk (along its x, `catwalkWidth` wide); a belt deck's belt sections
+      // are `beltDeckRow` deep (`beltDeckAcross` across it), on a dark frame `beltFrame` thick, the belt's top `beltTop` over a
+      // section's origin (so the top is at the deck's height).
       factory: {
         decor: [['machine', 2.2], ['machine-fortified', 2.1], ['box-large', 2.4], ['box-long', 2.4], ['hopper-high-round', 2.2], ['hopper-high-square', 2.2], ['crane', 1.7], ['robot-arm-a', 1.5], ['machine-window', 2.2]],
         decorStart: 12, decorEnd: 30, decorEvery: 11, decorLat: [9.2, 10.6], decorClear: 7, seed: 11, chunk: 200,
         pipe: 'pipe-large', pipeLong: 'pipe-large-long', valve: 'pipe-large-valve', pipeLat: 8.4, pipeScale: 0.9, runSections: 5, stackHeight: 6,
         belt: 'conveyor-long-stripe-sides', beltLength: 2, beltCount: 4, beltRow: 8, beltSink: -0.34,
         catwalk: 'catwalk-straight', catwalkLength: 3, catwalkWidth: 1.26, catwalkHeight: 1.3,
+        beltDeckRow: 14, beltDeckAcross: 3, beltFrame: 0.5, beltTop: 0.3,
       },
       sparks: { max: 90, perSecond: 70, life: 0.35, speed: 4, size: 0.09, color: 0xffc24a, hot: 0xfff2c0 },
       grindVolume: 0.5,
       // Lamp posts along the street, just outside the curbs (their heads glow; the look's point lights sit on the nearest).
       lamps: { every: 30, lat: 8.1, height: 4.2, head: 0.28, halo: 1.1, clear: 4 },
       // Steam vents on the street: stepping on one launches the horse high (a puff, a whoosh).
-      vents: [{ s: 50, lat: 3.5 }, { s: 350, lat: 0 }, { s: 580, lat: -3 }],
-      vent: { radius: 1.6, launch: 16, cooldown: 1, glow: 0xfff0d0, puff: 14, stackPuff: 5 }, // (stackPuff: puffs from each of its pipe stacks)
+      vents: [{ s: 50, lat: 0 }, { s: 350, lat: 0 }, { s: 580, lat: -3 }], // (the first on the centre line, 8 before the belt deck)
+      vent: { radius: 1.6, launch: 16, cooldown: 1, catchHeight: 2.2, glow: 0xfff0d0, puff: 14, stackPuff: 5 }, // (catchHeight: a horse hopping over it up to this high is launched too; stackPuff: puffs from each of its pipe stacks)
       steam: { puffs: 70, life: 1.6, rise: 3.2, size: [0.6, 1.6], idleEvery: 1.3 }, // (warm white, lit: the look's `steam`)
-      // A floating gear deck, reached from the first steam vent (its gears on top).
-      decks: [{ s: [62, 92], lat: 3.5, width: 5, top: 4.0 }],
+      // The belt deck: a conveyor belt hanging 4 up, wall to wall (`width`), 8 past the first
+      // steam vent — reached from it at any speed (a launch lands at ~66 riding, ~83 galloping,
+      // ~90 with a jump into the steam), 82 long (~4 s of riding on it at the normal top speed, ~3 s
+      // easing off from a gallop).
+      // Its top is solid at its height; the belt (`belt`: its direction, − = to the left) carries
+      // the horse sideways at `conveyor.speed`, up against the side wall and a railing on that
+      // edge — never off it. Its gears on top.
+      decks: [{ s: [58, 140], lat: 0, width: 13.8, top: 4.0, belt: -1 }],
+      // Landing on a deck: its top is solid — a horse coming down through it lands on it from up
+      // to `catch` below its top (so a fast fall never steps through it in one frame); coming down
+      // within `snap` of its edge it is snapped onto it (pulled `inset` inside); riding off its
+      // end it holds `coyote` s before dropping.
+      deckAssist: { catch: 0.75, snap: 1.5, inset: 0.6, coyote: 0.2, coyoteReach: 8 },
       deckFade: { opacity: 0.18, above: 1.2, rate: 6 }, // the deck fades while the camera is under it (or within `above` over its top)
       // Hazards (a hit staggers the horse, never costs a heart).
       hammers: [{ s: 225, phase: 0 }, { s: 250, phase: 1.6 }, { s: 540, phase: 0.8 }],
@@ -1063,8 +1095,8 @@ export const CONFIG = {
         bob: 0.12, reach: 1.7, pop: 0.35, // (fit: the collectible model's radius × size)
         sparkle: { max: 48, count: 10, life: 0.55, speed: 3.2, size: 0.09, color: 0xfff2b0 }, // a sparkle burst on pickup
         rows: [[28, 44, 0, 4]], // street rows: [s0, s1, lat, count]
-        railRows: [['a', 0, 108, 124, 3], ['a', 1, 126, 140, 3], ['a', 2, 142, 156, 3], ['u', 0, 372, 428, 6], ['b', 0, 652, 676, 3], ['b', 1, 684, 708, 3], ['b', 0, 714, 730, 2]], // [group, index in the group, s0, s1, count]
-        deckRows: [[0, 66, 88, 3]], // [deck, s0, s1, count]
+        railRows: [['a', 0, 156, 170, 3], ['a', 1, 172, 184, 3], ['a', 2, 186, 200, 3], ['u', 0, 372, 428, 6], ['b', 0, 652, 676, 3], ['b', 1, 684, 708, 3], ['b', 0, 714, 730, 2]], // [group, index in the group, s0, s1, count]
+        deckRows: [[0, 72, 120, 3]], // [deck, s0, s1, count]
         ventArc: [2, 5, 8, 11],     // above each vent: gears along the launch arc this far ahead
       },
       // The end: the Fire Element's door across the trail (its stub: "coming soon").
@@ -1522,6 +1554,7 @@ export const CONFIG = {
     abilityUses: 5,
     caveApproach: 45,        // "Cave entrance": on the horse this far from the arena centre (it auto-dismounts at boss.dismountRange)
     hurdleApproach: 30,      // "Forest hurdles": on the horse this far before the first hurdle (it's right there, in view)
+    giveGears: 14,           // "Give 14 gears": collects this many of the Gearhaven ride's gears (the first reward tier of 42)
   },
 
   cutscene: {
@@ -2021,7 +2054,7 @@ export const DIALOGUE = {
     audio: 'Audio test',
     part1: 'Part 1', part2: 'Part 2',
     portal: 'Portal scene', arrival: 'Gearhaven arrival', fire: 'Fire level', lightning: 'Lightning level', steam: 'Steam level',
-    magnet: 'Magnet level', time: 'Time level', final: "Amy's final fight", part2Ending: 'Part 2 ending', robots: 'Robots test', ride: 'Gearhaven ride', props: 'Props test', look: (name) => `Look: ${name}`,
+    magnet: 'Magnet level', time: 'Time level', final: "Amy's final fight", part2Ending: 'Part 2 ending', robots: 'Robots test', ride: 'Gearhaven ride', props: 'Props test', look: (name) => `Look: ${name}`, giveGears: (n) => `Give ${n} gears`,
     on: 'Test menu on', off: 'Test menu off',
   },
   skip: 'Skip ▶▶',
@@ -2053,6 +2086,10 @@ export const DIALOGUE = {
     robotsTest: 'Robots test — Tick, Leela, Mike, Stan, George',
     propsTest: 'Props test — gears, saw, factory, rail, clock tower, castle gate',
     ride: { quest: 'Ride to the Fire Element', start: 'Grind the rails, ride the steam!', gears: '⚙' }, // the Gearhaven ride (ride.js)
+    gearReward: {
+      banner: (what) => `Gear reward unlocked: ${what}!`,
+      heart: '+1 heart', armour: 'horse armour', charge: 'bonus ability charge',
+    },
     toBeContinued: 'To be continued... Part 3',
     summaryTitle: 'Part 2 complete',
     nextPart: 'Part 3 (Coming soon)',

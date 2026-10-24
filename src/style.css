@@ -119,6 +119,8 @@ html, body {
   opacity: 0; transform: scale(.6); transition: opacity .3s, transform .3s cubic-bezier(.2,1.6,.4,1);
 }
 .banner.show { opacity: 1; transform: none; }
+/* a smaller banner (Gearhaven's gear rewards): one line, below the top bar */
+.banner.small { top: 24vh; padding: 0 16px; font-size: clamp(16px, 6vh, 30px); -webkit-text-stroke: 1px #222; text-shadow: 2px 2px 0 #222; }
 /* Floating damage numbers (anchored at the hit, rise and fade). */
 .dmg {
   position: absolute; transform: translate(-50%, -50%); pointer-events: none;
@@ -314,6 +316,12 @@ html, body {
   font-weight: bold; font-size: clamp(11px, 3vh, 15px);
 }
 .gear-pill b { font-size: 1.25em; line-height: 1; }
+/* its progress bar, a tick mark at each gear-reward tier (lit once reached) */
+.gear-pill { flex-wrap: wrap; row-gap: 3px; }
+.gear-bar { flex-basis: 100%; position: relative; height: 4px; margin: 0 1px 1px; border-radius: 2px; background: rgba(255, 211, 106, 0.22); }
+.gear-bar .fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 2px; background: #ffd36a; }
+.gear-bar .mark { position: absolute; top: -2px; bottom: -2px; width: 2px; margin-left: -1px; border-radius: 1px; background: rgba(255, 243, 196, 0.55); }
+.gear-bar .mark.reached { background: #fff8e0; box-shadow: 0 0 4px #ffd36a; }
 .gear-pill.pulse { animation: gem-pulse 0.7s ease-out 1; }
 
 /* Rotate */

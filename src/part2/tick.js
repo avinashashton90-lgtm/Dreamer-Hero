@@ -4,16 +4,17 @@ import { loadGlb, fitModel, findClip, ClipAnimator } from './robots.js';
 
 // Tick: a small floating brass robot, AJ's guide in Gearhaven — the Quaternius Animated Robot
 // (public/models/gearhaven/tick/tick.glb, CC0): a bright brass-yellow body, copper limbs, dark
-// goggles with a glowing cyan eye on them, fitted to `height` and centred on its middle (it
-// floats), playing its idle, a soft glow round him (an additive sprite: no light). If the file
-// fails: placeholder shapes (a brass ball with a rivet band, a dark visor with one glowing eye,
-// two little arms, a propeller and an antenna).
+// goggles with two flat sky-blue eyes on the lenses (unlit colour: no glow, no halo), fitted to
+// `height` and centred on its middle (it floats), playing its idle. A soft golden glow round him
+// (an additive sprite: no light) shows only once every gear of a level is found (`setGlow`, the
+// gear rewards). If the file fails: placeholder shapes (a brass ball with a rivet band, a dark
+// visor with the same two eyes, two little arms, a propeller and an antenna).
 
 const T = CONFIG.part2.tick;
 
 /**
  * @param {{ readFile?: Function, placeholder?: boolean }} [opts]
- * @returns {Promise<THREE.Group>}  `userData` = { body, animator?, eye?, eyeGlow?, prop?, arms?, placeholder }. Faces +Z.
+ * @returns {Promise<THREE.Group>}  `userData` = { body, animator?, eyes, glow, prop?, arms?, placeholder }. Faces +Z.
  */
 export async function loadTickModel(opts = {}) {
   if (!opts.placeholder) {
@@ -44,36 +45,60 @@ async function loadTickGlb(opts) {
   const roles = Object.fromEntries(Object.entries(T.clips).map(([role, names]) => [role, findClip(gltf.animations, names)]));
   const animator = new ClipAnimator(gltf.scene, gltf.animations, roles, T.crossfade);
   animator.play('idle');
-  const eye = addGogglesEye(body);
-  group.add(makeGlow());
-  group.userData = { body, animator, eye, placeholder: false, materials: Object.fromEntries(mats) };
+  const eyes = addGogglesEyes(body);
+  const glow = makeGlow();
+  group.add(glow);
+  group.userData = { body, animator, eyes, glow, placeholder: false, materials: Object.fromEntries(mats) };
   return group;
 }
 
-/** A glowing cyan eye on the middle of his goggles (the `Black` parts), riding on the head bone. */
-function addGogglesEye(body) {
+/** Two flat sky-blue eyes (`eyes`), one on the front of each goggle lens (the `Black` parts, split left / right), on the head bone. */
+function addGogglesEyes(body) {
   body.updateMatrixWorld(true);
   const box = new THREE.Box3();
   let head = null;
+  const blacks = [];
   body.traverse((o) => {
-    if (o.isMesh && o.material.name === 'Black') box.expandByObject(o, true);
+    if (o.isMesh && o.material.name === 'Black') {
+      box.expandByObject(o, true);
+      blacks.push(o);
+    }
     if (!head && o.isBone && o.name === 'Head') head = o;
   });
-  if (box.isEmpty()) return null;
-  const E = T.goggleEye;
-  const size = E.size * T.height;
-  const at = new THREE.Vector3((box.min.x + box.max.x) / 2, (box.min.y + box.max.y) / 2, box.max.z + size * 0.3);
+  if (box.isEmpty()) return [];
+  // (each lens: the front half of the goggles' vertices on its side → its centre, its front)
+  const midX = (box.min.x + box.max.x) / 2;
+  const front = (box.min.z + box.max.z) / 2;
+  const lens = [-1, 1].map(() => ({ sum: new THREE.Vector3(), n: 0, z: -Infinity }));
+  const v = new THREE.Vector3();
+  for (const o of blacks) {
+    for (let i = 0; i < o.geometry.attributes.position.count; i++) {
+      o.getVertexPosition(i, v).applyMatrix4(o.matrixWorld);
+      if (v.z < front) continue;
+      const L = lens[v.x < midX ? 0 : 1];
+      L.sum.add(v);
+      L.n++;
+      L.z = Math.max(L.z, v.z);
+    }
+  }
   const parent = head ?? body;
   const k = parent.getWorldScale(new THREE.Vector3()).x;
-  const eye = new THREE.Group();
-  const core = new THREE.Mesh(new THREE.SphereGeometry(size / k, 12, 8), new THREE.MeshBasicMaterial({ color: E.color, fog: false }));
-  const halo = new THREE.Mesh(new THREE.SphereGeometry((size * E.haloSize) / k, 12, 8), new THREE.MeshBasicMaterial({ color: E.halo, transparent: true, opacity: E.haloOpacity, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
-  core.renderOrder = 10;
-  halo.renderOrder = 9;
-  eye.add(core, halo);
-  eye.position.copy(parent.worldToLocal(at));
-  parent.add(eye);
-  return eye;
+  const E = T.eyes;
+  const size = E.size * T.height;
+  const mat = flatEyeMaterial();
+  return lens.filter((L) => L.n).map((L) => {
+    const at = L.sum.multiplyScalar(1 / L.n).setZ(L.z + E.out * T.height);
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(size / k, 14, 10).scale(1, 1, E.depth), mat);
+    eye.name = 'tickEye';
+    eye.position.copy(parent.worldToLocal(at));
+    parent.add(eye);
+    return eye;
+  });
+}
+
+/** The eyes' material: a flat sky-blue (unlit — no emissive, no glow, no halo). */
+function flatEyeMaterial() {
+  return new THREE.MeshBasicMaterial({ color: T.eyes.color });
 }
 
 /** A soft round glow (an additive sprite with a radial fade; no light, so it costs nothing). */
@@ -94,6 +119,7 @@ function makeGlow() {
   glow.scale.setScalar(G.size * T.height);
   glow.renderOrder = 8;
   glow.name = 'tickGlow';
+  glow.visible = false; // (a gear reward: Tick.setGlow)
   return glow;
 }
 
@@ -110,10 +136,13 @@ function buildPlaceholderTick() {
   const visor = new THREE.Mesh(new THREE.SphereGeometry(s * 0.62, 14, 10, 0, Math.PI * 2, 0, Math.PI / 2), dark);
   visor.rotation.x = Math.PI / 2;
   visor.position.set(0, s * 0.18, s * 0.55);
-  const eye = new THREE.Mesh(new THREE.SphereGeometry(s * 0.2, 12, 8), new THREE.MeshBasicMaterial({ color: T.eye }));
-  eye.position.set(0, s * 0.18, s * 0.95);
-  const eyeGlow = new THREE.Mesh(new THREE.SphereGeometry(s * 0.42, 12, 8), new THREE.MeshBasicMaterial({ color: T.eye, transparent: true, opacity: T.eyeGlow * 0.4, blending: THREE.AdditiveBlending, depthWrite: false }));
-  eyeGlow.position.copy(eye.position);
+  const eyeMat = flatEyeMaterial();
+  const eyes = [-1, 1].map((side) => {
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(s * 0.16, 12, 8).scale(1, 1, T.eyes.depth), eyeMat);
+    eye.name = 'tickEye';
+    eye.position.set(side * s * 0.26, s * 0.22, s * 1.0);
+    return eye;
+  });
   // Propeller and antenna on top.
   const mast = new THREE.Mesh(new THREE.CylinderGeometry(s * 0.05, s * 0.05, s * 0.35, 6), dark);
   mast.position.y = s * 1.12;
@@ -142,10 +171,11 @@ function buildPlaceholderTick() {
     return arm;
   });
   // A soft blob shadow below (it floats).
-  body.add(shell, band, visor, eye, eyeGlow, mast, prop, antenna, tip);
+  body.add(shell, band, visor, ...eyes, mast, prop, antenna, tip);
   group.add(body);
-  group.add(makeGlow());
-  group.userData = { body, eye, eyeGlow, prop, arms, placeholder: true };
+  const glow = makeGlow();
+  group.add(glow);
+  group.userData = { body, eyes, glow, prop, arms, placeholder: true };
   return group;
 }
 
@@ -172,6 +202,11 @@ export class Tick {
 
   nervous(seconds = T.nervous.time) {
     this.nervousT = seconds;
+  }
+
+  /** The soft golden glow round him (the all-gears reward). */
+  setGlow(on) {
+    if (this.model.userData.glow) this.model.userData.glow.visible = !!on;
   }
 
   /**
@@ -207,7 +242,6 @@ export class Tick {
     this.model.rotation.set(0, this.yaw + glance + Math.sin(this.time * N.rate) * 0.08 * n, Math.sin(this.time * 1.3) * 0.06);
     u.animator?.update(dt); // (the robot's idle)
     if (u.prop) u.prop.rotation.y += T.prop * dt;
-    if (u.eyeGlow) u.eyeGlow.material.opacity = T.eyeGlow * (0.35 + 0.1 * Math.sin(this.time * 3));
     u.arms?.forEach((a, i) => (a.rotation.x = Math.sin(this.time * 2 + i) * 0.25 - n * 0.6));
   }
 }

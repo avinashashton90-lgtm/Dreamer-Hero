@@ -90,6 +90,7 @@ export const SOUNDS = {
   hammer_hit: { group: 'effects', desc: 'Gearhaven ride: a swinging hammer knocks the horse — a heavy clang' },
   saw_hit: { group: 'effects', desc: 'Gearhaven ride: a spinning saw blade catches the horse — a sharp metal screech and sparks' },
   gear_pickup: { group: 'effects', desc: 'Gearhaven ride: a brass gear collected — a bright little tick-chime' },
+  gear_reward: { group: 'effects', desc: 'Gearhaven: a gear reward unlocked (a third, two thirds, all of a level’s gears) — a short rising brass chime' },
   sandstorm_wind: { group: 'effects', loop: true, desc: 'The sandstorm’s wind (loop, follows its strength)' },
   thunder_soft: { group: 'effects', desc: 'Distant soft thunder (the witch hint)' },
   // Hearts

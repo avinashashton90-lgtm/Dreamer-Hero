@@ -44,7 +44,7 @@ export class UI {
     // Gearhaven's brass gears (the ride's currency): a pill where the gems sit in Part 1.
     this.gearsEl = this.#el('div', 'gear-pill');
     this.gearsEl.style.display = 'none';
-    this.gearsEl.innerHTML = `<b>${DIALOGUE.part2.ride.gears}</b><span></span>`;
+    this.gearsEl.innerHTML = `<b>${DIALOGUE.part2.ride.gears}</b><span></span><span class="gear-bar"><i class="fill"></i></span>`;
     this.hud.appendChild(this.gearsEl);
 
     // Exhaustion: a faint red vignette that breathes (strength set by setExhaustion).
@@ -209,14 +209,31 @@ export class UI {
     if (this.gemsEl.style.display !== display) this.gemsEl.style.display = display;
   }
 
-  /** The brass gear counter ("⚙ 12 / 42"), shown on the Gearhaven ride; `pulse` on a pickup. */
-  setGears(count, total, show = true, pulse = false) {
+  /**
+   * The brass gear counter ("⚙ 12 / 42"), shown on the Gearhaven ride; `pulse` on a pickup. Under
+   * it a thin progress bar with a small tick mark at each reward tier (`tiers`: [{ at (0..1),
+   * reached }], part2/gearRewards.js).
+   */
+  setGears(count, total, show = true, pulse = false, tiers = []) {
     const el = this.gearsEl;
     const display = show ? '' : 'none';
     if (el.style.display !== display) el.style.display = display;
     const text = `${count} / ${total}`;
-    const span = el.lastElementChild;
+    const span = el.children[1];
     if (span.textContent !== text) span.textContent = text;
+    const bar = el.children[2];
+    bar.firstElementChild.style.width = `${total ? Math.min(100, (count / total) * 100) : 0}%`;
+    const key = tiers.map((t) => `${t.at}:${t.reached ? 1 : 0}`).join(',');
+    if (bar.dataset.tiers !== key) {
+      bar.dataset.tiers = key;
+      bar.querySelectorAll('.mark').forEach((m) => m.remove());
+      for (const t of tiers) {
+        const m = document.createElement('i');
+        m.className = `mark${t.reached ? ' reached' : ''}`;
+        m.style.left = `${t.at * 100}%`;
+        bar.appendChild(m);
+      }
+    }
     if (pulse) {
       el.classList.remove('pulse');
       void el.offsetWidth;
@@ -326,9 +343,10 @@ export class UI {
     this.bossBar.classList.toggle('lower', hit);
   }
 
-  /** Big story banner (e.g. "Victory!"), shown briefly near the top. */
-  banner(text, ms = CONFIG.boss.victoryMs) {
+  /** Big story banner (e.g. "Victory!"), shown briefly near the top (`small`: a one-line one, the gear rewards). */
+  banner(text, ms = CONFIG.boss.victoryMs, { small = false } = {}) {
     this.bannerEl.textContent = text;
+    this.bannerEl.classList.toggle('small', small);
     this.bannerEl.classList.remove('show');
     void this.bannerEl.offsetWidth;
     this.bannerEl.classList.add('show');
