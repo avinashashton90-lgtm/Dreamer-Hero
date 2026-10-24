@@ -7,7 +7,9 @@
 // low rails are fences on the street); steam vents (a launch high onto the gear deck and onto
 // the upper rail; missing the rail lands on the street — no harm, just slower); hazards (a
 // hammer staggers and knocks the horse aside, conveyors push it sideways, cog platforms carry it
-// round — never a heart); gears (counted, a sound); a bot riding the whole level to the Fire
+// round, a spinning saw staggers it and a jump clears it — never a heart); the kit models (Coaster
+// Kit rails, Factory Kit conveyors / pipes / catwalk / decoration, the gear props, the skyline,
+// the clock tower) and their placeholder fallbacks; gears (counted, a sound, a sparkle); a bot riding the whole level to the Fire
 // door (every checkpoint, gears, no hearts lost, not stuck) → the Fire Element's stub; the
 // courtyard's Fire door → the ride; leaving it hands the courtyard's world back.
 // Usage: npm run test:ride   (exits non-zero on failure)
@@ -24,6 +26,7 @@ import { Sound } from '../src/audio.js';
 import { characterBodies } from '../src/fade.js';
 import { LevelManager } from '../src/levelManager.js';
 import { railHeight, trackPoint } from '../src/part2/rideModel.js';
+import { RideWorld, loadRide } from '../src/part2/ride.js';
 
 const P2 = CONFIG.part2, R = P2.ride, D2 = DIALOGUE.part2;
 const dt = 1 / 60;
@@ -89,7 +92,21 @@ const place = (s, lat = 0, { speed = CONFIG.horse.maxSpeed, y = 0, vy = 0 } = {}
     `the HUD: the riding buttons (Jump, Gallop), "${ui.quest}" (${ui.dist} to go), the gear counter ${ui.gears?.n} / ${ui.gears?.total}`);
   let meshes = 0, tris = 0;
   parts.root.traverse((o) => { if (o.isMesh && o.visible) { meshes++; tris += (o.geometry.index ? o.geometry.index.count : o.geometry.attributes.position.count) / 3 * (o.isInstancedMesh ? o.count : 1); } });
-  check(meshes < 110 && tris < 160000, `draw budget: ${meshes} meshes, ${(tris / 1000).toFixed(0)}k triangles in the ride (instanced city, cogs, gears)`);
+  check(meshes < 110 && tris < 165000, `draw budget: ${meshes} meshes, ${(tris / 1000).toFixed(0)}k triangles in the ride (static kit pieces merged, gears / saws / slats instanced)`);
+  // The kits: every part built from its kit models (not the placeholders).
+  const decorShapes = parts.city.userData.decor.sets.map((st) => st.mesh.name);
+  const railMeshes = parts.rails.userData.rails;
+  if (heroAssets.placeholder) console.log('     (HERO_PLACEHOLDER: the kit models are skipped — the placeholders are checked in 8)');
+  else check(parts.rails.userData.kit && railMeshes.length === new Set(R.rails.map((r) => r.group)).size && parts.factory.userData.kit && parts.factory.userData.ventStacks.length === R.vents.length
+    && parts.conveyors.every((c) => c.model.userData.kit) && parts.decks.every((d) => d.model.userData.kit) && parts.pickups.userData.kit
+    && parts.skyline.userData.kit && parts.skyline.userData.chimneys.length >= 4 && parts.tower.userData.height > 50 && parts.saws.length === R.saws.length
+    && decorShapes.some((n) => n.includes('cog')) && decorShapes.some((n) => n.includes('gear01')) && decorShapes.some((n) => n.includes('cluster')),
+    `the kits: Coaster Kit rails (${R.rails.length} in ${railMeshes.length} meshes, gold on copper supports), Factory Kit pipes by each vent / conveyors / the deck's catwalk / ${R.factory.decor.length} kinds of decoration, the collectible gear, gears turning (${decorShapes.join(', ')}), ${parts.saws.length} saws, the brass skyline (${parts.skyline.userData.chimneys.length} chimneys), the clock tower (${parts.tower.userData.height.toFixed(0)} tall)`);
+  // Each rail's kit track runs at the grinding height (the hooves on its top).
+  const box = new THREE.Box3();
+  for (const m of railMeshes) box.union(new THREE.Box3().setFromObject(m)); // (the highest track: the upper rail's)
+  const up = R.rails.find((r) => r.upper);
+  if (!heroAssets.placeholder) check(Math.abs(box.max.y - (up.h + R.railKit.lift)) < 0.05, `the upper rail's track top at ${box.max.y.toFixed(2)} (the grind line ${up.h} + ${R.railKit.lift})`);
 }
 
 // 2) The side walls hold, galloping hard into them.
@@ -211,7 +228,7 @@ const place = (s, lat = 0, { speed = CONFIG.horse.maxSpeed, y = 0, vy = 0 } = {}
   const before = near().lateral;
   await run(0.5);
   const moved = (near().lateral - before) * c.dir;
-  check(moved > R.conveyor.speed * 0.5 * 0.7 && ride.stats.conveyed > 0, `a conveyor belt pushes the standing horse sideways (${moved.toFixed(1)} in 0.5 s)`);
+  check(moved > R.conveyor.speed * 0.5 * 0.85 && moved < R.conveyor.speed * 0.5 * 1.15 && ride.stats.conveyed > 0, `a conveyor belt pushes the standing horse sideways at its speed (${moved.toFixed(1)} in 0.5 s ≈ ${R.conveyor.speed} × 0.5)`);
   const g = p2.rideParts.cogs[0];
   place(g.s, g.lat + 2, { speed: 0 });
   const p0 = horse.position.clone(), yaw0 = horse.heading;
@@ -219,6 +236,30 @@ const place = (s, lat = 0, { speed = CONFIG.horse.maxSpeed, y = 0, vy = 0 } = {}
   const turned = Math.abs(Math.atan2(Math.sin(horse.heading - yaw0), Math.cos(horse.heading - yaw0)));
   check(horse.position.distanceTo(p0) > 1 && turned > R.cogPlatform.speed * 0.8 && ride.stats.carried > 0.9,
     `a turning cog platform carries the horse round (${horse.position.distanceTo(p0).toFixed(1)} moved, turned ${turned.toFixed(2)} rad)`);
+  // A spinning saw: standing in its lane, the blade comes and staggers the horse (no hearts), knocked clear.
+  const sw = p2.rideParts.saws[0];
+  {
+    const h1 = lives.hearts, st = horse.stumbles, sh = ride.stats.sawHits, snd = sound.counts.saw_hit ?? 0;
+    place(sw.s, 0, { speed: 0 });
+    let hit = false;
+    for (let i = 0; i < 60 * R.saw.period && !hit; i++) { await frame(); hit = ride.stats.sawHits > sh; }
+    const lat0 = near().lateral;
+    await run(0.35);
+    const thrown = Math.abs(near().lateral - lat0);
+    check(hit && horse.stumbles > st && (sound.counts.saw_hit ?? 0) > snd && thrown > 0.4 && lives.hearts === h1,
+      `a spinning saw catches the standing horse: it staggers, a screech, thrown ${thrown.toFixed(1)} clear — no hearts lost`);
+  }
+  {
+    // Jumping over it as the blade passes under: no hit.
+    await run(R.hitCooldown + 0.1);
+    const sh = ride.stats.sawHits;
+    place(sw.s - 3, 0, { speed: 9, y: 2.6, vy: 6 });
+    held = { moveX: 0, moveY: 1, jumpPressed: false, gallop: false };
+    let maxY = 0;
+    for (let i = 0; i < 30; i++) { await frame(); maxY = Math.max(maxY, horse.position.y); }
+    held = { moveX: 0, moveY: 0, jumpPressed: false, gallop: false };
+    check(ride.stats.sawHits === sh && maxY > R.saw.radius * (2 - R.saw.sink), `a jump clears the saw (up to ${maxY.toFixed(1)} over a ${(R.saw.radius * (2 - R.saw.sink)).toFixed(1)}-high blade): no hit`);
+  }
 }
 
 // 6) A bot rides the whole level from the start: checkpoints, gears, no hearts lost, the Fire door.
@@ -227,7 +268,7 @@ const place = (s, lat = 0, { speed = CONFIG.horse.maxSpeed, y = 0, vy = 0 } = {}
   check(ride.count === 0 && ride.gears.every((g) => !g.taken) && p2.rideParts.flags.every((f) => f.userData.flag.material.color.getHex() === CONFIG.checkpoints.flagColor), 'a fresh ride: gears back, flags down');
   const h0 = lives.hearts, pick0 = sound.counts.gear_pickup ?? 0;
   const reached = new Set();
-  let t = 0, stuck = 0, maxLat = 0;
+  let t = 0, stuck = 0, maxLat = 0, sparkleMax = 0;
   const reachedGrinds = ride.stats.grinds;
   // The bot: forward (galloping on the straights), steering by heading toward its line — onto
   // the first vent (→ the deck), the middle rail, the vent under the upper rail, the last vent,
@@ -244,14 +285,15 @@ const place = (s, lat = 0, { speed = CONFIG.horse.maxSpeed, y = 0, vy = 0 } = {}
     await frame();
     if (horse.lastCheckpoint > 0) reached.add(horse.lastCheckpoint);
     if (n) maxLat = Math.max(maxLat, Math.abs(n.lateral));
+    sparkleMax = Math.max(sparkleMax, ride.sparkleCount);
     if (horse.speed < 1 && !ride.grinding && p2.at === 'ride') stuck += dt; else stuck = 0;
     if (stuck > 3) break;
   }
   check(p2.at === R.quest && t < 120 && stuck <= 3, `a bot rides the whole level in ${t.toFixed(1)} s and reaches the Fire Element's door (never stuck)`);
   check(reached.size === R.checkpoints.length - 1 && p2.rideParts.flags.every((f) => f.userData.flag.material.color.getHex() === CONFIG.checkpoints.reachedColor) && ui.toasts.filter((x) => x === DIALOGUE.checkpoint).length >= R.checkpoints.length - 1,
     `every checkpoint reached (${reached.size}), its flag green, a toast`);
-  check(ride.count > 5 && (sound.counts.gear_pickup ?? 0) - pick0 === ride.count && ride.stats.grinds > reachedGrinds && lives.hearts === h0 && maxLat <= R.wall.offset,
-    `on the way: ${ride.count} gears collected (a chime each), ${ride.stats.grinds - reachedGrinds} grinds, ${ride.stats.launches} launches, ${ride.stats.hits} hammer hits — hearts never lost, always inside the walls`);
+  check(ride.count > 5 && sparkleMax >= R.gears.sparkle.count && (sound.counts.gear_pickup ?? 0) - pick0 === ride.count && ride.stats.grinds > reachedGrinds && lives.hearts === h0 && maxLat <= R.wall.offset,
+    `on the way: ${ride.count} gears collected (a chime each, ${sparkleMax} sparkles at most), ${ride.stats.grinds - reachedGrinds} grinds, ${ride.stats.launches} launches, ${ride.stats.hits} hits (hammers ${ride.stats.hits - ride.stats.sawHits}, saws ${ride.stats.sawHits}) — hearts never lost, always inside the walls`);
   check(p2.at === 'fire' && ui.toasts.includes(D2.comingSoon(D2.levelNames.fire)) && !p2.rideParts.root.visible && p2.gearhaven.visible && horse.world === p2.world && hero.world === p2.world && !hero.riding && !ui.gears.show,
     `the Fire Element's door → its stub ("${D2.comingSoon(D2.levelNames.fire)}"): the ride put away, AJ on foot, the courtyard's world back`);
 }
@@ -267,6 +309,19 @@ const place = (s, lat = 0, { speed = CONFIG.horse.maxSpeed, y = 0, vy = 0 } = {}
   check(DIALOGUE.testMenu.ride === 'Gearhaven ride', '?debug menu: "Gearhaven ride"');
   await levels.load('part1');
   check(horse.world === world && hero.world === world && cam.world === world && !p2.rideParts.root.visible, 'back in Part 1: the hero, horse and camera handed back');
+}
+
+// 8) If the kit files fail, the ride is built from the placeholders (and still plays the same).
+{
+  const { forgetKits } = await import('../src/kits.js');
+  forgetKits();
+  const warn = console.warn;
+  console.warn = () => {};
+  const parts = await loadRide(new THREE.Scene(), new RideWorld(), { readFile: async () => { throw new Error('missing'); } });
+  console.warn = warn;
+  check(!parts.rails.userData.kit && parts.rails.userData.rails.length === R.rails.length && !parts.factory.userData.kit && parts.conveyors.every((c) => !c.model.userData.kit) && parts.decks.every((d) => !d.model.userData.kit) && !parts.pickups.userData.kit && !parts.skyline.userData.kit && parts.saws.length === R.saws.length,
+    'the kit files failing: the placeholder rails (tubes), conveyors, deck, gears and skyline blocks instead — nothing missing');
+  forgetKits();
 }
 
 console.log(failed ? 'RIDE TEST FAILED' : 'ride test passed');

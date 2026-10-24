@@ -3,6 +3,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { planHurdles } from './hurdles.js';
 import { CONFIG } from './config.js';
 import { Track } from './track.js';
+import { applyCastleKit } from './castleKit.js';
 
 const W = CONFIG.world;
 const Z = CONFIG.zones;
@@ -332,20 +333,23 @@ export async function loadCastleModel() {
     group.add(m);
     return m;
   };
+  // (the parts the Castle Kit replaces when it loads — castleKit.js; the rest stays)
+  const kitSwap = [];
+  const swap = (m) => (kitSwap.push(m), m);
   // Curtain wall with a gate passage through it (the horse rides in at the castle-gate scene).
   const G = DS.castle.gate;
   const W2 = H * 0.45;
   const gw = G.width / 2;
   const depth = H * 0.25;
   const wallH = H * 0.32;
-  add(new THREE.BoxGeometry(W2 - gw, wallH, depth), dark, -(gw + (W2 - gw) / 2), wallH / 2, 0);
-  add(new THREE.BoxGeometry(W2 - gw, wallH, depth), dark, gw + (W2 - gw) / 2, wallH / 2, 0);
-  add(new THREE.BoxGeometry(G.width, wallH - G.height, depth), dark, 0, G.height + (wallH - G.height) / 2, 0); // over the passage
+  swap(add(new THREE.BoxGeometry(W2 - gw, wallH, depth), dark, -(gw + (W2 - gw) / 2), wallH / 2, 0));
+  swap(add(new THREE.BoxGeometry(W2 - gw, wallH, depth), dark, gw + (W2 - gw) / 2, wallH / 2, 0));
+  swap(add(new THREE.BoxGeometry(G.width, wallH - G.height, depth), dark, 0, G.height + (wallH - G.height) / 2, 0)); // over the passage
   // The dark passage (its sides and roof; it opens into the courtyard behind the wall).
   const tunnel = new THREE.MeshBasicMaterial({ color: G.passageColor, fog: false, side: THREE.DoubleSide });
   for (const side of [-1, 1]) add(new THREE.PlaneGeometry(depth * 0.98, G.height).rotateY(Math.PI / 2), tunnel, side * G.width * 0.49, G.height / 2, 0);
   add(new THREE.PlaneGeometry(G.width, depth * 0.98).rotateX(Math.PI / 2), tunnel, 0, G.height * 0.99, 0);
-  for (let i = 0; i < 13; i++) add(new THREE.BoxGeometry(H * 0.04, H * 0.05, H * 0.26), dark, -H * 0.42 + i * H * 0.07, H * 0.345, 0); // battlements
+  for (let i = 0; i < 13; i++) swap(add(new THREE.BoxGeometry(H * 0.04, H * 0.05, H * 0.26), dark, -H * 0.42 + i * H * 0.07, H * 0.345, 0)); // battlements
   // The courtyard behind it: a stone floor, walls round it (lit, so it reads up close).
   const CY = DS.castle.courtyard;
   const back = -depth / 2 - CY.depth;
@@ -368,23 +372,25 @@ export async function loadCastleModel() {
     const m = add(mound, drift, x, 0, zz);
     m.scale.set(r, h, r * 0.7);
   }
-  for (const side of [-1, 1]) add(new THREE.BoxGeometry(CY.wall, wallH, CY.depth), inner, side * (CY.halfWidth + CY.wall / 2), wallH / 2, -depth / 2 - CY.depth / 2);
-  add(new THREE.BoxGeometry(CY.halfWidth * 2 + CY.wall * 2, wallH, CY.wall), inner, 0, wallH / 2, back - CY.wall / 2);
+  for (const side of [-1, 1]) swap(add(new THREE.BoxGeometry(CY.wall, wallH, CY.depth), inner, side * (CY.halfWidth + CY.wall / 2), wallH / 2, -depth / 2 - CY.depth / 2));
+  swap(add(new THREE.BoxGeometry(CY.halfWidth * 2 + CY.wall * 2, wallH, CY.wall), inner, 0, wallH / 2, back - CY.wall / 2));
   const zIn = back / H; // (the inner towers and the keep stand behind the courtyard)
+  const towers = [];
   for (const [x, z, k] of [[-0.45, 0, 0.55], [0.45, 0, 0.55], [-0.4, zIn, 0.75], [0.4, zIn, 0.7], [0, zIn - 0.13, 1]]) {
     const r = H * 0.07 * (0.8 + k * 0.4);
     const h = H * k;
-    add(new THREE.CylinderGeometry(r, r * 1.1, h, 10), dark, x * H, h / 2, z * H);
-    add(new THREE.ConeGeometry(r * 1.35, H * 0.22, 10), dark, x * H, h + H * 0.11, z * H);
-    add(new THREE.BoxGeometry(r * 0.35, r * 0.6, 0.2), glow, x * H, h * 0.8, z * H + r * 1.02);
+    swap(add(new THREE.CylinderGeometry(r, r * 1.1, h, 10), dark, x * H, h / 2, z * H));
+    swap(add(new THREE.ConeGeometry(r * 1.35, H * 0.22, 10), dark, x * H, h + H * 0.11, z * H));
+    swap(add(new THREE.BoxGeometry(r * 0.35, r * 0.6, 0.2), glow, x * H, h * 0.8, z * H + r * 1.02));
+    towers.push({ x: x * H, z: z * H, r, h, roof: H * 0.22 });
   }
   // The curtain wall's inner face round the passage: lit stone, an arch frame, so the closed
   // inner gates read as the backdrop of the last scene (from the courtyard).
   const face = new THREE.MeshLambertMaterial({ color: CY.innerFace });
   const trim = new THREE.MeshLambertMaterial({ color: CY.trim });
   const zi = -depth / 2 - 0.06;
-  for (const side of [-1, 1]) add(new THREE.BoxGeometry(W2 - gw, wallH, 0.12), face, side * (gw + (W2 - gw) / 2), wallH / 2, zi);
-  add(new THREE.BoxGeometry(G.width, wallH - G.height, 0.12), face, 0, G.height + (wallH - G.height) / 2, zi);
+  for (const side of [-1, 1]) swap(add(new THREE.BoxGeometry(W2 - gw, wallH, 0.12), face, side * (gw + (W2 - gw) / 2), wallH / 2, zi));
+  swap(add(new THREE.BoxGeometry(G.width, wallH - G.height, 0.12), face, 0, G.height + (wallH - G.height) / 2, zi));
   for (const side of [-1, 1]) add(new THREE.BoxGeometry(0.7, G.height + 0.7, 0.5), trim, side * (gw + 0.35), (G.height + 0.7) / 2, zi - 0.2);
   add(new THREE.BoxGeometry(G.width + 1.4, 0.7, 0.5), trim, 0, G.height + 0.35, zi - 0.2);
   // Torches either side of the passage on both faces (additive flames and halos; flickered by
@@ -467,7 +473,10 @@ export async function loadCastleModel() {
   group.userData.insideLocal = new THREE.Vector3(0, 0, -depth / 2 + G.insideStop); // where the riders stop inside
   group.userData.courtyardLocal = new THREE.Vector3(0, 0, -depth / 2 - CY.depth / 2); // the courtyard's centre (Part 1's last scene)
   // A warm glow over the gate (seen through the sandstorm).
-  add(new THREE.BoxGeometry(G.width * 1.2, H * 0.03, 0.3), glow, 0, G.height + H * 0.02, depth / 2 + 0.1);
+  swap(add(new THREE.BoxGeometry(G.width * 1.2, H * 0.03, 0.3), glow, 0, G.height + H * 0.02, depth / 2 + 0.1)); // (the kit's lit stone and torches need none)
+  group.userData.kitSwap = kitSwap;
+  group.userData.dims = { H, W2, gw, depth, wallH, back, towers };
+  group.userData.kit = false;
   return group;
 }
 
@@ -1283,12 +1292,23 @@ export class World {
     await this.#buildDesert(rnd);
   }
 
+  /**
+   * Dress the castle in the Castle Kit (castleKit.js; the placeholder stays if it fails). Once;
+   * resolves true when it is dressed. `opts`: how files load ({ readFile, placeholder }).
+   */
+  upgradeCastle(opts = {}) {
+    this.castleKitAsked ??= this.castle ? applyCastleKit(this.castle, opts) : Promise.resolve(false);
+    return this.castleKitAsked;
+  }
+
   /** Per-frame cosmetic updates. */
   update(dt, cameraPosition) {
     this.time += dt;
     const ZN = CONFIG.world.zones;
     this.zones.forest.visible = cameraPosition.x < ZN.forestMaxX;
     this.zones.desert.visible = cameraPosition.x > ZN.desertMinX;
+    // (the Castle Kit loads the first time the desert is drawn, in the browser: lazy, per level)
+    if (this.zones.desert.visible && !this.castleKitAsked && typeof document !== 'undefined') this.upgradeCastle();
     this.sky.position.copy(cameraPosition);
     this.setSunset(smoothstep(cameraPosition.x, DS.sunset.blend[0], DS.sunset.blend[1]));
     this.river.position.y = Z.waterY + Math.sin(this.time * WATER.waveSpeed) * WATER.waveHeight;

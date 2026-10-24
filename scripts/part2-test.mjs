@@ -93,7 +93,8 @@ const scale0 = horse.model.scale.x;
     `Tick: ${heroAssets.placeholder ? 'the placeholder (shapes)' : `the Animated Robot glb, ${(tbox.max.y - tbox.min.y).toFixed(2)} tall, a bright brass-yellow body / copper limbs / dark goggles with a glowing cyan eye, playing ${tu.animator?.clipName}`}; a soft glow round him`);
   // Play it through.
   let dropped = false, landedOnFoot = false, nervousSeen = 0, tickNear = Infinity, tickHorse = Infinity, tickBob = [Infinity, -Infinity], glanceMax = 0, chime = sound.counts.clock_chime ?? 0;
-  const gear = p2.gearhaven.userData.skyGears[0].mesh, gearRot = gear.rotation.z;
+  const gear = p2.gearhaven.userData.decor.sets.flatMap((st) => st.items).find((it) => it.sky), gearRot = gear.angle;
+  const tower = p2.gearhaven.userData.tower, minute0 = tower.userData.clock.minute;
   const yawRel = () => Math.abs(wrap(tick.model.rotation.y - Math.atan2(hero.position.x - tick.position.x, hero.position.z - tick.position.z)));
   // The talk's framing: the horse right of AJ, three-quarter on to the camera, its head and the
   // brass key in view; Tick between them at head height; nobody hidden (vertical capsules).
@@ -153,14 +154,16 @@ const scale0 = horse.model.scale.x;
     `Tick floats in between AJ and the horse (${tickHorse.toFixed(2)} from it, ${tickNear.toFixed(2)} from AJ) with a gentle bob (${(tickBob[1] - tickBob[0]).toFixed(2)}) and says "${L.cannot}" nervously, glancing over his shoulder (${glanceMax.toFixed(2)} rad)`);
   check(state.is(STATES.PLAY) && p2.at === 'courtyard' && ui.quest === D2.objectives.fire && ui.dist > 5 && ui.toasts.includes(D2.objectives.fire),
     `then the courtyard in play: "${ui.quest}" (${ui.dist} away)`);
-  check(Math.abs(gear.rotation.z - gearRot) > 1e-3 && !ui.gemsShown && input.combatHidden, 'the gear sky turns; no gems or fighting buttons in Gearhaven');
+  check(Math.abs(gear.angle - gearRot) > 1e-3 && !ui.gemsShown && input.combatHidden, 'the gear sky turns; no gems or fighting buttons in Gearhaven');
+  check(tower.userData.clock.minute !== minute0 && p2.gearhaven.userData.skyline.userData.chimneys.length >= 6 && (heroAssets.placeholder || p2.gearhaven.userData.skyline.userData.kit),
+    `the clock tower's hands move; the brass skyline (Castle Kit, ${p2.gearhaven.userData.skyline.userData.chimneys.length} chimneys) round the horizon`);
 }
 
 // 2) The courtyard: things move; AJ walks about inside its wall; the Fire door opens its stub.
 {
   const p2 = levels.current;
   const u = p2.gearhaven.userData;
-  const minute = u.clock.minute.rotation.z, cog = u.cogs[0].mesh.rotation.z;
+  const minute = u.clock.minute.rotation.z, cogItem = u.decor.sets[0].items[0], cog = cogItem.angle;
   let steamMax = 0;
   held = { moveX: 0, moveY: 1, jumpPressed: false };
   const p0 = hero.position.clone();
@@ -180,7 +183,7 @@ const scale0 = horse.model.scale.x;
   held = { moveX: 0, moveY: 0, jumpPressed: false };
   check(hero.position.distanceTo(p0) > 3 && maxR <= P2.gearhaven.floor.wall + 0.01 && minY > -0.05, `AJ walks about the courtyard and stays inside its wall (${maxR.toFixed(2)} ≤ ${P2.gearhaven.floor.wall}), on its floor`);
   check(tickFrames > 100 && tickSeen === tickFrames, `Tick floats beside AJ at his head height, always on screen while he walks (${tickSeen}/${tickFrames})`);
-  check(u.clock.minute.rotation.z !== minute && u.cogs[0].mesh.rotation.z !== cog && steamMax > 0, `the clock's hands, the cogs and the steam move (${steamMax} puffs)`);
+  check(u.clock.minute.rotation.z !== minute && cogItem.angle !== cog && steamMax > 0, `the clock's hands, the cogs and the steam move (${steamMax} puffs)`);
   // Into the Fire door.
   const door = u.doors.fire.at;
   hero.puppet(door.clone().multiplyScalar(0.97), 0, 0);
@@ -297,6 +300,37 @@ const scale0 = horse.model.scale.x;
     `the Robots test: ${S.items.map((it) => `${it.name} (${it.clips.length} clips)`).join(', ')} in a row, each on to its next clip`);
   await levels.load('part2', { start: 'courtyard' });
   check(!S.group.visible, 'and gone again elsewhere');
+}
+
+// 7b) The "Props test" (?debug): every kind of kit prop in a row, animating; the Time Element's
+// clock tower; the Credits list.
+{
+  await levels.load('part2', { start: 'props' });
+  for (let i = 0; i < 30; i++) await frame();
+  const S = levels.current.props;
+  const names = S.items.map((it) => it.name);
+  const want = ['gear_01', 'cluster', 'Cog', 'Collectible', 'Saw', 'Conveyor', 'Pipe', 'Catwalk', 'Rail', 'Clock tower', 'Castle gate'];
+  const xs = S.items.map((it) => it.x);
+  const sawX = S.group.getObjectByName('saw').userData.blade.position.x;
+  for (let i = 0; i < 40; i++) await frame();
+  const moving = S.group.getObjectByName('saw').userData.blade.position.x !== sawX;
+  const pan = S.pan;
+  await frame();
+  check(levels.current.at === 'props' && want.every((w) => names.some((n) => n.includes(w))) && xs.every((x, i) => i === 0 || x > xs[i - 1]) && moving && S.pan !== pan && ui.quest === D2.propsTest && S.group.visible && hero.position.y > -1,
+    `the Props test: ${names.join(', ')} in a row, animating, the camera sliding along it; AJ stands for scale`);
+  const castle = S.group.children.find((c) => c.userData.gates);
+  check(!!castle && (heroAssets.placeholder || castle.userData.kit), `the castle gate there ${castle?.userData.kit ? 'in the Castle Kit' : '(placeholder)'}`);
+  await levels.load('part2', { start: 'courtyard' });
+  check(!S.group.visible, 'and gone again elsewhere');
+  await levels.load('part2', { start: 'time' });
+  const tower = levels.current.timeTower;
+  const m0 = tower.userData.clock.minute;
+  for (let i = 0; i < 30; i++) await frame();
+  check(levels.current.stubs.time.group.visible && tower.visible && tower.userData.clock.minute !== m0, 'the Time Element\'s place: the clock tower behind its platform, its hands moving');
+  const C = DIALOGUE.credits;
+  const all = C.entries.map((e) => `${e.what} ${e.who ?? ''} ${e.licence ?? ''} ${e.text ?? ''}`).join(' | ');
+  check(['Animated Robot', 'Animated Mech Pack', 'Collectible Gear', 'Factory Kit', 'Coaster Kit', 'Castle Kit', 'Poly by Google [CC-BY]', 'poly.pizza/m/0icYC-GPiro'].every((w) => all.includes(w)) && /Quaternius/.test(all) && /Kenney/.test(all),
+    `the Credits list: ${C.entries.length} entries (Quaternius, Kenney — CC0; the Poly by Google gear's exact attribution)`);
 }
 
 // 8) A chapter that fails to load leaves the game where it is.

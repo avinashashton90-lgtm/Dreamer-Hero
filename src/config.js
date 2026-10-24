@@ -426,6 +426,19 @@ export const CONFIG = {
         innerFace: 0x7d6650, trim: 0x5a4636,
       },
       innerGate: { color: 0x5c3f27, bandColor: 0x2a2226, open: 1.45 }, // (Lambert: lit by the dusk)
+      // Dressed in Kenney's Castle Kit when it loads (castleKit.js; its own sandstone and slate,
+      // unfogged): wall tiles (`tile` × the wall's height wide) along the curtain wall and the
+      // courtyard, a gatehouse tower either side of the passage (`width`, `height` × the wall's),
+      // the corner towers hexagonal, the inner towers and keep square (base, `mids` middles,
+      // roof), flags on every tower, banners beside the gate, and the gate leaves cut from the
+      // kit's arched gate. Same sizes and places as the placeholder; it stays if the kit fails.
+      kit: {
+        wall: 'wall', gate: 'gate', banner: 'flag-banner-long', flag: 'flag',
+        square: ['tower-square-base', 'tower-square-mid', 'tower-square-roof'],
+        hexagon: ['tower-hexagon-base', 'tower-hexagon-base', 'tower-hexagon-roof'],
+        mids: 2, tile: 1, gatehouse: { width: 6.5, height: 1.3 },
+        flagScale: 5, flagSink: 0.2, banners: { x: 1.4, top: 0.9, scale: 2.6 }, leafThickness: 1,
+      },
       // Torches on both faces of the curtain wall, either side of the passage (additive flames, no lights).
       torches: {
         x: 5.2, y: 4.6, out: 0.55,        // this far either side of the passage's centre, this high, standing out from the wall
@@ -620,6 +633,31 @@ export const CONFIG = {
 
   // Part 2 — Gearhaven (src/part2/, loaded by levelManager.js as its own chapter; STORY.md).
   // `portal` is the bridge at the end of Part 1 (story.js + portal.js, in the Part 1 world).
+  // The model kits (src/kits.js): Kenney Factory / Coaster / Castle Kits (CC0) and the gear
+  // props (Poly Pizza / Quaternius) — loaded piece by piece when a level needs them, one shared
+  // palette texture per kit, its colours re-tinted in one Lambert shader (`tints`: warm palette
+  // colours → `warm`, cool ones → `cool`, greys mixed `greyK` toward `grey`). The Coaster Kit has
+  // only the one colormap (no gold / copper variant), so the rails are tinted gold; the Factory
+  // Kit's variation-a is another cool palette, so the colormap is tinted too.
+  kits: {
+    factory: { path: 'models/gearhaven/factory/glb/', texture: 'colormap.png', tint: 'factory' },
+    rails: { path: 'models/gearhaven/rails/glb/', texture: 'colormap.png', tint: 'rails' },
+    castle: { path: 'models/castle/glb/', texture: 'colormap.png', tint: null }, // (Part 1's castle keeps the kit's own sandstone and slate)
+    props: { path: 'models/gearhaven/props/' },
+    tints: {
+      factory: { warm: 0xe0aa3a, cool: 0xb8643a, grey: 0xa07440, greyK: 0.8, boost: 1.05, rim: 0xffe6c0, rimK: 0.18 }, // orange → brass, blue → copper, the slate greys → dark copper-bronze
+      rails: { warm: 0xf0c048, cool: 0xe8b440, grey: 0xe0b048, greyK: 0.9, boost: 1.1, rim: 0xfff0c8, rimK: 0.3 },     // the track all gold
+      railSupports: { warm: 0xb8683a, cool: 0x9a5430, grey: 0x7a4a2a, greyK: 0.7, boost: 1.0, rim: 0xffe0c0, rimK: 0.15 }, // its supports copper
+      skyline: { warm: 0xc9a23a, cool: 0xa45a32, grey: 0x9a7a48, greyK: 0.75, boost: 0.9, rim: 0xffe6c0, rimK: 0.0 }, // the distant brass city
+    },
+    metals: {
+      brass: { color: 0xd8a640, emissive: 0x1e1406 },
+      copper: { color: 0xb8683a, emissive: 0x160a04 },
+      darkBrass: { color: 0x8c6a32 },
+      steel: { color: 0x9aa0a8, emissive: 0x0a0a0c },
+      gold: { color: 0xf0c048, emissive: 0x4a3008 },
+    },
+  },
   part2: {
     // After the castle gates slam shut: the horse walks on into the courtyard and the inner gates
     // swing shut behind it — the gate wall, the closed gates and the torches are the backdrop,
@@ -668,8 +706,8 @@ export const CONFIG = {
       floor: { radius: 24, wall: 23, color: 0xb8893e, inlay: 0x8a5a2b, ring: 0x6e4a26 },
       wallRing: { height: 1.4, color: 0x7a4f25 },
       pillars: { count: 10, radius: 0.55, height: 6, color: 0x8b5e2c, lampColor: 0xffc06a },
-      skyGears: { count: 7, radius: [14, 32], height: [38, 62], spread: 70, teeth: 18, speed: [0.03, 0.08], color: 0x8c6a32, dark: 0x4a3418 },
-      cogs: { count: 9, radius: [0.9, 2.2], color: 0xb07a30, speed: 0.6 },
+      skyGears: { count: 7, radius: [14, 32], height: [38, 62], spread: 70, speed: [0.03, 0.08], depth: 1.6, shapes: ['gear01', 'cluster'] }, // (depth: a little thicker, they're huge)
+      cogs: { count: 9, radius: [0.9, 2.2], speed: 0.6, shapes: ['cogA', 'cogC'], metals: ['brass', 'copper'] }, // (few shapes: one draw each)
       clock: { at: [0, 46, -140], radius: 26, face: 0xf3e6c4, rim: 0x9c7432, hand: 0x3a2a1c, glow: 0xffd88a, slow: 0.02 },
       steam: { vents: 5, puffs: 36, life: 2.6, rise: 2.2, size: [0.5, 1.3], color: 0xfff6ea, opacity: 0.28, every: 4, hiss: 0.25 },
       doors: { radius: 20.5, height: 4.4, width: 2.8, reach: 1.8 }, // the element doors round the courtyard
@@ -732,6 +770,15 @@ export const CONFIG = {
       attackFor: { scout: ['Kick', 'Punch'], swordA: ['SwordSlash'], swordB: ['SwordSlash'], boss: ['Punch', 'Shoot', 'SwordSlash'] },
       placeholder: { brass: 0xc9a23a, copper: 0xa45a32, rust: 0x6e3a1e, eye: 0xffb050 },
     },
+    // "Props test" (?debug; part2/propsTest.js): every kind of kit prop in a row on a brass strip
+    // floating at `z`, `gap` apart, with a label each; the camera slides along the row and back (a swipe
+    // moves it). Gears: [label, shape, radius, metal].
+    propsTest: {
+      z: 90, gap: 2.4, floor: { depth: 14, color: 0xa87a3a }, // (on its own brass strip, away from the courtyard)
+      gears: [['Gear (gear_01)', 'gear01', 1.2, 'brass'], ['Gear cluster', 'cluster', 1.4, 'copper'], ['Cog (Factory Kit)', 'cogA', 1, 'brass'], ['Collectible gear', 'collectible', 0.6, 'gold']],
+      spin: 0.8, sawScale: 0.8, kitScale: 1.6, slats: 10, puffs: 8, towerScale: 0.3, castleScale: 0.25, gatePeriod: 6,
+      camera: { dist: 12, height: 3.6, look: 1.8, speed: 3, ahead: 2, swipe: 40 },
+    },
     // "Robots test" (?debug): all five in a row in the courtyard, each going through its clips.
     showcase: { z: -8, gap: 1.6, clipTime: 2.6, roleOrder: ['idle', 'walk', 'run', 'attack', 'hit', 'wave', 'yes', 'no', 'death'], orbit: { radius: 17, height: 5.5, speed: 0.12, look: 2.6 }, labelScale: 0.85 }, // (each robot's slot is as wide as its label or its body, whichever is wider, plus `gap`)
     // The horse in Gearhaven: a small brass key on its back and brass armour plates (loadGearhavenHorseUpgrade()).
@@ -771,6 +818,43 @@ export const CONFIG = {
       stub: { radius: 9, gap: 120, crystal: 0.8, back: 6.5 }, // a platform per level this far apart; a crystal; the door back
     },
     music: 'gearhaven',
+    // The gear props (part2/props.js): each a regular shape (centred, axle along +Z, radius 1)
+    // from the props folder or the Factory Kit's cogs; brass / copper by instance colour.
+    props: {
+      shapes: {
+        gear01: ['props', 'gear_01'], cluster: ['props', 'gear_cluster'], spiky: ['props', 'gear_spiky'], collectible: ['props', 'gear_collectible'],
+        cogA: ['factory', 'cog-a'], cogB: ['factory', 'cog-b'], cogC: ['factory', 'cog-c'], cogD: ['factory', 'cog-d'], cogE: ['factory', 'cog-e'],
+      },
+      metals: { brass: 0xd8a640, copper: 0xb8683a, darkBrass: 0x8c6a32, gold: 0xf0c048 },
+      emissive: 0x140c04,
+    },
+    // The clock tower (part2/clockTower.js; built in code): on the skyline of the courtyard
+    // (toward the Time door) and the ride, and at the Time Element's place.
+    clockTower: {
+      base: { steps: [[16, 1.2], [13.5, 1.0], [11.5, 0.8]] },  // [width, height] of each step
+      shaft: { width: 9, height: 38, pilaster: 1.1, bands: 3, windows: 4 },
+      stage: { width: 11, height: 11, face: 4.4 },               // the clock stage, a face on each side
+      roof: { height: 15, spire: 6 },                             // the pointed brass roof and its spire
+      colors: { stone: 0x8a6440, brass: 0xc9a23a, dark: 0x2a1c12, face: 0xf3e6c4, hand: 0x2a1c12 },
+      gears: { count: 6, ring: 9.6, radius: 3.4, up: 0.7, speed: 0.25, shapes: ['cogA', 'cogC'], metals: ['brass', 'copper'] }, // turning round the base
+      minutesPerSecond: 3, startMinute: 130,
+      courtyard: { dist: 112, scale: 1 }, // toward the Time door, this far from the courtyard's centre
+      ride: { at: [470, 0, 405], scale: 1.1 },
+      time: { back: 26, scale: 0.55 },    // behind the Time Element's platform
+    },
+    // The distant brass city (part2/skyline.js): Castle Kit towers and walls tinted brass, pipes
+    // and chimneys with slow steam; no collision. A cluster per spot: towers `scale` big, stacked
+    // from the kit's pieces (`mids` middle pieces), a wall, a chimney and a pipe.
+    skyline: {
+      seed: 21, scale: [7, 11], hexShare: 0.3, twinShare: 0.55,
+      towers: { square: ['tower-square-base', 'tower-square-mid', 'tower-square-roof'], hexagon: ['tower-hexagon-base', 'tower-hexagon-base', 'tower-hexagon-roof'], mids: [1, 3] },
+      wall: 'wall', pipe: 'pipe-large-long',
+      chimney: { height: [3.5, 5.5], radius: 0.35, color: 0x6e4028 },
+      steam: { perChimney: 3, life: 7, every: 7, grow: 2.2, rise: 9, drift: [4, 1.5], color: 0xfff1e0, opacity: 0.32 },
+      fallback: 0x9a7a48,
+      courtyard: { count: 14, radius: [108, 140], clearOfLevels: 0.55, clearOfTower: 40 }, // (none toward the level platforms at +x, nor at the clock tower)
+      ride: { every: 66, lat: [72, 110], minClear: 55 },
+    },
     // The first playable section (part2/ride.js; behind the courtyard's Fire door): a ride
     // through a brass city on the trail / spline system — copper rooftops, turning cogs on the
     // building fronts, steam vents, gears floating in a warm gold sky, the Dream Clock far off —
@@ -792,8 +876,11 @@ export const CONFIG = {
         colors: [0x8c5a34, 0x7a4a2e, 0x9a6a40, 0x6e4a32, 0xa0784a], roof: 0xb8683a, patina: 0x6aa58a, patinaShare: 0.3,
         windows: 0xffd98a, seed: 7,
       },
-      cogs: { every: 26, lat: 11.6, radius: [1.6, 3], height: [3, 9], speed: [0.4, 1.1], color: 0xc9a23a, dark: 0x6b4a22 }, // turning cogs on the building fronts
-      skyGears: { count: 9, radius: [10, 26], height: [45, 75], spread: 140, speed: [0.03, 0.09], color: 0x9c7a3a },
+      // Turning gears (part2/props.js shapes, brass or copper): on the building fronts facing the
+      // trail, lying beside the curbs, and floating in the sky.
+      cogs: { every: 26, lat: 11.6, radius: [1.6, 3], height: [3, 9], speed: [0.4, 1.1], shapes: ['cogA', 'cogC', 'cluster'], metals: ['brass', 'copper'] }, // (few shapes: one draw each; gear_01 is 1.7k triangles: only in the sky)
+      floorGears: { every: 34, lat: 8.6, y: 0.08, radius: [1.1, 1.8], speed: 0.5, shapes: ['cogC', 'cogA'], metals: ['copper', 'brass'] },
+      skyGears: { count: 9, radius: [10, 26], height: [45, 75], spread: 140, speed: [0.03, 0.09], shapes: ['gear01', 'cluster'], metals: ['darkBrass', 'brass', 'copper'] },
       clock: { at: [720, 70, 900], radius: 46, face: 0xf3e6c4, rim: 0x9c7432, hand: 0x3a2a1c, slow: 0.015 }, // the Dream Clock, far off past the end
       // Rails: grind along automatically (`grind.speed`, faster than the street) with sparks and a
       // steel scrape; steer to hop to the next rail of the group; Jump to leave; off the end the
@@ -812,11 +899,30 @@ export const CONFIG = {
         hopOff: 7,                // the hop when leaving a rail (Jump or its end)
         radius: 0.11, color: 0xd8dde2, post: 0x5a4a3a, postEvery: 6, gantryEvery: 12, gantryHalf: 8.6,
       },
+      // The rails' look (loadRailModel): the Coaster Kit's monorail track in gold (`length` a
+      // piece; its top `drop` under its origin, `depth` deep; laid `lift` over the rail's line),
+      // the hill pieces as each low rail's slope, copper supports; the tubes above if it fails.
+      railKit: {
+        straight: 'coaster-monorail-straight', slope: ['coaster-monorail-straight-hill-beginning', 'coaster-monorail-straight-hill-end'],
+        support: 'support-small', post: 'support-large', beam: 'support-large-horizontal', supportTint: 'railSupports',
+        length: 4, drop: 0.8, depth: 0.23, lift: 0.06,
+      },
+      // The Factory Kit along the street (loadFactoryDecorModel; tinted brass and copper): side
+      // decoration outside the walls ([piece, scale]), each steam vent's pipes, the conveyor belts
+      // (`belt` sections `beltLength` long laid across the trail, `beltRow` deep, let in `beltSink`)
+      // and the gear deck's catwalk (along its x, `catwalkWidth` wide).
+      factory: {
+        decor: [['machine', 2.2], ['machine-fortified', 2.1], ['box-large', 2.4], ['box-long', 2.4], ['hopper-high-round', 2.2], ['hopper-high-square', 2.2], ['crane', 1.7], ['robot-arm-a', 1.5], ['machine-window', 2.2]],
+        decorStart: 12, decorEnd: 30, decorEvery: 11, decorLat: [9.2, 10.6], decorClear: 7, seed: 11, chunk: 200,
+        pipe: 'pipe-large', pipeLong: 'pipe-large-long', valve: 'pipe-large-valve', pipeLat: 8.4, pipeScale: 0.9, runSections: 5, stackHeight: 6,
+        belt: 'conveyor-long-stripe-sides', beltLength: 2, beltCount: 4, beltRow: 8, beltSink: -0.34,
+        catwalk: 'catwalk-straight', catwalkLength: 3, catwalkWidth: 1.26, catwalkHeight: 1.3,
+      },
       sparks: { max: 90, perSecond: 70, life: 0.35, speed: 4, size: 0.09, color: 0xffc24a, hot: 0xfff2c0 },
       grindVolume: 0.5,
       // Steam vents on the street: stepping on one launches the horse high (a puff, a whoosh).
       vents: [{ s: 50, lat: 3.5 }, { s: 350, lat: 0 }, { s: 580, lat: -3 }],
-      vent: { radius: 1.6, launch: 16, cooldown: 1, color: 0x3a2c22, grate: 0x8a6a3a, glow: 0xfff0d0, puff: 14 },
+      vent: { radius: 1.6, launch: 16, cooldown: 1, color: 0x3a2c22, grate: 0x8a6a3a, glow: 0xfff0d0, puff: 14, stackPuff: 5 }, // (stackPuff: puffs from each of its pipe stacks)
       steam: { puffs: 70, life: 1.6, rise: 3.2, size: [0.6, 1.6], color: 0xfff6ea, opacity: 0.32, idleEvery: 1.3 },
       // A floating gear deck, reached from the first steam vent (its gears on top).
       decks: [{ s: [62, 92], lat: 3.5, width: 5, top: 4.0, color: 0x9a7a3a, trim: 0xc9a23a }],
@@ -827,12 +933,18 @@ export const CONFIG = {
       cogPlatforms: [{ s: 388, lat: -3, dir: 1 }, { s: 412, lat: 3, dir: -1 }, { s: 565, lat: 0, dir: 1 }],
       cogPlatform: { radius: 3.6, speed: 0.9, height: 0.12, teeth: 14, color: 0xb08030, hub: 0x6b4a22 },
       conveyors: [{ s: [265, 281], dir: 1 }, { s: [505, 521], dir: -1 }],
-      conveyor: { speed: 6, slat: 0.9, color: 0x2e2620, slatColor: 0x8a6a3a, stripe: 0xc9a23a },
+      conveyor: { speed: 6, slat: 0.9, color: 0x2e2620, slatColor: 0xc9a23a, stripe: 0xc9a23a },
+      // Spinning saws (the spiky gear): a blade standing in a slot across the street, sliding from
+      // side to side (`travel` either way, one round trip every `period` s), spinning; touching it
+      // staggers the horse and knocks it aside (never a heart); a jump clears it.
+      saws: [{ s: 304, phase: 0 }, { s: 318, phase: Math.PI }, { s: 468, phase: 1.2 }],
+      saw: { radius: 1.25, sink: 0.3, thickness: 0.22, travel: 4.4, period: 3.6, spin: 10, reach: 1.0, push: 6, slotWidth: 0.4, color: 0xb9c0c8, emissive: 0x141418, slot: 0x241a12 },
       stagger: 0.9,               // seconds of stagger (slower) after a hit
       hitCooldown: 1.2,
       // Brass gears: the currency (like Part 1's gems), on the rails, the deck and above the vents.
       gears: {
-        size: 0.42, color: 0xe2b23c, halo: 0xffe7a0, spin: 2.4, bob: 0.12, reach: 1.7, pop: 0.35,
+        size: 0.42, fit: 1.25, color: 0xe2b23c, emissive: 0x3a2400, halo: 0xffe7a0, spin: 1.6, bob: 0.12, reach: 1.7, pop: 0.35, // (fit: the collectible model's radius × size)
+        sparkle: { max: 48, count: 10, life: 0.55, speed: 3.2, size: 0.09, color: 0xfff2b0 }, // a sparkle burst on pickup
         rows: [[28, 44, 0, 4]], // street rows: [s0, s1, lat, count]
         railRows: [['a', 0, 108, 124, 3], ['a', 1, 126, 140, 3], ['a', 2, 142, 156, 3], ['u', 0, 372, 428, 6], ['b', 0, 652, 676, 3], ['b', 1, 684, 708, 3], ['b', 0, 714, 730, 2]], // [group, index in the group, s0, s1, count]
         deckRows: [[0, 66, 88, 3]], // [deck, s0, s1, count]
@@ -1792,7 +1904,7 @@ export const DIALOGUE = {
     audio: 'Audio test',
     part1: 'Part 1', part2: 'Part 2',
     portal: 'Portal scene', arrival: 'Gearhaven arrival', fire: 'Fire level', lightning: 'Lightning level', steam: 'Steam level',
-    magnet: 'Magnet level', time: 'Time level', final: "Amy's final fight", part2Ending: 'Part 2 ending', robots: 'Robots test', ride: 'Gearhaven ride',
+    magnet: 'Magnet level', time: 'Time level', final: "Amy's final fight", part2Ending: 'Part 2 ending', robots: 'Robots test', ride: 'Gearhaven ride', props: 'Props test',
     on: 'Test menu on', off: 'Test menu off',
   },
   skip: 'Skip ▶▶',
@@ -1822,6 +1934,7 @@ export const DIALOGUE = {
     comingSoon: (name) => `${name} — coming soon`,
     back: 'Back to Gearhaven',
     robotsTest: 'Robots test — Tick, Leela, Mike, Stan, George',
+    propsTest: 'Props test — gears, saw, factory, rail, clock tower, castle gate',
     ride: { quest: 'Ride to the Fire Element', start: 'Grind the rails, ride the steam!', gears: '⚙' }, // the Gearhaven ride (ride.js)
     toBeContinued: 'To be continued... Part 3',
     summaryTitle: 'Part 2 complete',
@@ -1899,6 +2012,27 @@ export const DIALOGUE = {
     part2: 'Part 2 (Coming soon)',
   },
   victory: 'Victory!',
+
+  // The Credits screen (a small button on the intro and the ending screens): every pack used and
+  // its licence. `text` is shown as it is (the exact attribution a licence asks for).
+  credits: {
+    button: 'Credits', title: 'Credits', close: 'Close',
+    entries: [
+      { what: 'AJ, Amy and Warrok — characters and animations', who: 'Mixamo (Adobe)', licence: 'Adobe General Terms of Use' },
+      { what: 'Horse — Ultimate Animated Animal Pack', who: 'Quaternius', licence: 'CC0' },
+      { what: 'Bat, skeleton, slime — Animated Monster Pack', who: 'Quaternius', licence: 'CC0' },
+      { what: 'Tick — Animated Robot', who: 'Quaternius', licence: 'CC0' },
+      { what: 'Gearhaven robots — Animated Mech Pack', who: 'Quaternius', licence: 'CC0' },
+      { what: 'Brass gear to collect — Collectible Gear', who: 'Quaternius', licence: 'CC0' },
+      { what: 'Factory Kit — conveyors, pipes, cogs, catwalks, machines', who: 'Kenney (kenney.nl)', licence: 'CC0' },
+      { what: 'Coaster Kit — rails and supports', who: 'Kenney (kenney.nl)', licence: 'CC0' },
+      { what: 'Castle Kit — towers, walls, gates, flags', who: 'Kenney (kenney.nl)', licence: 'CC0' },
+      { what: 'Gear', text: 'Gear by Poly by Google [CC-BY] (https://creativecommons.org/licenses/by/3.0/) via Poly Pizza (https://poly.pizza/m/0icYC-GPiro)' },
+      { what: 'Gear cluster, spiky gear', who: 'via Poly Pizza (poly.pizza)' },
+      { what: 'Sound and music', who: 'Synthesized in code' },
+      { what: 'Engine', who: 'three.js, Vite', licence: 'MIT' },
+    ],
+  },
 
   // Intro is told through pictures only. Add `caption: '...'` to a slide for one short comic line.
   intro: [

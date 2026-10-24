@@ -1,11 +1,14 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { CONFIG } from '../config.js';
-import { gearGeometry } from '../portal.js';
+import { loadGearShapes, buildGearDecor } from './props.js';
+import { loadClockTowerModel } from './clockTower.js';
+import { loadSkylineModel, ringSpots } from './skyline.js';
 
 // Gearhaven (Part 2): a brass courtyard under a sky of huge slow-turning gears, cogs and steam
-// vents round it, the Dream Clock's face far away, warm lamps — placeholders built from simple
-// shapes (swap loadGearhavenModel() for real models later). And GearhavenWorld: the few floors
+// vents round it, the Dream Clock's face far away, warm lamps, the clock tower and a brass city
+// on the horizon — its gears from the gear props (props.js), the rest simple shapes (swap
+// loadGearhavenModel() for real models later). And GearhavenWorld: the few floors
 // the hero, horse and camera stand on here, with the same small interface Part 1's World gives
 // them (heightAt, groundAt, collide, solidsNear, cylinders, boxes…), so the shared Hero, Horse
 // and FollowCamera work unchanged in Part 2.
@@ -125,11 +128,12 @@ export function bigGearGeometry(r, teeth, depth) {
 }
 
 /**
- * The courtyard and its sky. `userData` = { skyGears: [{ mesh, speed }], cogs: [{ mesh, speed }],
- * clock: { hour, minute, face }, vents: [Vector3], steam (InstancedMesh), doors: { id → { group,
- * portal, at, angle } }, lamps, pillars: [{ x, z, r }] }.
+ * The courtyard and its sky. `userData` = { decor (the turning gears: buildGearDecor), tower (the
+ * clock tower), skyline, clock: { hour, minute, face }, vents: [Vector3], steam (InstancedMesh),
+ * doors: { id → { group, portal, at, angle } }, lamps, pillars: [{ x, z, r }] }. `opts`: how
+ * files load ({ readFile, placeholder }).
  */
-export async function loadGearhavenModel() {
+export async function loadGearhavenModel(opts = {}) {
   const group = new THREE.Group();
   group.name = 'gearhaven';
   const F = GH.floor;
@@ -173,33 +177,42 @@ export async function loadGearhavenModel() {
   for (const im of [pillarMesh, lampMesh, haloMesh]) im.computeBoundingSphere();
   group.add(pillarMesh, lampMesh, haloMesh);
   const lamps = [haloMesh];
-  // Cogs half sunk in the floor at the edge, turning.
+  // Cogs half sunk in the floor at the edge, and huge wheels in the sky overhead, all turning
+  // slowly (the gear props and the Factory Kit's cogs, instanced: brass and copper).
   const C = GH.cogs;
-  const cogs = [];
+  const gearItems = [];
   for (let i = 0; i < C.count; i++) {
     const a = (i / C.count) * TAU;
     const r = C.radius[0] + ((i * 7) % C.count) / C.count * (C.radius[1] - C.radius[0]);
-    const cog = new THREE.Mesh(gearGeometry(r, 10, 0.35), lambert(C.color));
     const R = F.radius - 2.2 - r * 0.2;
-    cog.position.set(Math.sin(a) * R, r * 0.45, Math.cos(a) * R);
-    cog.rotation.y = a + Math.PI / 2;
-    group.add(cog);
-    cogs.push({ mesh: cog, speed: C.speed * (i % 2 ? 1 : -1) / r });
+    gearItems.push({ shape: C.shapes[i % C.shapes.length], metal: C.metals[i % C.metals.length], pos: new THREE.Vector3(Math.sin(a) * R, r * 0.45, Math.cos(a) * R), face: a + Math.PI / 2, r, speed: C.speed * (i % 2 ? 1 : -1) / r });
   }
-  // The gear sky: huge wheels overhead, turning slowly.
   const S = GH.skyGears;
-  const skyGears = [];
   for (let i = 0; i < S.count; i++) {
     const k = i / Math.max(1, S.count - 1);
     const r = S.radius[0] + ((i * 3) % S.count) / S.count * (S.radius[1] - S.radius[0]);
-    const g = new THREE.Mesh(bigGearGeometry(r, S.teeth, 1.6), lambert(i % 2 ? S.color : S.dark, { fog: true }));
     const a = k * TAU * 0.9;
-    g.position.set(Math.sin(a) * S.spread * (0.4 + (i % 3) * 0.25), S.height[0] + (i % 3) / 2 * (S.height[1] - S.height[0]), -Math.abs(Math.cos(a)) * S.spread * 0.6 - 10);
-    g.rotation.x = -Math.PI / 2 + 0.35 * (i % 2 ? 1 : -1);
-    g.rotation.y = a * 0.3;
-    group.add(g);
-    skyGears.push({ mesh: g, speed: (S.speed[0] + (i % 3) / 2 * (S.speed[1] - S.speed[0])) * (i % 2 ? 1 : -1) });
+    gearItems.push({
+      shape: S.shapes[i % S.shapes.length], metal: i % 2 ? 'darkBrass' : 'brass', sky: true,
+      pos: new THREE.Vector3(Math.sin(a) * S.spread * (0.4 + (i % 3) * 0.25), S.height[0] + (i % 3) / 2 * (S.height[1] - S.height[0]), -Math.abs(Math.cos(a)) * S.spread * 0.6 - 10),
+      face: a * 0.3, tilt: -Math.PI / 2 + 0.35 * (i % 2 ? 1 : -1), r, depth: S.depth, speed: (S.speed[0] + (i % 3) / 2 * (S.speed[1] - S.speed[0])) * (i % 2 ? 1 : -1),
+    });
   }
+  const decor = buildGearDecor(gearItems, await loadGearShapes([...new Set(gearItems.map((g) => g.shape))], opts));
+  group.add(decor.group);
+  // The clock tower on the skyline toward the Time door, and the brass city round the horizon
+  // (never toward the level platforms, which float off to +x).
+  const CT = CONFIG.part2.clockTower;
+  const SKY = CONFIG.part2.skyline.courtyard;
+  const ta = Math.PI + CONFIG.part2.levels.time.angle;
+  const [tower, skyline] = await Promise.all([
+    loadClockTowerModel(opts),
+    loadSkylineModel(ringSpots(0, 0, SKY.count, SKY.radius).filter((p) => Math.abs(Math.atan2(p.x, p.z) - Math.PI / 2) > SKY.clearOfLevels && Math.hypot(p.x - Math.sin(ta) * CT.courtyard.dist, p.z - Math.cos(ta) * CT.courtyard.dist) > SKY.clearOfTower), opts),
+  ]);
+  tower.position.set(Math.sin(ta) * CT.courtyard.dist, 0, Math.cos(ta) * CT.courtyard.dist);
+  tower.rotation.y = ta + Math.PI / 4; // (two faces toward the courtyard)
+  tower.scale.setScalar(CT.courtyard.scale);
+  group.add(tower, skyline);
   // The Dream Clock's face, far away and glowing faintly.
   const K = GH.clock;
   const clock = new THREE.Group();
@@ -246,7 +259,7 @@ export async function loadGearhavenModel() {
     group.add(door);
     doors[id] = { group: door, portal: door.userData.portal, at, angle: a };
   }
-  group.userData = { skyGears, cogs, clock: { hour, minute, face }, vents, steam, doors, lamps, pillars };
+  group.userData = { decor, tower, skyline, clock: { hour, minute, face }, vents, steam, doors, lamps, pillars };
   return group;
 }
 

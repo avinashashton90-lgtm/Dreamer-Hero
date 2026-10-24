@@ -32,6 +32,26 @@ Tick, the brass guide robot (`public/models/gearhaven/tick/tick.glb`), is the **
 
 The four mech robots **George, Leela, Mike and Stan** (`public/models/gearhaven/robots/*.glb`) are from the **Animated Mech Pack** by [Quaternius](https://quaternius.com), licensed [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) (public domain), with their own clips (Idle, Walk, Run, SwordSlash, Punch, Kick, Shoot, HitRecieve, Death and more). Converted from the pack's glTF files to meshopt glb with 1024 px textures (512 px for Leela) by `scripts/gearhaven-models.mjs` (the sources are in `models-src/gearhaven/robots/`); in the game they keep their own texture colours, with brass and copper accents added (trim, joints, the boss's plates) and glowing eyes. Leela is the scout, Mike and Stan the sword robots, George the armoured mech boss.
 
+## Gearhaven kits — Kenney
+
+From [Kenney](https://kenney.nl), each licensed [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) (public domain):
+
+- **Factory Kit** (`public/models/gearhaven/factory/glb/`): conveyors, pipes, cogs, catwalks, machines, boxes, hoppers, cranes, robot arms — the Gearhaven ride's conveyor belts, the pipes and stacks by its steam vents, the gear deck's catwalk, side decoration, turning cogs; the skyline's pipes.
+- **Coaster Kit** (`public/models/gearhaven/rails/glb/`): the monorail track pieces (straight, hill beginning / end as the slopes) and supports — the ride's grind rails. The kit has only its one palette texture, so the track is tinted gold and the supports copper in the game.
+- **Castle Kit** (`public/models/castle/glb/`): walls, towers, gates and flags — the castle at the end of Part 1 (its own colours; the gate leaves cut from the kit's gate) and, tinted brass, Gearhaven's distant skyline.
+
+In the game the Factory Kit's blue / orange palette is re-tinted brass and copper in one shader (`src/kits.js`); only the pieces a level uses are loaded.
+
+## Gear props — Quaternius, Poly Pizza
+
+In `public/models/gearhaven/props/`:
+
+- `gear_collectible.glb` — **Collectible Gear** by [Quaternius](https://quaternius.com), licensed [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/): the brass gears collected in Gearhaven.
+- `gear_01.glb` — Gear by Poly by Google [CC-BY] (https://creativecommons.org/licenses/by/3.0/) via Poly Pizza (https://poly.pizza/m/0icYC-GPiro) *(the exact text of `Attribution_gear_01.txt`)*: turning in the sky and on the walls.
+- `gear_cluster.glb`, `gear_spiky.glb` — via [Poly Pizza](https://poly.pizza). **No `Attribution_*.txt` file came with these two**: add the author and licence here (and to `DIALOGUE.credits` in `src/config.js`, which the in-game Credits screen shows) once known. `gear_spiky` is the spinning saw in the Gearhaven ride.
+
+The in-game **Credits** screen (a small button on the intro and the ending screens) lists every pack above with its licence.
+
 ## Sound and music
 
 Every sound effect, music track and voice blip is currently **synthesized in code** with the Web
@@ -46,7 +66,7 @@ here.
 
 ## Engine
 
-- [three.js](https://threejs.org) (MIT), including `FBXLoader` and `GLTFLoader`.
+- [three.js](https://threejs.org) (MIT), including `FBXLoader`, `GLTFLoader` and the meshopt decoder.
 - [Vite](https://vitejs.dev) (MIT).
 
-Everything else (world, effects) is built in code.
+Everything else (world, effects, the clock tower) is built in code.

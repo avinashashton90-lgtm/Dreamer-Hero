@@ -3,9 +3,12 @@ import { CONFIG } from '../config.js';
 import { Track } from '../track.js';
 import {
   loadGearhavenRideModel, loadRailModel, loadSteamVentModel, loadGearDeckModel, loadHammerModel, loadCogPlatformModel,
-  loadConveyorModel, loadGearPickupModel, loadRideFxModels, loadRideDoorModel, loadRideCheckpointModel,
-  trackPoint, railHeight, spinInstances,
+  loadConveyorModel, loadGearPickupModel, loadRideFxModels, loadRideDoorModel, loadRideCheckpointModel, loadFactoryDecorModel,
+  trackPoint, railHeight,
 } from './rideModel.js';
+import { loadSawModel, spinGearDecor } from './props.js';
+import { loadClockTowerModel } from './clockTower.js';
+import { loadSkylineModel, trailSpots } from './skyline.js';
 
 // The first playable section of Gearhaven (CONFIG.part2.ride): a ride through a brass city on
 // the trail / spline system. RideWorld is the world the shared Horse, Hero and FollowCamera use
@@ -13,8 +16,9 @@ import {
 // walls, the low rails as fences in it, a floating gear deck). Ride runs it: rails (land on one —
 // riding up its ramp or jumping onto it — and the horse grinds along it with sparks and a steel
 // scrape; steer to hop to the next rail; Jump, or its end, to leave), steam vents (launch the
-// horse high), swinging hammers, turning cog platforms and conveyor belts (a hit staggers the
-// horse; never a heart), brass gears to collect, checkpoints, and the Fire Element's door.
+// horse high), swinging hammers, spinning saws, turning cog platforms and conveyor belts (a hit
+// staggers the horse; never a heart), brass gears to collect, checkpoints, and the Fire
+// Element's door. Its models come from the kits where they load (rideModel.js).
 
 const R = CONFIG.part2.ride;
 const G = R.grind;
@@ -136,15 +140,20 @@ export class RideWorld {
   }
 }
 
-/** Builds the ride's models into `scene` (hidden until the ride starts). */
-export async function loadRide(scene, world) {
+/** Builds the ride's models into `scene` (hidden until the ride starts); `opts` = how files load ({ readFile, placeholder }). */
+export async function loadRide(scene, world, opts = {}) {
   const track = world.track;
   const root = new THREE.Group();
   root.name = 'ride';
   root.visible = false;
-  const city = await loadGearhavenRideModel(world);
-  const rails = await loadRailModel(track);
-  root.add(city, rails);
+  const CT = CONFIG.part2.clockTower;
+  const [city, rails, factory, skyline, tower] = await Promise.all([
+    loadGearhavenRideModel(world, opts), loadRailModel(track, opts), loadFactoryDecorModel(track, opts),
+    loadSkylineModel(trailSpots(track, CONFIG.part2.skyline.ride), opts), loadClockTowerModel(opts),
+  ]);
+  tower.position.set(...CT.ride.at);
+  tower.scale.setScalar(CT.ride.scale);
+  root.add(city, rails, factory, skyline, tower);
   const place = (obj, s, lat = 0, y = 0) => {
     const p = trackPoint(track, s, lat, y);
     obj.position.copy(p.pos);
@@ -160,7 +169,7 @@ export async function loadRide(scene, world) {
   }
   const decks = [];
   for (const d of R.decks) {
-    const model = await loadGearDeckModel(d);
+    const model = await loadGearDeckModel(d, opts);
     place(model, (d.s[0] + d.s[1]) / 2, d.lat, d.top);
     decks.push({ ...d, model, opacity: 1 });
   }
@@ -178,9 +187,15 @@ export async function loadRide(scene, world) {
   }
   const conveyors = [];
   for (const c of R.conveyors) {
-    const model = await loadConveyorModel(track, c);
+    const model = await loadConveyorModel(track, c, opts);
     root.add(model);
     conveyors.push({ ...c, model, offset: 0 });
+  }
+  const saws = [];
+  for (const sw of R.saws) {
+    const model = await loadSawModel(opts);
+    const p = place(model, sw.s);
+    saws.push({ ...sw, model, at: p, wait: 0 });
   }
   const door = await loadRideDoorModel();
   const dp = place(door, R.door.s);
@@ -192,11 +207,11 @@ export async function loadRide(scene, world) {
     flags.push(flag);
   }
   const gearSpots = gearPositions(track);
-  const pickups = await loadGearPickupModel(gearSpots.length);
+  const pickups = await loadGearPickupModel(gearSpots.length, opts);
   const fx = await loadRideFxModels();
-  root.add(pickups, fx.sparks, fx.puffs);
+  root.add(pickups, fx.sparks, fx.puffs, fx.sparkles);
   scene.add(root);
-  return { root, city, rails, vents, decks, hammers, cogs, conveyors, door, flags, gearSpots, pickups, fx };
+  return { root, city, rails, factory, skyline, tower, vents, decks, hammers, saws, cogs, conveyors, door, flags, gearSpots, pickups, fx };
 }
 
 /** Where the gears are: street rows, along the rails, on the deck, along each vent's launch arc. */
@@ -259,11 +274,13 @@ export class Ride {
     this.stickHeld = false;
     this.sparks = [];
     this.puffs = [];
+    this.sparkles = [];
     this.puffT = 0;
-    this.stats = { grinds: 0, switches: 0, launches: 0, hits: 0, carried: 0, conveyed: 0, hopsOff: 0, ends: 0, maxY: 0 };
+    this.stats = { grinds: 0, switches: 0, launches: 0, hits: 0, sawHits: 0, carried: 0, conveyed: 0, hopsOff: 0, ends: 0, maxY: 0 };
     this.gears = this.parts.gearSpots.map((p) => ({ pos: p.clone(), taken: false, pop: 0 }));
     for (const v of this.parts.vents) v.wait = 0;
     for (const h of this.parts.hammers) h.wait = 0;
+    for (const sw of this.parts.saws) sw.wait = 0;
     for (const f of this.parts.flags) f.userData.flag?.material.color.setHex(CONFIG.checkpoints.flagColor);
     this.#drawGears();
   }
@@ -320,6 +337,7 @@ export class Ride {
     if (!this.grind) this.#tryRail();
     if (!this.grind) this.#vents(dt);
     this.#hammers(dt);
+    this.#saws(dt);
     this.#gears();
     if (!this.finished && this.s >= R.door.s - R.door.reach) {
       this.finished = true;
@@ -435,6 +453,7 @@ export class Ride {
       this.stats.launches++;
       this.sound?.play('steam_launch', { position: v.at });
       this.#puff(v.at, R.vent.puff, 1.6);
+      for (const top of this.parts.factory.userData.ventStacks[this.parts.vents.indexOf(v)] ?? []) this.#puff(top, R.vent.stackPuff, 0.4);
     }
   }
 
@@ -466,6 +485,37 @@ export class Ride {
     return (this.time / R.hammer.period) * Math.PI * 2 + h.phase;
   }
 
+  /** Where a saw's blade is now: its lateral offset across the street. */
+  #sawLat(sw) {
+    return R.saw.travel * Math.sin((this.time / R.saw.period) * Math.PI * 2 + sw.phase);
+  }
+
+  /** Spinning saws: touching a blade staggers the horse and knocks it aside (never a heart); a jump clears it. */
+  #saws(dt) {
+    const { horse } = this;
+    const S = R.saw;
+    for (const sw of this.parts.saws) {
+      sw.wait = Math.max(0, sw.wait - dt);
+      if (sw.wait > 0 || this.grind) continue;
+      const lat = this.#sawLat(sw);
+      const n = this.track.nearest(horse.position.x, horse.position.z, R.wall.offset + 4);
+      if (!n || Math.abs(n.s - sw.s) > S.reach) continue;
+      const top = S.radius * (2 - S.sink);
+      if (horse.position.y > top - 0.25) continue; // (jumped over it)
+      if (Math.abs(n.lateral - lat) > S.radius * 0.85 + HC.radius) continue;
+      sw.wait = R.hitCooldown;
+      this.stats.hits++;
+      this.stats.sawHits++;
+      horse.stumbleFor(R.stagger);
+      const dir = Math.sign(n.lateral - lat) || 1; // (thrown clear of the blade)
+      this.push = { x: -n.tz * dir * S.push, z: n.tx * dir * S.push, t: 0.3, time: 0.3 };
+      const at = trackPoint(this.track, sw.s, lat, S.radius).pos;
+      this.sound?.play('saw_hit', { position: at });
+      this.#sparkBurst(at, 14);
+      this.cam?.shake?.(0.2, 0.25);
+    }
+  }
+
   /** The hammer's swing angle now (about the trail's direction). */
   #swing(h) {
     return R.hammer.amp * Math.sin(this.#phase(h));
@@ -479,6 +529,7 @@ export class Ride {
       if (g.taken || g.pos.distanceTo(p) > R.gears.reach) continue;
       g.taken = true;
       g.pop = R.gears.pop;
+      this.#sparkle(g.pos);
       this.count++;
       this.sound?.play('gear_pickup', { position: g.pos });
       this.onGear?.(this.count);
@@ -528,6 +579,26 @@ export class Ride {
     }
   }
 
+  /** A gear picked up: a little burst of sparkles. */
+  #sparkle(at) {
+    const SK = R.gears.sparkle;
+    for (let i = 0; i < SK.count; i++) {
+      if (this.sparkles.length >= SK.max) this.sparkles.shift();
+      const v = new THREE.Vector3(Math.random() - 0.5, Math.random() * 0.8 + 0.2, Math.random() - 0.5).normalize().multiplyScalar(SK.speed * (0.6 + Math.random() * 0.6));
+      this.sparkles.push({ p: at.clone(), v, age: 0, spin: Math.random() * Math.PI });
+    }
+  }
+
+  /** Sparks off a saw blade. */
+  #sparkBurst(at, n) {
+    const SP = R.sparks;
+    for (let i = 0; i < n; i++) {
+      if (this.sparks.length >= SP.max) this.sparks.shift();
+      const a = Math.random() * Math.PI * 2;
+      this.sparks.push({ p: at.clone(), v: new THREE.Vector3(Math.cos(a) * SP.speed, SP.speed * (0.3 + Math.random()), Math.sin(a) * SP.speed), age: 0 });
+    }
+  }
+
   #puff(at, n, spread) {
     const ST = R.steam;
     for (let i = 0; i < n; i++) {
@@ -541,8 +612,14 @@ export class Ride {
   animate(dt) {
     const P = this.parts;
     const u = P.city.userData;
-    spinInstances(u.cogs, dt);
-    spinInstances(u.skyGears, dt);
+    spinGearDecor(u.decor, dt);
+    P.skyline.userData.update(dt);
+    P.tower.userData.update(dt);
+    for (const sw of P.saws) {
+      const { blade, disc } = sw.model.userData;
+      blade.position.x = this.#sawLat(sw);
+      disc.rotation.z -= R.saw.spin * dt;
+    }
     u.clock.minute.rotation.z -= R.clock.slow * dt;
     u.clock.hour.rotation.z -= (R.clock.slow / 12) * dt;
     for (const h of P.hammers) h.model.userData.pivot.rotation.z = this.#swing(h);
@@ -567,6 +644,8 @@ export class Ride {
     if (this.puffT <= 0 && dt > 0) {
       this.puffT = R.steam.idleEvery;
       for (const v of P.vents) this.#puff(v.at, 2, 0.6);
+      const tops = P.factory.userData.chimneys;
+      if (tops.length) this.#puff(tops[Math.floor(Math.random() * tops.length)], 2, 0.3);
     }
     // The gear deck fades while the camera is under it or in it (riding past below).
     const eye = this.cam?.camera.position;
@@ -624,10 +703,31 @@ export class Ride {
       puffs.setMatrixAt(i, m);
       puffs.setColorAt(i, col.setHex(ST.color).multiplyScalar(Math.sin(Math.PI * Math.min(1, k)) * 0.9));
     }
-    for (const mesh of [sparks, puffs]) {
+    // Pickup sparkles: out and up, twinkling, fading.
+    const { sparkles } = this.parts.fx;
+    const SK = R.gears.sparkle;
+    this.sparkles = this.sparkles.filter((s) => s.age < SK.life);
+    this.sparkles.forEach((s, i) => {
+      s.age += dt;
+      s.v.y -= 4 * dt;
+      s.p.addScaledVector(s.v, dt);
+      s.spin += dt * 8;
+      const k = 1 - s.age / SK.life;
+      const size = SK.size * (0.6 + 0.6 * Math.abs(Math.sin(s.spin)));
+      m.makeRotationY(s.spin).scale(new THREE.Vector3(size, size * 1.6, size)).setPosition(s.p);
+      sparkles.setMatrixAt(i, m);
+      sparkles.setColorAt(i, col.setHex(SK.color).multiplyScalar(Math.max(0, k)));
+    });
+    sparkles.count = this.sparkles.length;
+    for (const mesh of [sparks, puffs, sparkles]) {
       mesh.instanceMatrix.needsUpdate = true;
       if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
     }
+  }
+
+  /** The pickup sparkles alive now (tests). */
+  get sparkleCount() {
+    return this.sparkles.length;
   }
 
   /** The sparks alive now (tests). */

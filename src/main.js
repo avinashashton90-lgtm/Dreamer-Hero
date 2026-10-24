@@ -71,6 +71,7 @@ async function boot() {
 
   const input = new Input(renderer.domElement, overlay);
   const cutscene = new Cutscene(overlay);
+  cutscene.el.appendChild(ui.creditsButton()); // (the title: the intro's first screen)
   const quests = new Quests(world.scene, world, ui, horse);
   await quests.init();
   // Combat: melee combo + lock-on, abilities, hearts/respawns, the cave monster.
@@ -550,6 +551,7 @@ async function boot() {
       final: () => goToPart2('final', { white: false }),
       part2Ending: () => goToPart2('ending', { white: false }),
       robots: () => goToPart2('robots', { white: false }), // (Tick and the four mech robots in a row, each playing its clips)
+      props: () => goToPart2('props', { white: false }), // (every kind of kit prop in a row: gears, saw, conveyor, pipe, catwalk, rail, clock tower, castle gate)
     };
     const item = ([key, jump]) => ({
       label: DIALOGUE.testMenu[key],

@@ -88,6 +88,7 @@ export const SOUNDS = {
   rail_land: { group: 'effects', desc: 'Gearhaven ride: landing on a rail (or hopping across to the next one) — a metal clank' },
   steam_launch: { group: 'effects', desc: 'Gearhaven ride: a steam vent launches the horse — a puff and a rising whoosh' },
   hammer_hit: { group: 'effects', desc: 'Gearhaven ride: a swinging hammer knocks the horse — a heavy clang' },
+  saw_hit: { group: 'effects', desc: 'Gearhaven ride: a spinning saw blade catches the horse — a sharp metal screech and sparks' },
   gear_pickup: { group: 'effects', desc: 'Gearhaven ride: a brass gear collected — a bright little tick-chime' },
   sandstorm_wind: { group: 'effects', loop: true, desc: 'The sandstorm’s wind (loop, follows its strength)' },
   thunder_soft: { group: 'effects', desc: 'Distant soft thunder (the witch hint)' },

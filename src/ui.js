@@ -94,6 +94,21 @@ export class UI {
     this.summary = this.ending.querySelector('.summary');
     this.playAgainBtn = this.ending.querySelector('.play-again');
 
+    // Credits: every pack and its licence (a small button on the intro and the ending screens).
+    this.credits = this.#el('div', 'overlay screen credits');
+    const C = DIALOGUE.credits;
+    const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+    this.credits.innerHTML = `
+      <div class="credits-box">
+        <h2>${esc(C.title)}</h2>
+        <ul>${C.entries.map((e) => `<li><b>${esc(e.what)}</b>${e.text ? `<span class="attribution">${esc(e.text)}</span>` : `<span>${esc(e.who ?? '')}${e.licence ? ` — ${esc(e.licence)}` : ''}</span>`}</li>`).join('')}</ul>
+        <button class="retry-btn credits-close">${esc(C.close)}</button>
+      </div>`;
+    this.credits.style.display = 'none';
+    this.credits.addEventListener('click', (e) => e.stopPropagation());
+    this.credits.querySelector('.credits-close').addEventListener('click', () => this.showCredits(false));
+    this.ending.appendChild(this.creditsButton());
+
     this.showHud(false);
     this.showGameOver(false);
     this.showEnding(false);
@@ -409,6 +424,24 @@ export class UI {
     this.portrait = portrait;
     this.rotate.style.display = portrait ? '' : 'none';
     this.orientationListeners.forEach((fn) => fn(portrait));
+  }
+
+  /** Show / hide the Credits screen. */
+  showCredits(on) {
+    this.credits.style.display = on ? '' : 'none';
+    this.creditsOpen = on;
+  }
+
+  /** A small "Credits" button (put it on a screen: the intro, the ending) that opens the Credits screen. */
+  creditsButton() {
+    const b = document.createElement('button');
+    b.className = 'credits-btn';
+    b.textContent = DIALOGUE.credits.button;
+    b.addEventListener('click', (e) => {
+      e.stopPropagation(); // (never advances the slide behind it)
+      this.showCredits(true);
+    });
+    return b;
   }
 
   #el(tag, cls) {

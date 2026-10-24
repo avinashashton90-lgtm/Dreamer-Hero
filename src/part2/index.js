@@ -4,6 +4,9 @@ import { GearhavenWorld, loadGearhavenModel, makeDoor } from './gearhaven.js';
 import { Tick, loadTickModel } from './tick.js';
 import { loadGearhavenHorseUpgrade, spinHorseKey } from './horseUpgrade.js';
 import { loadRobotModel } from './robots.js';
+import { spinGearDecor } from './props.js';
+import { loadClockTowerModel } from './clockTower.js';
+import { buildPropsShowcase } from './propsTest.js';
 import { RideWorld, Ride, loadRide } from './ride.js';
 import { trackPoint } from './rideModel.js';
 
@@ -50,18 +53,26 @@ class Part2 {
     scene.add(sun);
     this.world = new GearhavenWorld();
     this.world.addFloor(0, 0, GH.floor.radius, GH.floor.wall);
-    this.gearhaven = await loadGearhavenModel();
+    this.gearhaven = await loadGearhavenModel(this.assets ?? {});
     scene.add(this.gearhaven);
     for (const p of this.gearhaven.userData.pillars) this.world.cylinders.push({ ...p, bottom: 0, top: GH.pillars.height });
     this.tick = new Tick(await loadTickModel(this.assets ?? {}));
     scene.add(this.tick.model);
     this.upgrade = await loadGearhavenHorseUpgrade();
     this.#buildStubs();
+    // The Time Element's place: the clock tower on its own floating disc behind the platform.
+    const CT = P2.clockTower;
+    this.timeTower = await loadClockTowerModel(this.assets ?? {});
+    this.timeTower.scale.setScalar(CT.time.scale);
+    this.timeTower.position.set(0, 0, -CT.time.back);
+    const isle = new THREE.Mesh(new THREE.CylinderGeometry(CT.base.steps[0][0] * CT.time.scale, CT.base.steps[0][0] * CT.time.scale * 0.5, 1.6, 24), new THREE.MeshLambertMaterial({ color: GH.floor.color }));
+    isle.position.set(0, -0.8, -CT.time.back);
+    this.stubs.time.group.add(this.timeTower, isle);
     this.steam = Array.from({ length: GH.steam.puffs }, () => ({ age: Infinity }));
     this.steamT = 0;
     // The Gearhaven ride (its own world and models; hidden until it starts).
     this.rideWorld = new RideWorld();
-    this.rideParts = await loadRide(scene, this.rideWorld);
+    this.rideParts = await loadRide(scene, this.rideWorld, this.assets ?? {});
     this.ride = new Ride({ parts: this.rideParts, world: this.rideWorld, horse: this.horse, hero: this.hero, sound: this.sound, cam: this.cam, ui: this.ui });
     this.ride.onGear = (n) => {
       this.gears = (this.gears ?? 0) + 1; // (the currency, kept across rides)
@@ -115,6 +126,7 @@ class Part2 {
     this.tweens.length = 0;
     this.tick.target = this.tick.lookAt = null;
     if (this.showcase) this.showcase.group.visible = false;
+    if (this.props) this.props.group.visible = false;
     if (start === 'arrival') {
       this.playArrival(); // (not awaited: the level manager's switch is done; the scene plays on)
       return;
@@ -122,6 +134,7 @@ class Part2 {
     if (start === 'courtyard') return this.toCourtyard();
     if (start === 'ending') return this.ending();
     if (start === 'robots') return this.showRobots();
+    if (start === 'props') return this.showProps();
     if (start === 'ride') return this.enterRide();
     return this.enterLevel(start);
   }
@@ -139,6 +152,7 @@ class Part2 {
     }
     this.upgrade.removeFromParent();
     if (this.showcase) this.showcase.group.visible = false;
+    if (this.props) this.props.group.visible = false;
     if (this.soundscape) this.soundscape.musicPhase = null;
     this.tweens.length = 0;
     this.at = null;
@@ -502,6 +516,61 @@ class Part2 {
     it.label?.userData.draw(`${it.name} — ${it.role}`, name?.split('|').pop() ?? ''); // (no armature prefix)
   }
 
+  // --- the props test (?debug) -------------------------------------------------
+
+  /**
+   * Every kind of kit prop in a row on its own brass strip (propsTest.js), a label over each (in the
+   * browser); the camera slides along the row and back (a swipe moves it). AJ at the near end for scale.
+   */
+  async showProps() {
+    this.#leaveRide();
+    const PT = P2.propsTest;
+    const { state, STATES } = this;
+    this.at = 'props';
+    if (!state.is(STATES.PLAY)) state.set(STATES.PLAY);
+    if (!this.props) {
+      const show = await buildPropsShowcase(this.assets ?? {});
+      if (this.at !== 'props') return;
+      show.group.position.z = PT.z;
+      const strip = new THREE.Mesh(new THREE.BoxGeometry(show.width + 12, 0.6, PT.floor.depth), new THREE.MeshLambertMaterial({ color: PT.floor.color }));
+      strip.position.y = -0.3;
+      show.group.add(strip);
+      this.world.addFloor(show.items[0].x - 4, PT.z + 2.5, 4, 3.5); // (where AJ and the horse stand)
+      for (const it of show.items) {
+        it.label = makeLabel({ height: Math.max(5, it.height) }); // (labels sit in the row's group: hidden with it)
+        if (!it.label) continue;
+        it.label.position.set(it.x, it.height + 0.9, 0);
+        it.label.userData.draw(it.name, '');
+        show.group.add(it.label);
+      }
+      this.scene.add(show.group);
+      this.props = { ...show, pan: 0, dir: 1 };
+    }
+    const S = this.props;
+    S.group.visible = true;
+    const first = S.items[0];
+    this.#onFoot(new THREE.Vector3(first.x - 3, 0, PT.z + 2), 0);
+    this.#horseAt(new THREE.Vector3(first.x - 5.5, 0, PT.z + 3.5), 0);
+    this.tick.place(new THREE.Vector3(first.x - 2, P2.tick.float, PT.z + 3.5), 0);
+    S.pan = -S.width / 2;
+    this.ui.toast(D2.propsTest);
+  }
+
+  /** The camera slides along the props row and back (a swipe moves it); they animate. */
+  #updateProps(dt, realDt, inp) {
+    const S = this.props;
+    if (!S) return;
+    const C = P2.propsTest.camera;
+    S.update(dt);
+    S.pan += S.dir * C.speed * realDt - (inp?.lookDX ?? 0) * C.swipe * (inp?.lookSensitivity ?? 0);
+    if (S.pan > S.width / 2) (S.pan = S.width / 2), (S.dir = -1);
+    if (S.pan < -S.width / 2) (S.pan = -S.width / 2), (S.dir = 1);
+    const c = this.cam.camera;
+    const z = P2.propsTest.z;
+    c.position.set(S.pan, C.height, z + C.dist);
+    c.lookAt(S.pan + S.dir * C.ahead, C.look, z);
+  }
+
   /** Each robot to its next clip every `clipTime` s; the camera orbits the row. */
   #updateShowcase(dt, realDt, inp) {
     const SC = P2.showcase;
@@ -526,6 +595,7 @@ class Part2 {
   /** The quest panel: the objective with its distance, or a level's "coming soon". */
   get questText() {
     if (this.at === 'robots') return D2.robotsTest;
+    if (this.at === 'props') return D2.propsTest;
     if (this.at === 'ride') return D2.ride.quest;
     if (this.at === 'courtyard') return D2.objectives[this.objective];
     if (this.stubs[this.at]) return D2.comingSoon(D2.levelNames[this.at]);
@@ -556,7 +626,7 @@ class Part2 {
     if (playing) {
       if (!input.enabled) input.setEnabled(true);
       inp = input.read();
-      if (this.at === 'robots') inp.moveX = inp.moveY = 0; // (AJ stands for scale; a swipe turns the view)
+      if (this.at === 'robots' || this.at === 'props') inp.moveX = inp.moveY = 0; // (AJ stands for scale; a swipe turns the view)
       else cam.rotate(inp.lookDX, inp.lookDY, inp.lookSensitivity);
       inp.attackPressed = inp.dodgePressed = false; // (no fighting here yet: the elements will bring abilities)
       inp.ability = null;
@@ -587,6 +657,7 @@ class Part2 {
     if (riding) this.ride.animate(live ? dt : 0);
     else this.#animate(live ? realDt : 0);
     if (this.at === 'robots') this.#updateShowcase(live ? dt : 0, live ? realDt : 0, inp);
+    else if (this.at === 'props') this.#updateProps(live ? dt : 0, live ? realDt : 0, inp);
     else if (cinematic.active) cinematic.update(paused ? 0 : realDt);
     else cam.update(realDt, hero.position, { mounted: horse.mounted, speed: riding ? horse.speedRatio : 0, gallop: riding && horse.galloping, heading: horse.heading });
     if (!cinematic.active) hero.cameraOpacity = cam.heroOpacity;
@@ -627,8 +698,10 @@ class Part2 {
     // (draw only where we are: the courtyard, or one level's platform under the same gear sky)
     for (const [id, s] of Object.entries(this.stubs)) s.group.visible = id === this.at;
     this.time = (this.time ?? 0) + dt;
-    for (const g of u.skyGears) g.mesh.rotation.z += g.speed * dt;
-    for (const c of u.cogs) c.mesh.rotation.z += c.speed * dt;
+    spinGearDecor(u.decor, dt);
+    u.tower.userData.update(dt);
+    u.skyline.userData.update(dt);
+    if (this.timeTower?.visible) this.timeTower.userData.update(dt);
     u.clock.minute.rotation.z -= GH.clock.slow * dt;
     u.clock.hour.rotation.z -= (GH.clock.slow / 12) * dt;
     for (const [id, d] of Object.entries(u.doors)) d.portal.material.opacity = id === this.objective ? 0.45 + 0.2 * Math.sin(this.time * 3) : 0.08;

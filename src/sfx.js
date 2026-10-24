@@ -431,6 +431,12 @@ export const RECIPES = {
     k.noise(o, t, { filter: 'lowpass', f: 1800, f2: 200, d: 0.25, v: 0.35 });
     return 0.6;
   },
+  saw_hit: (k, o, t, p) => {
+    k.noise(o, t, { filter: 'bandpass', f: 3200 * p, f2: 1800, q: 4, d: 0.35, v: 0.28 });
+    k.tone(o, t, { type: 'sawtooth', f: 1150 * p, f2: 700 * p, d: 0.3, v: 0.05 });
+    k.tone(o, t, { f: 110 * p, f2: 70, d: 0.2, v: 0.25 });
+    return 0.45;
+  },
   gear_pickup: (k, o, t, p) => {
     k.tone(o, t, { type: 'triangle', f: 1320 * p, d: 0.12, v: 0.08 });
     k.tone(o, t + 0.06, { type: 'triangle', f: 1760 * p, d: 0.18, v: 0.07 });

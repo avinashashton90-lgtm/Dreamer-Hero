@@ -53,6 +53,15 @@ chase | hurdles | energy | arena`). All of them pass.
 | Boss fight | 73 → 63 | 328k → 197k | 516 → 471 ms |
 | Sandstorm | 197 → 73 | 477k → 185k | 674 → 189 ms |
 | Gearhaven ride (added later) | 107 | 73k | 98 ms |
+| Gearhaven ride with the kits, at its start (the whole first straight in view) | 123 | 169k | — |
+| … at the saws (s 300) / the last rails (s 640) | 106 / 72 | 142k / 97k | — |
+| Gearhaven courtyard with the kits (skyline, clock tower) | 65 | 42k | — |
+| Props test (?debug) | 112 | 65k | — |
+| Castle gate / portal scene, Castle Kit castle | 86 / 108 | 192k / 201k | — |
+
+The kit rows (Pixel 7 landscape) count the most draw calls / triangles over 3 s at that spot.
+Static kit pieces are merged per material and stretch of trail, so the kits brought the ride's
+meshes down from 103 (first pass) to 80 while adding the rails, factory, skyline and clock tower.
 
 The absolute frame times are from software rendering, which is far slower than a phone GPU;
 only the before/after ratio matters.

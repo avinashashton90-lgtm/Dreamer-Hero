@@ -102,6 +102,7 @@ Layer files only play over a music file of their track (they start together, so 
 | rail_land | rail_land.ogg | Gearhaven ride: landing on a rail (or hopping across to the next one) — a metal clank |
 | steam_launch | steam_launch.ogg | Gearhaven ride: a steam vent launches the horse — a puff and a rising whoosh |
 | hammer_hit | hammer_hit.ogg | Gearhaven ride: a swinging hammer knocks the horse — a heavy clang |
+| saw_hit | saw_hit.ogg | Gearhaven ride: a spinning saw blade catches the horse — a sharp metal screech and sparks |
 | gear_pickup | gear_pickup.ogg | Gearhaven ride: a brass gear collected — a bright little tick-chime |
 | sandstorm_wind ↻ | sandstorm_wind.ogg | The sandstorm’s wind (loop, follows its strength) |
 | thunder_soft | thunder_soft.ogg | Distant soft thunder (the witch hint) |

@@ -3,7 +3,11 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { CONFIG } from '../config.js';
 import { gearGeometry } from '../portal.js';
 import { loadCheckpointModel } from '../horse.js';
-import { bigGearGeometry, makeDoor } from './gearhaven.js';
+import { makeDoor } from './gearhaven.js';
+import { loadKitPieces, kitMaterial, mergeStatic, placeMatrix, colorMerge } from '../kits.js';
+import { loadGearShapes, buildGearDecor, spinInstances, isFallbackGear, loadSparkleModel } from './props.js';
+
+export { spinInstances };
 
 // The Gearhaven ride's look (part2/ride.js runs it): placeholders from simple shapes, each part
 // from its own swappable async loader — the brass city (street, curbs, buildings with copper
@@ -12,10 +16,15 @@ import { bigGearGeometry, makeDoor } from './gearhaven.js';
 // gear deck (loadGearDeckModel), swinging hammers (loadHammerModel), turning cog platforms
 // (loadCogPlatformModel), conveyor belts (loadConveyorModel), brass gears to collect
 // (loadGearPickupModel), grind sparks and steam puffs (loadRideFxModels), the Fire Element's
-// door (loadRideDoorModel). Everything repeated is instanced; no lights, no shadows.
+// door (loadRideDoorModel). Built from the model kits where they load (kits.js: the gear props
+// and Factory Kit cogs turning on the walls, floors and in the sky, Factory Kit conveyors, pipes,
+// catwalks, machines and boxes, Coaster Kit rails and supports — tinted brass, copper and gold),
+// else the code-built placeholders. Static kit pieces are merged into a few meshes per material
+// and stretch of trail; everything moving is instanced; no lights, no shadows.
 
 const R = CONFIG.part2.ride;
 const TAU = Math.PI * 2;
+const lerp = (a, b, t) => a + (b - a) * t;
 const lambert = (color, extra = {}) => new THREE.MeshLambertMaterial({ color, ...extra });
 const additive = (color, opacity = 0.8) => new THREE.MeshBasicMaterial({ color, transparent: true, opacity, blending: THREE.AdditiveBlending, depthWrite: false });
 
@@ -84,10 +93,10 @@ function wallStrip(track, lat, h, step = 2) {
 /**
  * The city round the ride: the ground, the street (with a darker edge and brass curbs), rows of
  * buildings with copper (or green-patina) roofs outside the corridor, turning cogs on their
- * fronts, gears floating in the sky and the Dream Clock far off. `userData` = { cogs: { mesh,
- * items }, skyGears: { mesh, items }, clock: { hour, minute } }.
+ * fronts and beside the curbs, gears floating in the sky and the Dream Clock far off. `userData`
+ * = { decor (buildGearDecor: { group, sets }), clock: { hour, minute } }.
  */
-export async function loadGearhavenRideModel(world) {
+export async function loadGearhavenRideModel(world, opts = {}) {
   const track = world.track;
   const group = new THREE.Group();
   group.name = 'gearhavenRide';
@@ -136,27 +145,36 @@ export async function loadGearhavenRideModel(world) {
   });
   group.add(body, roof);
 
-  // Turning cogs on the building fronts facing the trail.
+  // Turning gears: on the building fronts facing the trail (the Factory Kit's cogs and the gear
+  // props), lying on the ground beside the curbs, and floating in the warm gold sky.
   const CG = R.cogs;
-  const cogItems = [];
+  const gearItems = [];
   for (let s = CG.every / 2, i = 0; s < track.length; s += CG.every, i++) {
     const side = i % 2 ? 1 : -1;
     const p = trackPoint(track, s, side * CG.lat, lerp(CG.height[0], CG.height[1], rand()));
     const other = track.nearest(p.pos.x, p.pos.z, 10.5);
     if (other && other.dist < 10.5) continue;
-    cogItems.push({ pos: p.pos, face: Math.atan2(side * p.tz, -side * p.tx) /* (its axis toward the street) */, r: lerp(CG.radius[0], CG.radius[1], rand()), speed: lerp(CG.speed[0], CG.speed[1], rand()) * (rand() < 0.5 ? -1 : 1), angle: rand() * TAU });
+    gearItems.push({ shape: CG.shapes[i % CG.shapes.length], metal: CG.metals[i % CG.metals.length], pos: p.pos, face: Math.atan2(side * p.tz, -side * p.tx) /* (its axis toward the street) */, r: lerp(CG.radius[0], CG.radius[1], rand()), speed: lerp(CG.speed[0], CG.speed[1], rand()) * (rand() < 0.5 ? -1 : 1), angle: rand() * TAU });
   }
-  const cogMesh = new THREE.InstancedMesh(bigGearGeometry(1, 12, 0.35), lambert(CG.color), cogItems.length);
-  group.add(cogMesh);
-
-  // Gears floating in the warm gold sky, and the Dream Clock far off.
+  const FG = R.floorGears;
+  for (let s = FG.every / 2, i = 0; s < track.length; s += FG.every, i++) {
+    const side = i % 2 ? -1 : 1;
+    const p = trackPoint(track, s, side * FG.lat, FG.y);
+    const other = track.nearest(p.pos.x, p.pos.z, R.wall.offset + 2);
+    if (other && other.dist < R.wall.offset + 1.5) continue;
+    gearItems.push({ shape: FG.shapes[i % FG.shapes.length], metal: FG.metals[i % FG.metals.length], pos: p.pos, face: 0, tilt: -Math.PI / 2, r: lerp(FG.radius[0], FG.radius[1], rand()), speed: FG.speed * (i % 2 ? 1 : -1), angle: rand() * TAU });
+  }
   const SG = R.skyGears;
-  const skyItems = Array.from({ length: SG.count }, () => ({
-    pos: new THREE.Vector3(mid.x + (rand() - 0.5) * 2 * SG.spread, lerp(SG.height[0], SG.height[1], rand()), mid.z + (rand() - 0.5) * 2 * SG.spread),
-    face: rand() * TAU, tilt: (rand() - 0.5) * 0.8, r: lerp(SG.radius[0], SG.radius[1], rand()), speed: lerp(SG.speed[0], SG.speed[1], rand()) * (rand() < 0.5 ? -1 : 1), angle: rand() * TAU,
-  }));
-  const skyMesh = new THREE.InstancedMesh(bigGearGeometry(1, 18, 0.25), lambert(SG.color), SG.count);
-  group.add(skyMesh);
+  for (let i = 0; i < SG.count; i++) {
+    gearItems.push({
+      shape: SG.shapes[i % SG.shapes.length], metal: SG.metals[i % SG.metals.length],
+      pos: new THREE.Vector3(mid.x + (rand() - 0.5) * 2 * SG.spread, lerp(SG.height[0], SG.height[1], rand()), mid.z + (rand() - 0.5) * 2 * SG.spread),
+      face: rand() * TAU, tilt: (rand() - 0.5) * 0.8, r: lerp(SG.radius[0], SG.radius[1], rand()), speed: lerp(SG.speed[0], SG.speed[1], rand()) * (rand() < 0.5 ? -1 : 1), angle: rand() * TAU,
+    });
+  }
+  const shapes = await loadGearShapes([...new Set(gearItems.map((g) => g.shape))], opts);
+  const decor = buildGearDecor(gearItems, shapes);
+  group.add(decor.group);
   const CL = R.clock;
   const clock = new THREE.Group();
   clock.position.set(...CL.at);
@@ -176,25 +194,8 @@ export async function loadGearhavenRideModel(world) {
   const minute = hand(CL.radius * 0.78, CL.radius * 0.035);
   hour.rotation.z = -1.1;
   group.add(clock);
-  group.userData = { cogs: { mesh: cogMesh, items: cogItems }, skyGears: { mesh: skyMesh, items: skyItems }, clock: { hour, minute } };
-  spinInstances(group.userData.cogs, 0);
-  spinInstances(group.userData.skyGears, 0);
+  group.userData = { decor, clock: { hour, minute } };
   return group;
-}
-
-/** Turns instanced gears about their own axis (`items`: pos, face (yaw), tilt?, r, speed, angle). */
-export function spinInstances({ mesh, items }, dt) {
-  const m = new THREE.Matrix4();
-  const q = new THREE.Quaternion();
-  const e = new THREE.Euler();
-  items.forEach((it, i) => {
-    it.angle += it.speed * dt;
-    e.set(it.tilt ?? 0, it.face, it.angle, 'YXZ');
-    q.setFromEuler(e);
-    m.compose(it.pos, q, new THREE.Vector3(it.r, it.r, it.r));
-    mesh.setMatrixAt(i, m);
-  });
-  mesh.instanceMatrix.needsUpdate = true;
 }
 
 /** The height of a rail at `s`: low rails rise from the street over `grind.ramp`. */
@@ -205,11 +206,87 @@ export function railHeight(rail, s) {
 }
 
 /**
- * The rails: a steel tube each (low rails rising from the street on a ramp), posts under the
- * low rails, gantries holding the upper rail (posts outside the walls). `userData.rails` = the
- * tube meshes in R.rails order.
+ * The rails (`userData.rails` = one mesh per group of rails): the Coaster Kit's monorail
+ * track in gold — straight pieces along the trail, each low rail rising from the street on its
+ * slope pieces (hill beginning + end) — on copper supports, the upper rail hanging from gantries
+ * outside the walls. If the kit fails: steel tubes on posts (placeholderRails).
  */
-export async function loadRailModel(track) {
+export async function loadRailModel(track, opts = {}) {
+  const KR = R.railKit;
+  const P = await loadKitPieces('rails', [KR.straight, KR.slope[0], KR.slope[1], KR.support, KR.post, KR.beam], opts);
+  if (Object.values(P).some((g) => !g)) return placeholderRails(track);
+  const G = R.grind;
+  const top = (rail, s) => railHeight(rail, s) + KR.lift; // (the track's top: just over the rail's line, where the hooves are)
+  const items = [];
+  const supports = [];
+  const yaw = (a, b) => Math.atan2(b.x - a.x, b.z - a.z);
+  const m = new THREE.Matrix4();
+  R.rails.forEach((rail, i) => {
+    // Straight pieces along the trail (each a chord, scaled to its length).
+    const s0 = rail.upper ? rail.s[0] : rail.s[0] + G.ramp;
+    const n = Math.max(1, Math.round((rail.s[1] - s0) / KR.length));
+    for (let k = 0; k < n; k++) {
+      const a = trackPoint(track, s0 + ((rail.s[1] - s0) * k) / n, rail.lat, top(rail, rail.s[1]) + KR.drop).pos;
+      const b = trackPoint(track, s0 + ((rail.s[1] - s0) * (k + 1)) / n, rail.lat, top(rail, rail.s[1]) + KR.drop).pos;
+      items.push({ geometry: P[KR.straight], matrix: placeMatrix({ pos: a, yaw: yaw(a, b), scale: [1, 1, a.distanceTo(b) / KR.length] }, new THREE.Matrix4()), chunk: rail.group });
+    }
+    if (!rail.upper) {
+      // The slope up from the street: the two hill pieces, re-stacked onto the ramp's own curve.
+      const a = trackPoint(track, rail.s[0], rail.lat).pos;
+      const b = trackPoint(track, rail.s[0] + G.ramp, rail.lat).pos;
+      items.push({ geometry: rampGeometry(P[KR.slope[0]], P[KR.slope[1]], rail), matrix: placeMatrix({ pos: a, yaw: yaw(a, b) }, new THREE.Matrix4()), chunk: rail.group });
+      for (let s = rail.s[0] + G.ramp * 0.6; s <= rail.s[1]; s += G.postEvery) {
+        const p = trackPoint(track, s, rail.lat).pos;
+        supports.push({ geometry: P[KR.support], matrix: placeMatrix({ pos: p, scale: [1, Math.max(0.1, top(rail, s) - KR.depth), 1] }, m.clone()), chunk: rail.group });
+      }
+    } else {
+      // Gantries: posts outside the walls, a beam across, a hanger down to the rail.
+      for (let s = rail.s[0]; s <= rail.s[1]; s += G.gantryEvery) {
+        const p = trackPoint(track, s);
+        const h = rail.h + 0.7;
+        for (const side of [-1, 1]) supports.push({ geometry: P[KR.post], matrix: placeMatrix({ pos: trackPoint(track, s, side * G.gantryHalf).pos, scale: [1.4, h, 1.4] }, new THREE.Matrix4()), chunk: rail.group });
+        supports.push({ geometry: P[KR.beam], matrix: placeMatrix({ pos: p.pos.clone().setY(h - 0.3), yaw: p.heading + Math.PI / 2, scale: [1.3, 1.3, G.gantryHalf * 2] }, new THREE.Matrix4()), chunk: rail.group });
+        supports.push({ geometry: P[KR.support], matrix: placeMatrix({ pos: trackPoint(track, s, rail.lat, top(rail, s) - KR.depth + 0.05).pos, scale: [0.7, h - 0.3 - (top(rail, s) - KR.depth), 0.7] }, new THREE.Matrix4()), chunk: rail.group });
+      }
+    }
+  });
+  const group = new THREE.Group();
+  group.name = 'rails';
+  const rails = mergeStatic(items, kitMaterial('rails'), 'railTrack');
+  group.add(rails, mergeStatic(supports, kitMaterial('rails', KR.supportTint), 'railSupports'));
+  group.userData = { rails: rails.children, kit: true }; // (one mesh per group of rails: a, the upper rail, b)
+  return group;
+}
+
+/**
+ * A low rail's slope: the kit's hill-beginning and hill-end pieces end to end, fitted to the
+ * ramp's length, every vertex moved up or down so the track's top follows railHeight (its own
+ * profile and thickness kept). Local: +z along the trail from the ramp's foot.
+ */
+function rampGeometry(begin, end, rail) {
+  const G = R.grind;
+  const KR = R.railKit;
+  const k = G.ramp / (KR.length * 2);
+  const parts = [[begin, 0], [end, KR.length]].map(([src, dz]) => {
+    const g = src.clone();
+    const pos = g.attributes.position;
+    // (the piece's own top line along z, measured from its vertices)
+    const bins = new Map();
+    const bin = (z) => Math.round(z / 0.25);
+    for (let i = 0; i < pos.count; i++) bins.set(bin(pos.getZ(i)), Math.max(bins.get(bin(pos.getZ(i))) ?? -Infinity, pos.getY(i)));
+    for (let i = 0; i < pos.count; i++) {
+      const z = (pos.getZ(i) + dz) * k;
+      pos.setY(i, pos.getY(i) - bins.get(bin(pos.getZ(i))) + railHeight(rail, rail.s[0] + Math.min(G.ramp, Math.max(0, z))) + KR.lift);
+      pos.setZ(i, z);
+    }
+    g.computeVertexNormals();
+    return g;
+  });
+  return mergeGeometries(parts);
+}
+
+/** The old rails: a steel tube each on posts, gantries for the upper rail. */
+function placeholderRails(track) {
   const G = R.grind;
   const group = new THREE.Group();
   group.name = 'rails';
@@ -244,7 +321,67 @@ export async function loadRailModel(track) {
   }
   if (posts.length) group.add(new THREE.Mesh(mergeGeometries(posts), lambert(G.post)));
   if (gantry.length) group.add(new THREE.Mesh(mergeGeometries(gantry), lambert(G.post)));
-  group.userData = { rails };
+  group.userData = { rails, kit: false };
+  return group;
+}
+
+/**
+ * The factory along the street, outside the walls (Factory Kit, tinted brass and copper; no
+ * collision): machines, boxes, hoppers, cranes and robot arms as side decoration, and by each
+ * steam vent a pipe run along the curb with a valve and tall pipe stacks either side that puff
+ * steam (`userData.chimneys`: their tops, and `userData.ventStacks[i]`: vent i's two). Merged
+ * into one mesh per stretch of trail. Nothing (an empty group) if the kit fails.
+ */
+export async function loadFactoryDecorModel(track, opts = {}) {
+  const F = R.factory;
+  const names = [...new Set([...F.decor.map((d) => d[0]), F.pipe, F.pipeLong, F.valve])];
+  const P = await loadKitPieces('factory', names, opts);
+  const group = new THREE.Group();
+  group.name = 'factoryDecor';
+  group.userData = { chimneys: [], ventStacks: [], kit: false };
+  if (Object.values(P).some((g) => !g)) return group;
+  const rand = rng(F.seed);
+  const items = [];
+  const chunk = (s) => Math.floor(s / F.chunk);
+  // (a vertical pipe: the long pipe stood on end, 2 tall from its foot)
+  const stand = P[F.pipeLong].clone().rotateZ(Math.PI / 2).translate(0.5, 1, 0);
+  const clear = (s, d) => [...R.hammers.map((h) => h.s), ...R.checkpoints, ...R.vents.map((v) => v.s), ...R.saws.map((v) => v.s), R.door.s].every((x) => Math.abs(x - s) > d)
+    && !R.rails.some((r) => r.upper && s > r.s[0] - d && s < r.s[1] + d);
+  for (let s = F.decorStart, i = 0; s < track.length - F.decorEnd; s += F.decorEvery, i++) {
+    if (!clear(s, F.decorClear)) continue;
+    const side = i % 2 ? 1 : -1;
+    const [name, size] = F.decor[Math.floor(rand() * F.decor.length)];
+    const lat = side * lerp(F.decorLat[0], F.decorLat[1], rand());
+    const p = trackPoint(track, s + (rand() - 0.5) * 3, lat);
+    const other = track.nearest(p.pos.x, p.pos.z, R.wall.offset + 4);
+    if (other && other.dist < R.wall.offset + 1.5) continue; // (never over another stretch of the street)
+    items.push({ geometry: P[name], matrix: placeMatrix({ pos: p.pos, yaw: p.heading + (side > 0 ? -Math.PI / 2 : Math.PI / 2) + (rand() - 0.5) * 0.5, scale: size }), chunk: chunk(s) });
+  }
+  // Each steam vent's pipes: a run along each curb with a valve, a stack at either end.
+  R.vents.forEach((v, vi) => {
+    const stacks = [];
+    for (const side of [-1, 1]) {
+      const lat = side * F.pipeLat;
+      for (let k = 0; k < F.runSections; k++) {
+        const s = v.s - (F.runSections * F.pipeScale) + k * 2 * F.pipeScale + F.pipeScale;
+        const p = trackPoint(track, s, lat);
+        const piece = k === Math.floor(F.runSections / 2) ? P[F.valve] : P[F.pipeLong];
+        items.push({ geometry: piece, matrix: placeMatrix({ pos: p.pos, yaw: p.heading + Math.PI / 2, scale: [piece === P[F.valve] ? F.pipeScale * 2 : F.pipeScale, F.pipeScale, F.pipeScale] }), chunk: chunk(s) });
+      }
+      for (const end of [-1, 1]) {
+        const s = v.s + end * F.runSections * F.pipeScale;
+        const p = trackPoint(track, s, lat);
+        const h = F.stackHeight * (end > 0 ? 1 : 0.8);
+        items.push({ geometry: stand, matrix: placeMatrix({ pos: p.pos, yaw: p.heading, scale: [F.pipeScale * 1.1, h / 2, F.pipeScale * 1.1] }), chunk: chunk(s) });
+        const top = p.pos.clone().setY(h);
+        group.userData.chimneys.push(top);
+        stacks.push(top);
+      }
+    }
+    group.userData.ventStacks[vi] = stacks;
+  });
+  group.add(mergeStatic(items, kitMaterial('factory'), 'factory'));
+  group.userData.kit = true;
   return group;
 }
 
@@ -252,35 +389,48 @@ export async function loadRailModel(track) {
 export async function loadSteamVentModel() {
   const V = R.vent;
   const g = new THREE.Group();
-  const ring = new THREE.Mesh(new THREE.CylinderGeometry(V.radius, V.radius * 1.1, 0.16, 20), lambert(V.color));
-  ring.position.y = 0.08;
   const bars = [];
-  for (let i = -3; i <= 3; i++) bars.push(new THREE.BoxGeometry(V.radius * 1.6 * Math.sqrt(1 - (i / 4) ** 2), 0.06, 0.12).translate(0, 0.18, i * V.radius * 0.24));
-  const grate = new THREE.Mesh(mergeGeometries(bars), lambert(V.grate));
+  for (let i = -3; i <= 3; i++) bars.push([new THREE.BoxGeometry(V.radius * 1.6 * Math.sqrt(1 - (i / 4) ** 2), 0.06, 0.12).translate(0, 0.18, i * V.radius * 0.24), V.grate]);
+  const body = colorMerge([[new THREE.CylinderGeometry(V.radius, V.radius * 1.1, 0.16, 20).translate(0, 0.08, 0), V.color], ...bars]); // (ring and grate: one draw)
   const glow = new THREE.Mesh(new THREE.CircleGeometry(V.radius * 0.9, 20).rotateX(-Math.PI / 2), additive(V.glow, 0.35));
   glow.position.y = 0.17;
-  g.add(ring, grate, glow);
+  g.add(body, glow);
   g.userData = { glow };
   return g;
 }
 
-/** The floating gear deck (a brass platform with trim, hanging on chains from the sky). */
-export async function loadGearDeckModel(deck) {
+/**
+ * The floating gear deck: Factory Kit catwalk sections end to end (railings along both edges),
+ * hanging on chains from the sky; its materials can fade (`userData.fade`: the riding camera
+ * passes under it — Ride.animate). If the kit fails: a brass slab with trim.
+ */
+export async function loadGearDeckModel(deck, opts = {}) {
   const len = deck.s[1] - deck.s[0];
   const g = new THREE.Group();
-  // (its materials can fade: the riding camera passes under it — Ride.animate)
+  const chains = new THREE.Mesh(
+    mergeGeometries([-1, 1].flatMap((sx) => [-1, 1].map((sz) => new THREE.CylinderGeometry(0.05, 0.05, 30, 4).translate((sx * deck.width) / 2.2, 15, (sz * len) / 2.2)))),
+    lambert(R.grind.post),
+  );
+  g.add(chains);
+  const F = R.factory;
+  const { [F.catwalk]: walk } = await loadKitPieces('factory', [F.catwalk], opts);
+  if (walk) {
+    // (the catwalk runs along its x: turned along the trail, stretched across the deck's width)
+    const n = Math.max(1, Math.round(len / F.catwalkLength));
+    const items = Array.from({ length: n }, (_, i) => ({ geometry: walk, matrix: placeMatrix({ pos: new THREE.Vector3(0, 0, -len / 2 + (len * (i + 0.5)) / n), yaw: Math.PI / 2, scale: [len / n, F.catwalkHeight, deck.width / F.catwalkWidth] }) }));
+    const mat = kitMaterial('factory', undefined, { transparent: true });
+    g.add(mergeStatic(items, mat, 'catwalk'));
+    g.userData = { fade: [mat], kit: true };
+    return g;
+  }
   const slab = new THREE.Mesh(new THREE.BoxGeometry(deck.width, 0.4, len), lambert(deck.color, { transparent: true }));
   slab.position.y = -0.2;
   const trim = new THREE.Mesh(
     mergeGeometries([-1, 1].map((s) => new THREE.BoxGeometry(0.2, 0.25, len).translate((s * deck.width) / 2, 0.05, 0))),
     lambert(deck.trim, { transparent: true }),
   );
-  const chains = new THREE.Mesh(
-    mergeGeometries([-1, 1].flatMap((sx) => [-1, 1].map((sz) => new THREE.CylinderGeometry(0.05, 0.05, 30, 4).translate((sx * deck.width) / 2.2, 15, (sz * len) / 2.2)))),
-    lambert(R.grind.post),
-  );
-  g.add(slab, trim, chains);
-  g.userData = { fade: [slab.material, trim.material] };
+  g.add(slab, trim);
+  g.userData = { fade: [slab.material, trim.material], kit: false };
   return g;
 }
 
@@ -298,12 +448,15 @@ export async function loadHammerModel() {
   g.add(new THREE.Mesh(mergeGeometries(frame), lambert(H.color)));
   const pivot = new THREE.Group();
   pivot.position.y = H.pivot;
-  const arm = new THREE.Mesh(new THREE.BoxGeometry(0.22, H.arm, 0.22).translate(0, -H.arm / 2, 0), lambert(H.color));
-  const head = new THREE.Mesh(new THREE.BoxGeometry(...H.head), lambert(H.headColor));
+  // (arm, head and band: one draw; `head` marks the head's centre for the hit test)
+  pivot.add(colorMerge([
+    [new THREE.BoxGeometry(0.22, H.arm, 0.22).translate(0, -H.arm / 2, 0), H.color],
+    [new THREE.BoxGeometry(...H.head).translate(0, -H.arm, 0), H.headColor],
+    [new THREE.BoxGeometry(H.head[0] * 1.04, H.head[1] * 0.25, H.head[2] * 1.04).translate(0, -H.arm, 0), H.band],
+  ]));
+  const head = new THREE.Object3D();
   head.position.y = -H.arm;
-  const band = new THREE.Mesh(new THREE.BoxGeometry(H.head[0] * 1.04, H.head[1] * 0.25, H.head[2] * 1.04), lambert(H.band));
-  band.position.y = -H.arm;
-  pivot.add(arm, head, band);
+  pivot.add(head);
   g.add(pivot);
   g.userData = { pivot, head };
   return g;
@@ -315,42 +468,64 @@ export async function loadCogPlatformModel() {
   const parts = [new THREE.CylinderGeometry(P.radius * 0.9, P.radius * 0.9, P.height, 32).translate(0, P.height / 2, 0)];
   for (let i = 0; i < P.teeth; i++) parts.push(new THREE.BoxGeometry(P.radius * 0.18, P.height, P.radius * 0.22).translate(0, P.height / 2, P.radius * 0.93).rotateY((i / P.teeth) * TAU));
   const g = new THREE.Group();
-  g.add(new THREE.Mesh(mergeGeometries(parts), lambert(P.color)));
-  const hub = new THREE.Mesh(new THREE.CylinderGeometry(P.radius * 0.3, P.radius * 0.3, P.height + 0.04, 16).translate(0, (P.height + 0.04) / 2, 0), lambert(P.hub));
-  const spokes = new THREE.Mesh(mergeGeometries([0, 1, 2].map((i) => new THREE.BoxGeometry(P.radius * 1.5, 0.03, 0.3).translate(0, P.height + 0.015, 0).rotateY((i / 3) * Math.PI))), lambert(P.hub));
-  g.add(hub, spokes);
+  g.add(colorMerge([
+    ...parts.map((p) => [p, P.color]),
+    [new THREE.CylinderGeometry(P.radius * 0.3, P.radius * 0.3, P.height + 0.04, 16).translate(0, (P.height + 0.04) / 2, 0), P.hub],
+    ...[0, 1, 2].map((i) => [new THREE.BoxGeometry(P.radius * 1.5, 0.03, 0.3).translate(0, P.height + 0.015, 0).rotateY((i / 3) * Math.PI), P.hub]),
+  ])); // (one draw)
   return g;
 }
 
 /**
- * A conveyor belt across the trail (s0 … s1): a dark belt and slats that slide sideways
+ * A conveyor belt across the trail (s0 … s1): Factory Kit belt sections laid across it, let into
+ * the street (else a dark strip), and slats that slide sideways at the belt's speed
  * (`userData.slats`: an InstancedMesh, `userData.items`: their lateral offsets).
  */
-export async function loadConveyorModel(track, conv) {
+export async function loadConveyorModel(track, conv, opts = {}) {
   const CV = R.conveyor;
+  const F = R.factory;
   const g = new THREE.Group();
-  g.add(new THREE.Mesh(ribbon(track, -R.wall.offset, R.wall.offset, 0.04, conv.s[0], conv.s[1], 1), lambert(CV.color)));
-  const n = Math.ceil((R.wall.offset * 2) / CV.slat);
   const len = conv.s[1] - conv.s[0];
+  const { [F.belt]: belt } = await loadKitPieces('factory', [F.belt], opts);
+  if (belt) {
+    // (each section runs along its x — across the trail — `beltLength` long, 1 deep)
+    const across = F.beltCount; // (a few long sections: light on triangles)
+    const rows = Math.max(1, Math.round(len / F.beltRow));
+    const items = [];
+    for (let r = 0; r < rows; r++) {
+      const s = conv.s[0] + (len * (r + 0.5)) / rows;
+      for (let i = 0; i < across; i++) {
+        const lat = -R.wall.offset + ((i + 0.5) * R.wall.offset * 2) / across;
+        const p = trackPoint(track, s, lat, F.beltSink);
+        items.push({ geometry: belt, matrix: placeMatrix({ pos: p.pos, yaw: p.heading, scale: [(R.wall.offset * 2) / across / F.beltLength, 1, len / rows] }) });
+      }
+    }
+    g.add(mergeStatic(items, kitMaterial('factory'), 'conveyorBelt'));
+  } else g.add(new THREE.Mesh(ribbon(track, -R.wall.offset, R.wall.offset, 0.04, conv.s[0], conv.s[1], 1), lambert(CV.color)));
+  const n = Math.ceil((R.wall.offset * 2) / CV.slat);
   const slats = new THREE.InstancedMesh(new THREE.BoxGeometry(0.22, 0.05, len * 0.96), lambert(CV.slatColor), n);
   g.add(slats);
   const items = Array.from({ length: n }, (_, i) => -R.wall.offset + i * CV.slat);
-  g.userData = { slats, items, mid: (conv.s[0] + conv.s[1]) / 2 };
+  g.userData = { slats, items, mid: (conv.s[0] + conv.s[1]) / 2, kit: !!belt };
   return g;
 }
 
-/** Brass gears to collect (an InstancedMesh) with a soft additive halo each (a second one). */
-export async function loadGearPickupModel(count) {
+/**
+ * Brass gears to collect (an InstancedMesh: the Quaternius collectible gear, else a code-built
+ * gear) with a soft additive halo each (a second one).
+ */
+export async function loadGearPickupModel(count, opts = {}) {
   const GR = R.gears;
-  const gears = new THREE.InstancedMesh(gearGeometry(GR.size, 9, GR.size * 0.35), lambert(GR.color, { emissive: 0x3a2400 }), count);
-  const halos = new THREE.InstancedMesh(new THREE.SphereGeometry(GR.size * 1.7, 10, 8), additive(GR.halo, 0.22), count);
+  const { collectible } = await loadGearShapes(['collectible'], opts);
+  const gears = new THREE.InstancedMesh(isFallbackGear(collectible) ? gearGeometry(GR.size, 9, GR.size * 0.35) : collectible.clone().scale(GR.size * GR.fit, GR.size * GR.fit, GR.size * GR.fit), lambert(GR.color, { emissive: GR.emissive }), count);
+  const halos = new THREE.InstancedMesh(new THREE.SphereGeometry(GR.size * 1.7, 8, 6), additive(GR.halo, 0.22), count);
   const g = new THREE.Group();
   g.add(gears, halos);
-  g.userData = { gears, halos };
+  g.userData = { gears, halos, kit: !isFallbackGear(collectible) };
   return g;
 }
 
-/** Grind sparks and steam puffs (pooled InstancedMeshes, additive; faded through instance colour). */
+/** Grind sparks, steam puffs and pickup sparkles (pooled InstancedMeshes, additive; faded through instance colour). */
 export async function loadRideFxModels() {
   const SP = R.sparks;
   const ST = R.steam;
@@ -360,7 +535,8 @@ export async function loadRideFxModels() {
     mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(mesh.count * 3), 3);
     mesh.frustumCulled = false;
   }
-  return { sparks, puffs };
+  const sparkles = await loadSparkleModel(R.gears.sparkle.max); // (a gear picked up)
+  return { sparks, puffs, sparkles };
 }
 
 /** The Fire Element's door across the end of the trail (the courtyard's door, bigger). */

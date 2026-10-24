@@ -424,6 +424,15 @@ for (const at of ['second line, mid-typewriter', 'first line']) {
   // 6) The ending: the castle-gate cinematic (the horse rides in, the gates shut), then Amy and
   // the portal, then (no Part 2 loaded here) the ending state.
   const PO = CONFIG.part2.portal, PL2 = DIALOGUE.part2.portal, S2 = DIALOGUE.speakers;
+  // The castle in Kenney's Castle Kit (as the browser loads it on reaching the desert): the same
+  // passage, hinges and courtyard, so every framing check below runs on it.
+  const hinges0 = Object.values(world.castle.userData.gates).map((h) => h.position.clone());
+  const dressed = await world.upgradeCastle(heroAssets);
+  const C = world.castle.userData;
+  const kitLeaves = [...Object.values(C.gates), ...Object.values(C.innerGates)].every((h) => h.children.some((c) => c.visible && c.material === C.kitMesh?.children[0]?.material));
+  if (heroAssets.placeholder) check(!dressed && !C.kit, 'the castle stays the placeholder (HERO_PLACEHOLDER)');
+  else check(dressed && C.kit && kitLeaves && C.kitSwap.every((m) => !m.visible) && Object.values(C.gates).every((h, i) => h.position.equals(hinges0[i])),
+    `the castle in the Castle Kit (walls, ${C.dims.towers.length + 2} towers, flags, banners; the gate leaves cut from the kit's gate on the same hinges)`);
   const camBefore = cam.camera.position.clone();
   const scale0 = { horse: horse.model.scale.x, hero: hero.model.scale.x };
   view.lines = [];
