@@ -173,6 +173,8 @@ const scale0 = horse.model.scale.x;
   check(JSON.stringify(view.lines) === JSON.stringify(want), `the arrival's lines in order:\n       ${view.lines.join('\n       ')}`);
   check(dropped && landedOnFoot && (sound.counts.clock_chime ?? 0) > chime && sound.counts.tick_whir >= 1, 'AJ and the horse drop into the courtyard (a chime far away), he gets down, Tick whirs in');
   check(!Object.values(L).some((t) => /witch/i.test(t)), 'no "witch" anywhere in the arrival\'s lines');
+  check((sound.counts.clock_stop_warning ?? 0) === 1 && soundscape.voices?.girl === 'amy2' && (sound.counts.gear_whoosh ?? 0) === 0,
+    'sound: a slow dissonant warning as Tick says the clock is slowing; Amy\'s Part 2 voice (amy2) set for the chapter');
   check(fr.frames > 60 && fr.speaker === fr.frames && fr.tickCentred === fr.tickFrames && fr.both === fr.frames && fr.order === fr.frames && fr.behind === fr.frames && fr.tickHead === fr.frames && fr.blipsFromTick === fr.tickFrames,
     `the talk: each line frames its speaker (${fr.speaker}/${fr.frames}) — Tick in the middle of the screen for his (${fr.tickCentred}/${fr.tickFrames}), his blips from where he floats — both in the shot above the dialogue box and never hidden behind the horse (${fr.both}), AJ on the left, Tick on the right (${fr.order}), the horse behind them (${fr.behind}), Tick at head height (${fr.tickHead})`);
   check(fr.clockFrames > 10 && fr.clock === fr.clockFrames && fr.ajUp === fr.clockFrames,
@@ -211,12 +213,25 @@ const scale0 = horse.model.scale.x;
   check(hero.position.distanceTo(p0) > 3 && maxR <= P2.gearhaven.floor.wall + 0.01 && minY > -0.05, `AJ walks about the courtyard and stays inside its wall (${maxR.toFixed(2)} ≤ ${P2.gearhaven.floor.wall}), on its floor`);
   check(tickFrames > 100 && tickSeen === tickFrames, `Tick floats beside AJ at his head height, always on screen while he walks (${tickSeen}/${tickFrames})`);
   check(u.clock.minute.rotation.z !== minute && cogItem.angle !== cog && steamMax > 0, `the clock's hands, the cogs and the steam move (${steamMax} puffs)`);
+  // The courtyard's ambience: its very quiet loops (tick-tock, gears, steam) and Tick's hum.
+  const SN = P2.sound, amb = SN.ambience.courtyard, lv = p2.sounds.levels;
+  check(['clock_tick', 'gear_turn', 'steam_hiss', 'tick_hover'].every((n) => p2.sounds.loopsNow.has(n)) && Object.entries(amb).every(([n, v]) => Math.abs(lv[n] - v) < 1e-6) && soundscape.musicPhase === 'gearhaven',
+    `the courtyard's ambience loops (${[...p2.sounds.loopsNow].join(', ')}), the Gearhaven theme`);
   // Into the Fire door.
   const door = u.doors.fire.at;
   hero.puppet(door.clone().multiplyScalar(0.97), 0, 0);
   await frame(); await frame();
   check(p2.at === 'ride' && ui.quest === D2.ride.quest && horse.mode === 'riding' && hero.world === p2.rideWorld,
     `walking into the Fire door: the Gearhaven ride ("${ui.quest}", on the horse; npm run test:ride plays it)`);
+  {
+    // The ambience fades between sections: the courtyard's steam out, the ride's factory hum in, over ambienceFade s.
+    const SN = P2.sound, lv = p2.sounds.levels;
+    for (let i = 0; i < 20; i++) await frame();
+    const mid = { steam: lv.steam_hiss ?? 0, hum: lv.factory_hum ?? 0 };
+    for (let t = 0; t < SN.ambienceFade + 0.3; t += dt) await frame();
+    check(mid.steam > 0.05 && mid.steam < SN.ambience.courtyard.steam_hiss && mid.hum > 0.05 && mid.hum < SN.ambience.ride.factory_hum && !lv.steam_hiss && Math.abs(lv.factory_hum - SN.ambience.ride.factory_hum) < 1e-6,
+      `the ambience fades between sections (a third of a second in: the courtyard's steam ${mid.steam.toFixed(2)}, the ride's factory hum ${mid.hum.toFixed(2)}; then gone / full)`);
+  }
   // (its end: the Fire Element's door → the stub)
   p2.ride.onFinish();
   await frame(); await frame();
@@ -236,8 +251,11 @@ const scale0 = horse.model.scale.x;
     got.push(levels.current.at === id && ui.quest === D2.comingSoon(D2.levelNames[id]) && state.is(STATES.PLAY));
   }
   check(got.every(Boolean), `each level (Fire, Lightning, Steam, Magnet, Time) and Amy's final fight load as a "coming soon" stub (${got.filter(Boolean).length}/${got.length})`);
+  check(soundscape.musicPhase === 'stub' && CONFIG.audio.music.phases.stub === 'gearhaven', 'a stub reuses the Gearhaven theme until its level exists');
   await levels.load('part2', { start: 'ending' });
+  await frame();
   check(state.is(STATES.ENDING) && levels.current.at === 'ending', 'the Part 2 ending (the ending screens: "To be continued... Part 3")');
+  check(soundscape.musicPhase === 'part2End' && !levels.current.sounds.loopsNow.size, 'its gentle, hopeful music, and no ambience');
   state.current = STATES.PLAY;
 }
 
@@ -325,6 +343,9 @@ const scale0 = horse.model.scale.x;
   const advanced = S.items.every((it, i) => it.clip > first[i] && it.clips.length >= (heroAssets.placeholder ? 0 : 5));
   check(levels.current.at === 'robots' && S.items.length === 5 && xs.every((x, i) => i === 0 || x > xs[i - 1]) && advanced && ui.quest === D2.robotsTest && S.group.visible,
     `the Robots test: ${S.items.map((it) => `${it.name} (${it.clips.length} clips)`).join(', ')} in a row, each on to its next clip`);
+  for (let t = 0; t < P2.showcase.clipTime * 6; t += dt) await frame();
+  const heard = ['robot_walk', 'boss_mech_step', 'robot_swing', 'robot_alert', 'boss_mech_roar', 'robot_hit'].filter((n) => (sound.counts[n] ?? 0) > 0);
+  check(heard.length >= (heroAssets.placeholder ? 2 : 5), `the robots' sounds as they go through their clips (from where each stands): ${heard.join(', ')}`);
   await levels.load('part2', { start: 'courtyard' });
   check(!S.group.visible, 'and gone again elsewhere');
 }

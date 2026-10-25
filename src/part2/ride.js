@@ -22,6 +22,7 @@ import { loadSkylineModel, trailSpots } from './skyline.js';
 
 const R = CONFIG.part2.ride;
 const G = R.grind;
+const SND = CONFIG.part2.sound; // the ride's sounds (soundCatalog.js names; 3D where they have a place)
 const DA = R.deckAssist;
 const HC = CONFIG.horse;
 const { clamp, lerp } = THREE.MathUtils;
@@ -287,6 +288,8 @@ export class Ride {
     this.stats = { grinds: 0, switches: 0, launches: 0, hits: 0, sawHits: 0, carried: 0, conveyed: 0, belted: 0, snaps: 0, hopsOff: 0, ends: 0, maxY: 0 };
     this.airborne = false;
     this.world.coyote = null;
+    this.streak = { n: 0, at: -Infinity }; // gears picked up in a quick row: each a little higher
+    this.loopsNow = new Set(); // (the loops kept running this frame: tests)
     this.gears = this.parts.gearSpots.map((p) => ({ pos: p.clone(), taken: false, pop: 0 }));
     for (const v of this.parts.vents) v.wait = 0;
     for (const h of this.parts.hammers) h.wait = 0;
@@ -308,6 +311,7 @@ export class Ride {
   update(dt, input) {
     this.time += dt;
     const { horse } = this;
+    this.loopsNow.clear();
     this.airborne = !horse.grounded;
     if (this.world.coyote) this.world.coyote.t -= dt;
     if (this.grind) this.#grindStep(dt, input);
@@ -360,6 +364,7 @@ export class Ride {
     this.#hammers(dt);
     this.#saws(dt);
     this.#gears();
+    this.#machineLoops();
     if (!this.finished && this.s >= R.door.s - R.door.reach) {
       this.finished = true;
       this.onFinish?.();
@@ -465,7 +470,9 @@ export class Ride {
     horse.speed = g.speed;
     if (dt > 0) {
       this.#emitSparks(dt);
-      this.sound?.manager?.setLoop('railGrind', 'rail_grind', { volume: R.grindVolume, position: horse.position });
+      // (the steel scrape and its sparks: louder and higher the faster it grinds)
+      const k = clamp((g.speed - G.speed) / Math.max(1e-3, G.maxSpeed - G.speed), 0, 1);
+      this.#loop('railGrind', 'rail_grind', { volume: lerp(SND.grind.volume[0], SND.grind.volume[1], k), pitch: lerp(SND.grind.pitch[0], SND.grind.pitch[1], k), position: horse.position });
     }
   }
 
@@ -490,6 +497,7 @@ export class Ride {
     horse.velocity.set(Math.sin(horse.heading) * g.speed, G.hopOff, Math.cos(horse.heading) * g.speed);
     horse.grounded = false;
     if (jumped) this.stats.hopsOff++;
+    this.sound?.play('rail_leave', { position: horse.position });
   }
 
   // --- vents, hammers -----------------------------------------------------------
@@ -505,6 +513,7 @@ export class Ride {
       horse.velocity.y = R.vent.launch;
       horse.grounded = false;
       this.stats.launches++;
+      this.sound?.play('steam_vent', { position: v.at });
       this.sound?.play('steam_launch', { position: v.at });
       this.#puff(v.at, R.vent.puff, 1.6);
       for (const top of this.parts.factory.userData.ventStacks[this.parts.vents.indexOf(v)] ?? []) this.#puff(top, R.vent.stackPuff, 0.4);
@@ -519,6 +528,12 @@ export class Ride {
       h.wait = Math.max(0, h.wait - dt);
       const swing = this.#swing(h);
       h.model.userData.pivot.rotation.z = swing;
+      // (a heavy whoosh each time it sweeps through the bottom of its swing, from where it is)
+      if (h.lastSwing !== undefined && Math.sign(swing) !== Math.sign(h.lastSwing) && horse.position.distanceTo(h.model.position) < SND.hammerRange) {
+        h.model.updateMatrixWorld(true);
+        this.sound?.play('hammer_swing', { position: h.model.userData.head.getWorldPosition(new THREE.Vector3()) });
+      }
+      h.lastSwing = swing;
       if (h.wait > 0 || this.grind) continue;
       h.model.updateMatrixWorld(true);
       const head = h.model.userData.head.getWorldPosition(new THREE.Vector3());
@@ -587,8 +602,39 @@ export class Ride {
     g.pop = R.gears.pop;
     this.#sparkle(g.pos);
     this.count++;
-    this.sound?.play('gear_pickup', { position: g.pos });
+    // (a bright ting — a semitone higher for each gear picked up in a quick row — and the spin-up)
+    const ST = SND.streak;
+    this.streak.n = this.time - this.streak.at < ST.gap ? Math.min(ST.max, this.streak.n + 1) : 0;
+    this.streak.at = this.time;
+    this.sound?.play('gear_collect', { position: g.pos, pitch: Math.pow(2, (this.streak.n * ST.step) / 12) });
+    this.sound?.play('gear_spin_pickup', { position: g.pos, volume: ST.spinVolume });
     this.onGear?.(this.count);
+  }
+
+  /** A loop kept running this frame (the AudioManager's, if there is one; noted for the tests). */
+  #loop(key, name, o) {
+    this.loopsNow.add(name);
+    this.sound?.manager?.setLoop(key, name, o);
+  }
+
+  /** The machines' loops, from where they are: the nearest spinning saw, the nearest conveyor belt. */
+  #machineLoops() {
+    const { horse } = this;
+    const near = (list, at, range) => {
+      let best = null;
+      let bd = range;
+      for (const it of list) {
+        const p = at(it);
+        const d = p.distanceTo(horse.position);
+        if (d < bd) [best, bd] = [p, d];
+      }
+      return best;
+    };
+    const saw = near(this.parts.saws, (sw) => sw.model.userData.blade.getWorldPosition(new THREE.Vector3()), SND.sawRange);
+    if (saw) this.#loop('saw', 'saw_spin', { volume: SND.sawVolume, position: saw });
+    const belts = [...this.parts.conveyors.map((c) => trackPoint(this.track, c.model.userData.mid, 0, 0).pos), ...this.parts.decks.filter((d) => d.belt).map((d) => trackPoint(this.track, (d.s[0] + d.s[1]) / 2, d.lat, d.top).pos)];
+    const belt = near(belts, (p) => p, SND.conveyorRange);
+    if (belt) this.#loop('conveyor', 'conveyor_belt', { volume: SND.conveyorVolume, position: belt });
   }
 
   /** (?debug "Give 14 gears") Collects the next `n` gears not yet taken, as if ridden through. */
@@ -709,6 +755,10 @@ export class Ride {
     if (this.puffT <= 0 && dt > 0) {
       this.puffT = R.steam.idleEvery;
       for (const v of P.vents) this.#puff(v.at, 2, 0.6);
+      // (the nearest vent's soft idle puff: a quiet hiss from where it is)
+      const hp = this.horse.position;
+      const v0 = P.vents.reduce((a, v) => (!a || v.at.distanceTo(hp) < a.at.distanceTo(hp) ? v : a), null);
+      if (v0 && this.horse.mode === 'riding') this.sound?.play('steam_vent', { position: v0.at, volume: SND.ventIdleVolume });
       const tops = P.factory.userData.chimneys;
       if (tops.length) this.#puff(tops[Math.floor(Math.random() * tops.length)], 2, 0.3);
     }

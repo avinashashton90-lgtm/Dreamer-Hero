@@ -12,6 +12,7 @@ import { makeFloorMaterial } from './floor.js';
 import { RideWorld, Ride, loadRide } from './ride.js';
 import { trackPoint } from './rideModel.js';
 import { GearRewards, gearTiers } from './gearRewards.js';
+import { Part2Sound } from './sound.js';
 
 // Part 2 — Gearhaven (STORY.md): a chapter for levelManager.js with its own scene, floors and
 // loop; it borrows the shared systems (state machine, HUD, input, camera, cutscene player,
@@ -48,6 +49,7 @@ class Part2 {
     this.rewards = new GearRewards(); // (kept between sections; a new game resets them)
     this.banners = []; // gear-reward banners waiting to show (one after another)
     this.bannerT = 0;
+    this.sounds = new Part2Sound(this); // (Part 2's music, ambience and loops: sound.js)
   }
 
   async init() {
@@ -131,8 +133,12 @@ class Part2 {
     this.#applyRewards();
     hero.model.visible = horse.model.visible = true;
     this.soundscape && (this.soundscape.musicPhase = P2.music);
-    // (the talking blips come from where each speaker is: Tick's from Tick, AJ's from AJ)
-    if (this.soundscape) this.soundscape.speakerAt = (who) => (who === 'tick' ? this.tick.position : who === 'aj' ? this.hero.position : null);
+    // (the talking blips come from where each speaker is: Tick's from Tick, AJ's from AJ; Amy's
+    // voice in Part 2 is her cooler, hushed one)
+    if (this.soundscape) {
+      this.soundscape.speakerAt = (who) => (who === 'tick' ? this.tick.position : who === 'aj' ? this.hero.position : null);
+      this.soundscape.voices = { girl: 'amy2' };
+    }
     this.tweens.length = 0;
     this.tick.target = this.tick.lookAt = null;
     if (this.showcase) this.showcase.group.visible = false;
@@ -169,7 +175,9 @@ class Part2 {
     if (this.soundscape) {
       this.soundscape.musicPhase = null;
       this.soundscape.speakerAt = null;
+      this.soundscape.voices = null;
     }
+    this.sounds.stop();
     this.tweens.length = 0;
     this.at = null;
   }
@@ -303,7 +311,7 @@ class Part2 {
       { say: 'aj', text: L.clock },
       { call: () => this.#lookUp(false) },
       { camera: shot('tick') },
-      { say: 'tick', text: L.dreamClock },
+      { say: 'tick', text: L.dreamClock, cues: [{ at: 'slowing', call: () => this.sound?.play('clock_stop_warning') }] }, // (a slow, uneasy tone)
       { say: 'tick', text: L.stops },
       { say: 'tick', text: L.took },
       { camera: shot('aj') },
@@ -720,6 +728,7 @@ class Part2 {
         it.clip++;
         this.#playClip(it);
       }
+      if (dt > 0) this.sounds.robot(it, dt); // (its steps, swings, clanks and collapse)
     }
     const O = SC.orbit;
     S.angle += O.speed * realDt - (inp?.lookDX ?? 0) * (inp?.lookSensitivity ?? 0);
@@ -792,6 +801,7 @@ class Part2 {
     spinHorseKey(this.upgrade, live ? dt : 0);
     this.tick.update(live ? dt : 0, { position: hero.position, facing: hero.facing }); // (beside AJ, unless sent somewhere)
     this.#showBanners(paused ? 0 : realDt);
+    this.sounds.update(live ? dt : 0, live && (playing || this.at === 'arrival'));
     if (riding) this.ride.animate(live ? dt : 0);
     else this.#animate(live ? realDt : 0);
     if (this.at === 'robots') this.#updateShowcase(live ? dt : 0, live ? realDt : 0, inp);

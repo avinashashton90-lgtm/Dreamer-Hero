@@ -79,6 +79,14 @@ triangles): about 5% of the frame in software rendering. The counts were kept (5
 quads, 14 + 10 debris pieces); on a phone the adaptive pixel ratio still steps down if a frame
 rate drop lasts.
 
+Part 2 sounds and music (added later; Pixel 7 landscape, no audio files, so every sound is
+synthesized): the sound code (soundscape, Part 2's wiring, the AudioManager's loops / one-shots /
+music scheduling) takes 0.3–0.8 ms of the main thread per frame (2.4 ms at worst) in the arrival,
+the ride and the Robots test, against 83–233 ms frames in software rendering, so it can't cause a
+stutter. At most 5 one-shots at once in the ride (limit 24), 4–6 loops (the ambience, Tick's
+hum, the conveyor, the hooves). The ?debug audio panel's 157 buttons all play (112 synthesized at
+once, none dropped); no console errors, no failed requests.
+
 ## Not changed / notes
 
 - "GPU stall due to ReadPixels" warnings come only from the headless driver while taking

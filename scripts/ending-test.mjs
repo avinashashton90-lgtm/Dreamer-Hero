@@ -555,8 +555,8 @@ for (const at of ['second line, mid-typewriter', 'first line']) {
   check(pr.closeFrames > 10 && pr.closeGood === pr.closeFrames && pr.glowFrames === 0 && !girl.eyesGlowing,
     `"${PL2.thanks}": a close-up on her face (eyes centred ${pr.closeGood}/${pr.closeFrames}, ${pr.closeDist[0].toFixed(2)}–${pr.closeDist[1].toFixed(2)} from them); no glow on her anywhere in the scene (${pr.glowFrames} frames) — she looks normal`);
   check(pr.amyFrames > 60 && pr.amySeen === pr.amyFrames, `Amy is never hidden behind AJ or the horse (${pr.amySeen}/${pr.amyFrames} frames)`);
-  check(pr.opened && Math.abs(pr.portalSide - PO.side) < 0.6 && sound.counts.portal_open === 1 && sound.counts.portal_whoosh === 1 && story.portal.model.userData.gears.count === PO.gears.count,
-    `a portal opens in the air beside AJ (${pr.portalSide.toFixed(1)} to his side), gears flying in, a rumble and a whoosh`);
+  check(pr.opened && Math.abs(pr.portalSide - PO.side) < 0.6 && sound.counts.portal_open === 1 && sound.counts.portal_pull === 1 && sound.counts.gear_whoosh === PO.gearWhooshes && story.portal.model.userData.gears.count === PO.gears.count,
+    `a portal opens in the air beside AJ (${pr.portalSide.toFixed(1)} to his side), gears flying in, a rising shimmer, small gears whooshing past and a swirling pull`);
   check(pr.reach && pr.pulledTo < 1.6 && pr.minScale < 0.6 && pr.camToCore < PO.radius, `Amy reaches for him; AJ and the horse are pulled into the portal (${pr.pulledTo.toFixed(2)} from its core, shrinking to ${pr.minScale.toFixed(2)}); the camera flies on into its light (${pr.camToCore.toFixed(2)})`);
   check(!story.riderScale && Math.abs(horse.model.scale.x - scale0.horse) < 1e-6 && Math.abs(hero.model.scale.x - scale0.hero) < 1e-6 && story.part1Done, 'Part 1 is over (no Part 2 here: the ending screens); AJ and the horse back to full size');
   check(tEnd >= 0 && story.phase === 'done' && stats.time > rn.tt && stats.gems >= rn.gemsGot && stats.deaths === 0 && stats.gemsTotal === gems.gems.filter((g) => g.zone !== 'drop').length,

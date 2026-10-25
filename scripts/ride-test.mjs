@@ -40,6 +40,10 @@ const check = (ok, msg) => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${msg}`); if (
 const world = new World(); await world.init();
 const hero = new Hero(world.scene, world, heroAssets); await hero.init();
 const sound = new Sound();
+// (what each sound was asked to play with: the gear streak's pitch, positions)
+const played = [];
+const play0 = sound.play.bind(sound);
+sound.play = (name, detail = {}) => { played.push({ name, ...detail }); return play0(name, detail); };
 const horse = new Horse(world.scene, world, heroAssets); horse.sound = sound; await horse.init();
 const cam = new FollowCamera(20 / 9, world);
 const state = new GameState(STATES.PLAY);
@@ -53,10 +57,11 @@ let held = { moveX: 0, moveY: 0, jumpPressed: false, gallop: false };
 const input = { enabled: true, setEnabled(on) { this.enabled = on; }, read: () => ({ ...held, lookDX: 0, lookDY: 0, lookSensitivity: 0 }),
   setCombatButtons(m) { this.mounted = m; }, setMountButton() {}, setDismountButton() {}, setGallopButton(on) { this.gallopShown = on; } };
 const lives = new Lives();
+const soundscape = { musicPhase: null };
 const part1 = { id: 'part1', scene: world.scene, enter: () => { for (const o of [hero.model, hero.shadow, horse.model, horse.shadow]) world.scene.add(o); }, exit() {} };
 const levels = new LevelManager({
   part1: async () => part1,
-  part2: async () => (await import('../src/part2/index.js')).createPart2({ state, STATES, ui, input, cam, cinematic, sound, soundscape: { musicPhase: null }, hero, horse, abilities: null, lives, assets: heroAssets }),
+  part2: async () => (await import('../src/part2/index.js')).createPart2({ state, STATES, ui, input, cam, cinematic, sound, soundscape, hero, horse, abilities: null, lives, assets: heroAssets }),
 });
 levels.chapters.set('part1', part1);
 levels.current = part1; levels.id = 'part1';
@@ -156,6 +161,21 @@ const place = (s, lat = 0, { speed = CONFIG.horse.maxSpeed, y = 0, vy = 0 } = {}
   const sparks = ride.sparkCount;
   check(onMiddle && speed >= R.grind.speed - 0.01 && Math.abs(y - a[1].h) < 0.05 && sparks > 5 && (sound.counts.rail_land ?? 0) > land0 && horse.scripted,
     `riding up the middle rail's ramp: it grinds along at ${speed.toFixed(1)} (faster than the street's ${CONFIG.horse.maxSpeed}), ${y.toFixed(2)} up on the rail, ${sparks} sparks, a clank`);
+  // The grind's steel scrape: louder and higher the faster it grinds (the loop's volume and pitch).
+  {
+    const calls = [];
+    sound.manager = { setLoop: (key, name, o) => name === 'rail_grind' && calls.push(o), playSound() {} };
+    ride.grind.speed = R.grind.speed;
+    await frame();
+    const slow = calls.at(-1);
+    ride.grind.speed = R.grind.maxSpeed;
+    await frame();
+    const fast = calls.at(-1);
+    sound.manager = null;
+    ride.grind.speed = R.grind.speed;
+    check(slow && fast && fast.volume > slow.volume && fast.pitch > slow.pitch && slow.position,
+      `the grind's scrape rises with speed: volume ${slow?.volume.toFixed(2)} → ${fast?.volume.toFixed(2)}, pitch ${slow?.pitch.toFixed(2)} → ${fast?.pitch.toFixed(2)} (from the horse)`);
+  }
   held.moveX = 1; await frame(); held.moveX = 0;
   await run(R.grind.switchTime + 0.1);
   const switched = ride.grinding && ride.grind.rail === a[2] && Math.abs(near().lateral - a[2].lat) < 0.05;
@@ -366,9 +386,11 @@ const place = (s, lat = 0, { speed = CONFIG.horse.maxSpeed, y = 0, vy = 0 } = {}
 {
   await levels.load('part2', { start: 'ride' });
   check(ride.count === 0 && ride.gears.every((g) => !g.taken) && p2.rideParts.flags.every((f) => f.userData.flag.material.color.getHex() === CONFIG.checkpoints.flagColor), 'a fresh ride: gears back, flags down');
-  const h0 = lives.hearts, pick0 = sound.counts.gear_pickup ?? 0;
+  const h0 = lives.hearts, pick0 = sound.counts.gear_collect ?? 0;
   const reached = new Set();
   let t = 0, stuck = 0, maxLat = 0, sparkleMax = 0;
+  const loopsSeen = new Set(), phases = new Set(), p0 = played.length;
+  let grindChase = 0, grindFrames = 0, ambRide = 0;
   const reachedGrinds = ride.stats.grinds;
   // The bot: forward (galloping on the straights), steering by heading toward its line — onto
   // the first vent (→ the deck), the middle rail, the vent under the upper rail, the last vent,
@@ -386,14 +408,29 @@ const place = (s, lat = 0, { speed = CONFIG.horse.maxSpeed, y = 0, vy = 0 } = {}
     if (horse.lastCheckpoint > 0) reached.add(horse.lastCheckpoint);
     if (n) maxLat = Math.max(maxLat, Math.abs(n.lateral));
     sparkleMax = Math.max(sparkleMax, ride.sparkleCount);
+    for (const n of [...ride.loopsNow, ...p2.sounds.loopsNow]) loopsSeen.add(n);
+    phases.add(soundscape.musicPhase);
+    if (ride.grinding) { grindFrames++; if (soundscape.musicPhase === 'gearhavenChase') grindChase++; }
+    if (p2.sounds.loopsNow.has('factory_hum')) ambRide++;
     if (horse.speed < 1 && !ride.grinding && p2.at === 'ride') stuck += dt; else stuck = 0;
     if (stuck > 3) break;
   }
   check(p2.at === R.quest && t < 120 && stuck <= 3, `a bot rides the whole level in ${t.toFixed(1)} s and reaches the Fire Element's door (never stuck)`);
   check(reached.size === R.checkpoints.length - 1 && p2.rideParts.flags.every((f) => f.userData.flag.material.color.getHex() === CONFIG.checkpoints.reachedColor) && ui.toasts.filter((x) => x === DIALOGUE.checkpoint).length >= R.checkpoints.length - 1,
     `every checkpoint reached (${reached.size}), its flag green, a toast`);
-  check(ride.count > 5 && sparkleMax >= R.gears.sparkle.count && (sound.counts.gear_pickup ?? 0) - pick0 === ride.count && ride.stats.grinds > reachedGrinds && lives.hearts >= h0 && maxLat <= R.wall.offset,
+  check(ride.count > 5 && sparkleMax >= R.gears.sparkle.count && (sound.counts.gear_collect ?? 0) - pick0 === ride.count && ride.stats.grinds > reachedGrinds && lives.hearts >= h0 && maxLat <= R.wall.offset,
     `on the way: ${ride.count} gears collected (a chime each, ${sparkleMax} sparkles at most), ${ride.stats.grinds - reachedGrinds} grinds, ${ride.stats.launches} launches, ${ride.stats.hits} hits (hammers ${ride.stats.hits - ride.stats.sawHits}, saws ${ride.stats.sawHits}) — hearts never lost, always inside the walls`);
+  {
+    const names = played.slice(p0).map((x) => x.name);
+    const has = (n) => names.includes(n);
+    const gearPitches = played.slice(p0).filter((x) => x.name === 'gear_collect').map((x) => x.pitch);
+    const rose = gearPitches.some((v, i) => i > 0 && v > gearPitches[i - 1]);
+    const positioned = played.slice(p0).filter((x) => ['hammer_swing', 'hammer_hit', 'saw_hit', 'steam_vent', 'gear_collect'].includes(x.name)).every((x) => x.position);
+    check(['rail_land', 'rail_leave', 'steam_vent', 'steam_launch', 'hammer_swing', 'gear_collect', 'gear_spin_pickup'].every(has) && rose && positioned,
+      `the ride's sounds on the way: rails (land, leave), steam (vent + launch), hammers swinging past, gears (a ting each, rising on a streak: ${gearPitches.slice(0, 6).map((v) => v.toFixed(2)).join(' → ')}…, a spin-up), all from where they happen`);
+    check(['rail_grind', 'saw_spin', 'conveyor_belt', 'factory_hum', 'gear_turn', 'clock_tick', 'tick_hover'].every((n) => loopsSeen.has(n)) && grindFrames > 0 && grindChase === grindFrames && phases.has('gearhaven') && phases.has('gearhavenChase') && ambRide > 100,
+      `its loops: the rail grind, the nearest saw and conveyor, the ride's ambience (factory hum, gears, a soft tick-tock), Tick's hover; the music Gearhaven's theme, the faster one while grinding (${grindChase}/${grindFrames} frames)`);
+  }
   check(p2.at === 'fire' && ui.toasts.includes(D2.comingSoon(D2.levelNames.fire)) && !p2.rideParts.root.visible && p2.gearhaven.visible && horse.world === p2.world && hero.world === p2.world && !hero.riding && !ui.gears.show,
     `the Fire Element's door → its stub ("${D2.comingSoon(D2.levelNames.fire)}"): the ride put away, AJ on foot, the courtyard's world back`);
 }
@@ -431,6 +468,18 @@ const place = (s, lat = 0, { speed = CONFIG.horse.maxSpeed, y = 0, vy = 0 } = {}
   horse.stumble = 0;
   check(ui.banners.at(-1) === D2.gearReward.banner(D2.gearReward.armour) && plates.every((p) => p.visible) && Math.abs(stumble - GRW.armourStumble) < 1e-9 && Math.abs(horse.damageTaken(10) - 10 * GRW.armourDamage) < 1e-9 && (sound.counts.gear_reward ?? 0) === chime0 + 2,
     `28 gears: "${ui.banners.at(-1)}" — the brass plates on the horse, a 1 s stumble now ${stumble.toFixed(2)} s, 10 damage now ${horse.damageTaken(10).toFixed(1)}`);
+  // The armoured horse: its plates clink at a trot; a stagger sounds.
+  {
+    place(30, 0, { speed: 14 });
+    held = { moveX: 0, moveY: 0.8, jumpPressed: false, gallop: false };
+    let clank = 0;
+    for (let i = 0; i < 30; i++) { await frame(); if (p2.sounds.loopsNow.has('horse_clank')) clank++; }
+    const st0 = sound.counts.horse_stumble ?? 0;
+    horse.stumbleFor(0.5);
+    await frame();
+    held = { moveX: 0, moveY: 0, jumpPressed: false, gallop: false };
+    check(clank > 20 && (sound.counts.horse_stumble ?? 0) > st0, `the armoured horse's brass plates clink while it trots (${clank}/30 frames); a stagger: horse_stumble`);
+  }
   ride.giveGears(20);
   await run(GRW.bannerMs / 1000 + 0.2);
   check(ride.count === ride.total && ui.banners.at(-1) === D2.gearReward.banner(D2.gearReward.charge) && glow.visible && p2.rewards.bonusCharges(R.quest) === GRW.charges && ui.gears.tiers.every((t) => t.reached) && (sound.counts.gear_reward ?? 0) === chime0 + 3,

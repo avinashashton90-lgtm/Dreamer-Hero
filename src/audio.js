@@ -412,6 +412,8 @@ export class AudioManager {
       L.out.gain.setTargetAtTime(gain, now, 0.08);
       if (L.out.panner) L.out.panner.pan.setTargetAtTime(pan, now, 0.08);
       if (L.src) L.src.playbackRate.setTargetAtTime(pitch * (L.pulse ? rate : 1), now, 0.1);
+      else if (L.drone?.pitch && pitch !== L.pitchNow) L.drone.pitch(pitch, now); // (a drone's pitch, live: a rail grind's speed)
+      L.pitchNow = pitch;
     } catch (e) {
       console.warn('[audio] loop', name, e);
     }
@@ -528,7 +530,20 @@ export class AudioManager {
       const out = this.#route('voices', 1, this.#voicePan(position));
       this.lastBlipPan = out.panner?.pan.value ?? 0; // (tests)
       const t = this.ctx.currentTime;
-      this.active.push({ eff: c.volume, out, end: t + voiceBlip(this.kit, out, t, c) + 0.1 });
+      // A character with its own blip sound (Tick: tick_beep — its file if there is one, else its recipe).
+      const buf = c.sound ? this.#buffer(c.sound) : null;
+      let end;
+      if (buf) {
+        const src = this.ctx.createBufferSource();
+        src.buffer = buf;
+        src.playbackRate.value = 1 + (Math.random() * 2 - 1) * c.jitter;
+        src.connect(out);
+        src.start(t);
+        end = t + buf.duration + 0.05;
+      } else if (c.sound && RECIPES[c.sound]) end = t + RECIPES[c.sound](this.kit, out, t, 1 + (Math.random() * 2 - 1) * c.jitter) + 0.1;
+      else end = t + voiceBlip(this.kit, out, t, c) + 0.1;
+      this.lastBlipSound = c.sound ?? null; // (tests)
+      this.active.push({ eff: c.volume, out, end });
     } catch {
       /* (never let a blip break the cutscene) */
     }

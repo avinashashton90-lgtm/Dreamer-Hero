@@ -50,6 +50,7 @@ export class Soundscape {
     this.clock = 0; // seconds of sound time (for the horse's call gap)
     this.musicPhase = null; // a chapter's own music section (Part 2: CONFIG.part2.music), set by its chapter
     this.speakerAt = null; // (speaker key) → where they stand, or null: their voice / blips pan from there (set by a chapter: Part 2)
+    this.voices = null; // { speaker key → voice character } a chapter's own voices (Part 2: Amy's cooler amy2)
     this.lastCall = null; // the horse's last call (never the same twice in a row)
     this.lastCallAt = -Infinity;
     this.gallopCallT = this.#nextCall(); // seconds of galloping to the next call
@@ -162,7 +163,7 @@ export class Soundscape {
 
   /** A cutscene line starts (cinematic.onLine); `voice`: another voice of the speaker (AJ weak: ajWeak). */
   onLine(speaker, text, voice) {
-    const id = AU.voice.speakers[speaker] ?? speaker;
+    const id = this.voices?.[speaker] ?? AU.voice.speakers[speaker] ?? speaker;
     this.blipCount = 0;
     this.audio.playVoice(id, LINE_IDS.get(text) ?? 'line', this.speakerAt?.(speaker) ?? null); // (the file is the speaker's own: voice/aj_…)
   }
@@ -170,7 +171,7 @@ export class Soundscape {
   /** The typewriter showed one more letter (cinematic.onType): a blip every few letters. */
   onType(speaker, ch, voice) {
     if (!/[\p{L}\p{N}]/u.test(ch)) return;
-    const id = voice ?? AU.voice.speakers[speaker] ?? speaker;
+    const id = voice ?? this.voices?.[speaker] ?? AU.voice.speakers[speaker] ?? speaker;
     if (this.blipCount++ % (AU.voice.characters[id]?.charsPerBlip ?? AU.voice.charsPerBlip)) return;
     this.audio.voiceBlip(id, this.speakerAt?.(speaker) ?? null); // (from where the speaker stands, if known)
   }
@@ -219,9 +220,10 @@ export class Soundscape {
     const st = g.state.current;
     if (st === S.INTRO) return 'title';
     if (st === S.GAMEOVER) return 'gameover';
-    if (st === S.ENDING) return 'ending';
-    if (this.musicPhase) return this.musicPhase; // (a chapter's own music: Part 2's Gearhaven — levelManager)
+    if (st === S.ENDING) return this.musicPhase === 'part2End' ? 'part2End' : 'ending'; // (Part 2's own ending music)
+    if (this.musicPhase) return this.musicPhase; // (a chapter's own music: Part 2's Gearhaven — levelManager, part2/sound.js)
     const story = g.story;
+    if (story.portalStarted && !story.portalDone) return 'part2Portal'; // (the end of Part 1: the portal scene)
     if (story.gateStarted) return 'gate';
     if (story.phase === 'pit') return 'pit';
     if (story.phase === 'cutscene') return 'girlScene';

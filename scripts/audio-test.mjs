@@ -119,6 +119,50 @@ class MockCtx {
   check(n.peaks === 1 && s.peaks === 2 && s.top > n.top, `the neigh sweeps up then down (1 peak, ${n.top} Hz); the scream is higher with 2 peaks (${s.top} Hz)`);
 }
 
+// 2c) Part 2: every Gearhaven / portal / robot / Amy / Fire-level name, soft and pleasant (low
+//     peaks, the rail grind's pitch following the horse's speed), its music sections, no drum kit
+//     in Gearhaven's tracks (soft ticks and tocks only), Tick's chirps and Amy's hushed blips.
+const PART2_SOUNDS = ['portal_open', 'portal_pull', 'gear_whoosh', 'clock_tick', 'gear_turn', 'steam_hiss', 'factory_hum', 'rail_land', 'rail_grind', 'rail_leave',
+  'steam_vent', 'steam_launch', 'hammer_swing', 'hammer_hit', 'saw_spin', 'conveyor_belt', 'gear_collect', 'gear_spin_pickup', 'horse_clank', 'horse_stumble',
+  'tick_beep', 'tick_hover', 'robot_walk', 'robot_swing', 'robot_hit', 'robot_die', 'robot_alert', 'boss_mech_step', 'boss_mech_roar', 'boss_mech_death',
+  'element_collect', 'element_power_up', 'amy_magic_cast', 'amy_hit_reflect', 'amy_eyes_glow', 'amy_gasp', 'clock_chime', 'clock_stop_warning',
+  'chest_open', 'chest_locked', 'cog_key_collect', 'elixir_drink', 'fire_blast_cast', 'fire_blast_hit', 'burn_loop', 'furnace_guardian_stomp',
+  'furnace_guardian_steam_burst', 'furnace_guardian_charge', 'furnace_guardian_roar', 'steam_barrier_close', 'steam_barrier_open', 'element_orb_hum'];
+const PART2_MUSIC = ['part2_portal', 'gearhaven', 'gearhaven_chase', 'element_fire', 'element_lightning', 'element_steam', 'element_magnet', 'element_time', 'amy_theme', 'final_fight', 'part2_end'];
+{
+  const missing = PART2_SOUNDS.filter((n) => !SOUNDS[n] || !RECIPES[n]);
+  check(!missing.length, `all ${PART2_SOUNDS.length} Part 2 sound names in the catalog with a fallback${missing.length ? ` (missing ${missing})` : ''}`);
+  const loops = ['clock_tick', 'gear_turn', 'steam_hiss', 'factory_hum', 'rail_grind', 'saw_spin', 'conveyor_belt', 'horse_clank', 'tick_hover', 'burn_loop', 'element_orb_hum'];
+  check(loops.every((n) => SOUNDS[n].loop && (AU.loops[n] || DRONES[n])), `Part 2's loops (${loops.length}) are pulse loops or drones`);
+  const ctx = new MockCtx();
+  const kit = new SynthKit(ctx);
+  const out = ctx.createGain();
+  const peak = (name) => {
+    let top = 0;
+    const orig = kit.env.bind(kit);
+    kit.env = (o, t, a, d, v) => { top = Math.max(top, v); return orig(o, t, a, d, v); };
+    RECIPES[name](kit, out, 0, 1);
+    kit.env = orig;
+    return top;
+  };
+  const loud = PART2_SOUNDS.map((n) => [n, peak(n)]).filter(([, v]) => v > 0.4);
+  const ambience = ['clock_tick', 'horse_clank', 'robot_walk', 'boss_mech_step', 'tick_beep'].map((n) => [n, peak(n)]);
+  check(!loud.length && ambience.every(([, v]) => v <= 0.3), `soft: no Part 2 sound peaks above 0.4${loud.length ? ` (${loud.map(([n, v]) => `${n} ${v}`)})` : ''}; the repeating ones softer still (${ambience.map(([n, v]) => `${n} ${v.toFixed(2)}`).join(', ')})`);
+  const g = DRONES.rail_grind(kit, out, 1);
+  const pitched = typeof g.pitch === 'function' && (g.pitch(1.2, 0), true);
+  g.stop(0);
+  check(pitched && ['gear_turn', 'factory_hum', 'saw_spin', 'conveyor_belt', 'tick_hover', 'element_orb_hum'].every((n) => typeof DRONES[n](kit, out, 1).pitch === 'function'),
+    'the rail grind (and the hums) can follow the horse\'s speed in pitch');
+  const kitDrums = PART2_MUSIC.filter((t) => [TRACKS[t], ...Object.values(TRACKS[t]?.layers ?? {})].some((pt) => pt?.drums && ['kick', 'snare', 'hat', 'tom'].some((d) => pt.drums[d])));
+  const tracks = Object.values(MUSIC).map((m) => m.track);
+  check(PART2_MUSIC.every((t) => TRACKS[t] && tracks.includes(t)) && !kitDrums.length && TRACKS.element_fire.layers?.boss,
+    `Part 2's music sections (${PART2_MUSIC.join(', ')}) — no drum kit in any (soft ticks / tocks / shakers)${kitDrums.length ? ` (drums: ${kitDrums})` : ''}; the Fire level's theme builds in its boss fight (layer)`);
+  check(AU.music.phases.stub === 'gearhaven' && ['part2Portal', 'gearhaven', 'gearhavenChase', 'amyTheme', 'finalFight', 'part2End'].every((k) => AU.music.phases[k]), 'the story phases map to them (a stub level reuses Gearhaven\'s theme)');
+  const V = AU.voice.characters;
+  check(V.tick.sound === 'tick_beep' && V.tick.charsPerBlip === 1 && V.tick.freq > V.aj.freq && V.amy2.freq < V.amy.freq && V.amy2.charsPerBlip > (V.amy.charsPerBlip ?? AU.voice.charsPerBlip) && V.amy2.volume < V.amy.volume && JSON.stringify(V.aj) === JSON.stringify(CONFIG.audio.voice.characters.aj),
+    `voices: Tick a quick high chirp per letter (tick_beep), Amy in Part 2 lower, slower and hushed (${V.amy2.freq} Hz every ${V.amy2.charsPerBlip} letters vs ${V.amy.freq} / ${V.amy.charsPerBlip ?? AU.voice.charsPerBlip}), AJ unchanged`);
+}
+
 // 3) Music: every section schedules notes; crossfades retire the old one; layers fade in / out.
 {
   const ctx = new MockCtx();
@@ -236,6 +280,7 @@ function MU() { return CONFIG.audio.music; }
   audio.voiceBlip('tick', { x: 6, y: 0, z: 0 });
   const tickPan = audio.lastBlipPan;
   audio.voiceBlip('tick', { x: -6, y: 0, z: 0 });
+  check(audio.lastBlipSound === 'tick_beep', 'Tick\'s blips are his tick_beep chirps (its file if there is one)');
   check(tickPan > 0.1 && audio.lastBlipPan < -0.1, `a speaker's blips come from where they stand (Tick on the right pans ${tickPan.toFixed(2)}, on the left ${audio.lastBlipPan.toFixed(2)})`);
   listeners['doc:visibilitychange'].forEach((fn) => { document.hidden = true; fn(); });
   check(ctx.state === 'suspended', 'a hidden tab suspends the audio');

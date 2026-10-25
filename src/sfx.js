@@ -397,38 +397,83 @@ export const RECIPES = {
     k.noise(o, t, { filter: 'bandpass', f: 400, f2: 900, q: 6, a: 0.3, d: 1.0, v: 0.25 });
     return 1.3;
   },
+  // --- Part 2: the portal ---
   portal_open: (k, o, t, p) => {
-    k.noise(o, t, { filter: 'lowpass', f: 160 * p, q: 1.4, a: 0.2, d: 1.4, v: 0.6 });
-    k.tone(o, t, { f: 40 * p, f2: 55 * p, a: 0.2, d: 1.4, v: 0.35 });
-    [392, 523, 659, 784].forEach((f, i) => k.tone(o, t + 0.25 + i * 0.14, { type: 'triangle', f: f * p, f2: f * 1.5 * p, a: 0.05, d: 0.8, v: 0.05 }));
+    k.noise(o, t, { filter: 'lowpass', f: 160 * p, q: 1.4, a: 0.2, d: 1.4, v: 0.36 }); // (a soft low rumble)
+    k.noise(o, t + 0.05, { filter: 'bandpass', f: 400 * p, f2: 3000 * p, q: 1, a: 0.5, d: 0.7, v: 0.22 }); // (the whoosh)
+    [392, 523, 659, 784, 1046].forEach((f, i) => k.tone(o, t + 0.15 + i * 0.12, { type: 'triangle', f: f * p, f2: f * 1.5 * p, a: 0.05, d: 0.8, v: 0.045 })); // (the rising shimmer)
     return 1.8;
+  },
+  portal_pull: (k, o, t, p) => {
+    // (a swirling suck: band-passed noise sweeping up with a slow wobble, a low rising tone under it)
+    for (let i = 0; i < 6; i++) k.noise(o, t + i * 0.3, { filter: 'bandpass', f: (300 + i * 260) * p, f2: (700 + i * 380) * p, q: 2.2, a: 0.15, d: 0.4, v: 0.13 + i * 0.015 });
+    k.tone(o, t, { type: 'sine', f: 90 * p, f2: 420 * p, a: 0.8, d: 1.5, v: 0.08 });
+    return 2.4;
+  },
+  gear_whoosh: (k, o, t, p) => {
+    k.noise(o, t, { filter: 'bandpass', f: 1400 * p, f2: 3600 * p, q: 1.5, a: 0.08, d: 0.22, v: 0.12 });
+    k.tone(o, t + 0.12, { type: 'triangle', f: 2200 * p, d: 0.06, v: 0.025 }); // (a tiny tick as it flies by)
+    return 0.32;
   },
   portal_whoosh: (k, o, t, p) => {
     k.noise(o, t, { filter: 'bandpass', f: 300 * p, f2: 3200 * p, q: 1.2, a: 1.2, d: 1.2, v: 0.35 });
     k.tone(o, t, { type: 'sine', f: 110 * p, f2: 660 * p, a: 1.0, d: 1.2, v: 0.08 });
     return 2.4;
   },
-  steam_hiss: (k, o, t, p) => k.noise(o, t, { filter: 'highpass', f: 2600 * p, a: 0.06, d: 0.7, v: 0.12 }) - t,
-  clock_chime: (k, o, t, p) => {
-    [98, 196, 293.7].forEach((f, i) => k.tone(o, t, { type: 'sine', f: f * p, a: 0.01, d: 2.6 - i * 0.5, v: 0.18 / (i + 1) }));
-    return 2.7;
+  // --- Gearhaven ambience (the loops are drones: DRONES below; these are one soft hit each) ---
+  // A slow two-note tick-tock: two short, soft, pitched wooden clicks (a little tone, no thump).
+  clock_tick: (k, o, t, p) => {
+    k.tone(o, t, { type: 'sine', f: 2350 * p, d: 0.035, v: 0.05 });
+    k.noise(o, t, { filter: 'bandpass', f: 3200 * p, q: 6, d: 0.02, v: 0.05 });
+    k.tone(o, t + 0.5, { type: 'sine', f: 1760 * p, d: 0.04, v: 0.045 });
+    k.noise(o, t + 0.5, { filter: 'bandpass', f: 2400 * p, q: 6, d: 0.02, v: 0.045 });
+    return 0.6;
   },
-  rail_grind: (k, o, t, p) => k.noise(o, t, { filter: 'bandpass', f: 2600 * p, q: 4, a: 0.05, d: 0.6, v: 0.18 }) - t, // (a drone when looped)
+  gear_turn: (k, o, t, p) => k.noise(o, t, { filter: 'lowpass', f: 220 * p, q: 2, a: 0.3, d: 1.2, v: 0.1 }) - t,
+  steam_hiss: (k, o, t, p) => k.noise(o, t, { filter: 'highpass', f: 2600 * p, a: 0.06, d: 0.7, v: 0.1 }) - t,
+  factory_hum: (k, o, t, p) => k.tone(o, t, { type: 'triangle', f: 55 * p, a: 0.4, d: 1.4, v: 0.06 }) - t,
+  clock_chime: (k, o, t, p) => {
+    [98, 196, 293.7, 392].forEach((f, i) => k.tone(o, t, { type: 'sine', f: f * p, a: 0.01, d: 2.8 - i * 0.5, v: 0.18 / (i + 1) }));
+    k.tone(o, t, { type: 'triangle', f: 196 * 2.76 * p, a: 0.01, d: 1.2, v: 0.02 }); // (the bell's bright partial)
+    return 2.9;
+  },
+  clock_stop_warning: (k, o, t, p) => {
+    // (two slow, close tones beating against each other, sinking a little: unsettling, soft)
+    k.tone(o, t, { type: 'sine', f: 220 * p, f2: 196 * p, a: 0.4, d: 1.8, v: 0.07 });
+    k.tone(o, t, { type: 'sine', f: 233 * p, f2: 207 * p, a: 0.4, d: 1.8, v: 0.06 });
+    k.tone(o, t + 0.2, { type: 'triangle', f: 110 * p, f2: 98 * p, a: 0.5, d: 1.6, v: 0.04 });
+    return 2.3;
+  },
+  // --- Gearhaven ride ---
+  rail_grind: (k, o, t, p) => k.noise(o, t, { filter: 'bandpass', f: 2600 * p, q: 4, a: 0.05, d: 0.6, v: 0.16 }) - t, // (a drone when looped)
   rail_land: (k, o, t, p) => {
-    k.tone(o, t, { type: 'square', f: 520 * p, f2: 380 * p, d: 0.12, v: 0.08 });
-    k.tone(o, t, { type: 'triangle', f: 1240 * p, d: 0.25, v: 0.06 });
-    k.noise(o, t, { filter: 'bandpass', f: 3000 * p, q: 2, d: 0.12, v: 0.12 });
+    // (a metallic clink: two bright partials, a touch of scrape)
+    k.tone(o, t, { type: 'triangle', f: 1480 * p, d: 0.22, v: 0.07 });
+    k.tone(o, t, { type: 'sine', f: 2210 * p, d: 0.14, v: 0.04 });
+    k.noise(o, t, { filter: 'bandpass', f: 3400 * p, q: 3, d: 0.06, v: 0.08 });
     return 0.3;
   },
+  rail_leave: (k, o, t, p) => {
+    k.noise(o, t, { filter: 'bandpass', f: 3000 * p, f2: 1600 * p, q: 3, d: 0.18, v: 0.09 });
+    k.tone(o, t, { type: 'triangle', f: 1320 * p, f2: 1180 * p, d: 0.3, v: 0.04 });
+    return 0.35;
+  },
+  steam_vent: (k, o, t, p) => {
+    k.noise(o, t, { filter: 'lowpass', f: 700 * p, f2: 300, a: 0.01, d: 0.12, v: 0.16 }); // (the puff)
+    k.noise(o, t + 0.03, { filter: 'highpass', f: 2800 * p, a: 0.05, d: 0.5, v: 0.1 }); // (the hiss)
+    return 0.6;
+  },
   steam_launch: (k, o, t, p) => {
-    k.noise(o, t, { filter: 'highpass', f: 1800 * p, a: 0.02, d: 0.5, v: 0.22 });
-    k.noise(o, t, { filter: 'bandpass', f: 400 * p, f2: 2400 * p, q: 1.2, a: 0.08, d: 0.6, v: 0.25 });
+    k.noise(o, t, { filter: 'bandpass', f: 400 * p, f2: 2600 * p, q: 1.2, a: 0.08, d: 0.6, v: 0.24 });
+    k.tone(o, t, { type: 'sine', f: 180 * p, f2: 520 * p, a: 0.1, d: 0.5, v: 0.05 });
     return 0.7;
   },
+  hammer_swing: (k, o, t, p) => k.noise(o, t, { filter: 'bandpass', f: 300 * p, f2: 900 * p, q: 1.4, a: 0.12, d: 0.3, v: 0.18 }) - t,
   hammer_hit: (k, o, t, p) => {
-    k.tone(o, t, { f: 90 * p, f2: 50, d: 0.4, v: 0.5 });
-    k.tone(o, t, { type: 'triangle', f: 740 * p, d: 0.5, v: 0.08 });
-    k.noise(o, t, { filter: 'lowpass', f: 1800, f2: 200, d: 0.25, v: 0.35 });
+    // (a metal clang: inharmonic ringing partials over a short dull knock, no drum thump)
+    [[523, 0.09], [1219, 0.06], [1874, 0.035], [2690, 0.02]].forEach(([f, v], i) => k.tone(o, t, { type: 'triangle', f: f * p, d: 0.7 - i * 0.12, v }));
+    k.tone(o, t, { f: 150 * p, f2: 110, a: 0.006, d: 0.18, v: 0.16 });
+    k.noise(o, t, { filter: 'bandpass', f: 2400, f2: 700, q: 1.5, d: 0.12, v: 0.2 });
     return 0.6;
   },
   saw_hit: (k, o, t, p) => {
@@ -437,10 +482,19 @@ export const RECIPES = {
     k.tone(o, t, { f: 110 * p, f2: 70, d: 0.2, v: 0.25 });
     return 0.45;
   },
-  gear_pickup: (k, o, t, p) => {
-    k.tone(o, t, { type: 'triangle', f: 1320 * p, d: 0.12, v: 0.08 });
-    k.tone(o, t + 0.06, { type: 'triangle', f: 1760 * p, d: 0.18, v: 0.07 });
+  saw_spin: (k, o, t, p) => k.tone(o, t, { type: 'sawtooth', f: 900 * p, d: 0.3, v: 0.02 }) - t, // (a drone when looped)
+  conveyor_belt: (k, o, t, p) => k.noise(o, t, { filter: 'lowpass', f: 320 * p, a: 0.1, d: 0.6, v: 0.08 }) - t, // (a drone when looped)
+  gear_collect: (k, o, t, p) => {
+    // (a bright metallic ting with a tiny sparkle; `p` rises on a streak)
+    k.tone(o, t, { type: 'triangle', f: 1760 * p, d: 0.22, v: 0.08 });
+    k.tone(o, t, { type: 'sine', f: 2640 * p, d: 0.12, v: 0.035 });
+    [3520, 4186].forEach((f, i) => k.tone(o, t + 0.05 + i * 0.04, { type: 'sine', f: f * p, d: 0.06, v: 0.015 }));
     return 0.3;
+  },
+  gear_spin_pickup: (k, o, t, p) => {
+    k.tone(o, t, { type: 'triangle', f: 600 * p, f2: 1500 * p, a: 0.02, d: 0.16, v: 0.035 });
+    k.noise(o, t, { filter: 'bandpass', f: 2000 * p, f2: 4000 * p, q: 3, d: 0.15, v: 0.04 });
+    return 0.2;
   },
   gear_reward: (k, o, t, p) => {
     // (a short rising arpeggio of bright triangle bells over a soft low ring)
@@ -448,6 +502,165 @@ export const RECIPES = {
     k.tone(o, t, { f: 523 * p, d: 0.6, v: 0.05 });
     return 0.75;
   },
+  horse_clank: (k, o, t, p) => {
+    // (gentle metal clinks of the brass plates: two light, slightly different tings, soft)
+    k.tone(o, t, { type: 'triangle', f: (1900 + Math.random() * 300) * p, d: 0.08, v: 0.03 });
+    k.tone(o, t + 0.05 + Math.random() * 0.03, { type: 'triangle', f: (2500 + Math.random() * 300) * p, d: 0.06, v: 0.02 });
+    return 0.15;
+  },
+  horse_stumble: (k, o, t, p) => {
+    k.noise(o, t, { filter: 'lowpass', f: 900 * p, f2: 250, d: 0.14, v: 0.3 });
+    k.tone(o, t + 0.06, { type: 'triangle', f: 1600 * p, d: 0.1, v: 0.03 });
+    k.tone(o, t + 0.11, { type: 'triangle', f: 2100 * p, d: 0.08, v: 0.025 });
+    return 0.25;
+  },
+  tick_beep: (k, o, t, p) => {
+    // (a cute short chirp: a quick upward blip)
+    const f = (1350 + Math.random() * 350) * p;
+    k.tone(o, t, { type: 'square', f, f2: f * 1.25, a: 0.004, d: 0.045, v: 0.04 });
+    return 0.06;
+  },
+  tick_hover: (k, o, t, p) => k.tone(o, t, { type: 'sawtooth', f: 160 * p, a: 0.1, d: 0.4, v: 0.015 }) - t, // (a drone when looped)
+  // --- Robots ---
+  robot_walk: (k, o, t, p) => {
+    k.noise(o, t, { filter: 'lowpass', f: 500 * p, f2: 180, a: 0.008, d: 0.12, v: 0.2 });
+    k.tone(o, t, { type: 'triangle', f: 640 * p, d: 0.08, v: 0.025 });
+    return 0.16;
+  },
+  robot_swing: (k, o, t, p) => {
+    k.noise(o, t, { filter: 'bandpass', f: 700 * p, f2: 2200 * p, q: 1.6, a: 0.04, d: 0.2, v: 0.16 });
+    k.tone(o, t + 0.12, { type: 'triangle', f: 1400 * p, d: 0.12, v: 0.025 });
+    return 0.3;
+  },
+  robot_hit: (k, o, t, p) => {
+    k.tone(o, t, { type: 'triangle', f: 420 * p, f2: 300 * p, d: 0.25, v: 0.09 });
+    k.tone(o, t, { type: 'square', f: 860 * p, d: 0.12, v: 0.025 });
+    k.noise(o, t, { filter: 'bandpass', f: 1800 * p, q: 2, d: 0.08, v: 0.12 });
+    return 0.3;
+  },
+  robot_die: (k, o, t, p) => {
+    k.noise(o, t, { filter: 'lowpass', f: 1200 * p, f2: 200, d: 0.5, v: 0.25 });
+    for (let i = 0; i < 6; i++) k.tone(o, t + 0.12 + i * 0.09 + Math.random() * 0.04, { type: 'triangle', f: (700 + Math.random() * 900) * p, d: 0.09, v: 0.035 });
+    return 0.9;
+  },
+  robot_alert: (k, o, t, p) => {
+    k.tone(o, t, { type: 'square', f: 1180 * p, d: 0.07, v: 0.035 });
+    k.tone(o, t + 0.1, { type: 'square', f: 1570 * p, d: 0.09, v: 0.035 });
+    return 0.22;
+  },
+  boss_mech_step: (k, o, t, p) => {
+    // (a deep, soft, heavy thud: low, slow attack — felt, not a drum)
+    k.tone(o, t, { f: 62 * p, f2: 44, a: 0.02, d: 0.28, v: 0.22 });
+    k.noise(o, t, { filter: 'lowpass', f: 600 * p, f2: 150, a: 0.01, d: 0.2, v: 0.15 });
+    k.tone(o, t + 0.04, { type: 'triangle', f: 380 * p, d: 0.1, v: 0.02 });
+    return 0.35;
+  },
+  boss_mech_roar: (k, o, t, p) => {
+    k.vowel(o, t, { f: 70 * p, f2: 55 * p, a: 0.2, d: 1.2, v: 0.22, formants: [500, 1300] });
+    k.noise(o, t, { filter: 'bandpass', f: 900 * p, f2: 500, q: 3, a: 0.2, d: 1.1, v: 0.12 });
+    k.tone(o, t, { type: 'sawtooth', f: 140 * p, f2: 110 * p, a: 0.2, d: 1.0, v: 0.03 });
+    return 1.4;
+  },
+  boss_mech_death: (k, o, t, p) => {
+    k.tone(o, t, { f: 80 * p, f2: 35, a: 0.05, d: 1.4, v: 0.25 });
+    k.noise(o, t, { filter: 'lowpass', f: 1400 * p, f2: 120, a: 0.05, d: 1.6, v: 0.25 });
+    for (let i = 0; i < 9; i++) k.tone(o, t + 0.3 + i * 0.13 + Math.random() * 0.05, { type: 'triangle', f: (500 + Math.random() * 1100) * p, d: 0.1, v: 0.03 });
+    return 2;
+  },
+  // --- The elements ---
+  element_collect: (k, o, t, p) => {
+    [1046, 1318, 1568, 2093, 2637].forEach((f, i) => k.tone(o, t + i * 0.06, { type: 'sine', f: f * p, d: 0.6, v: 0.035 }));
+    k.tone(o, t, { type: 'sine', f: 130.8 * p, a: 0.01, d: 2, v: 0.14 }); // (the deep chime)
+    k.tone(o, t, { type: 'sine', f: 261.6 * p, a: 0.01, d: 1.4, v: 0.05 });
+    return 2.1;
+  },
+  element_power_up: (k, o, t, p) => {
+    k.tone(o, t, { type: 'triangle', f: 220 * p, f2: 880 * p, a: 0.6, d: 0.3, v: 0.06 });
+    k.noise(o, t, { filter: 'bandpass', f: 600 * p, f2: 4000 * p, q: 1.2, a: 0.6, d: 0.3, v: 0.08 });
+    [523, 659, 784, 1046].forEach((f) => k.tone(o, t + 0.85, { type: 'triangle', f: f * p, d: 1, v: 0.04 }));
+    return 1.9;
+  },
+  // --- Amy (Part 2) ---
+  amy_magic_cast: (k, o, t, p) => {
+    k.noise(o, t, { filter: 'bandpass', f: 600 * p, f2: 2800 * p, q: 1.5, a: 0.1, d: 0.5, v: 0.16 });
+    [740, 932, 1108].forEach((f, i) => k.tone(o, t + i * 0.07, { type: 'sine', f: f * p, f2: f * 1.12 * p, d: 0.5, v: 0.03 }));
+    return 0.7;
+  },
+  amy_hit_reflect: (k, o, t, p) => {
+    k.tone(o, t, { type: 'triangle', f: 1760 * p, d: 0.5, v: 0.08 });
+    k.tone(o, t, { type: 'triangle', f: 2489 * p, d: 0.35, v: 0.05 });
+    k.noise(o, t, { filter: 'highpass', f: 3500 * p, d: 0.15, v: 0.1 });
+    return 0.55;
+  },
+  amy_eyes_glow: (k, o, t, p) => {
+    k.tone(o, t, { type: 'sine', f: 330 * p, f2: 440 * p, a: 0.8, d: 0.8, v: 0.05 });
+    k.tone(o, t, { type: 'sine', f: 349 * p, f2: 466 * p, a: 0.8, d: 0.8, v: 0.035 }); // (a little beating: eerie)
+    return 1.7;
+  },
+  // --- The Fire Element level ---
+  chest_open: (k, o, t, p) => {
+    k.noise(o, t, { filter: 'bandpass', f: 500 * p, f2: 900 * p, q: 6, a: 0.05, d: 0.35, v: 0.12 }); // (the creak)
+    [1318, 1760, 2093].forEach((f, i) => k.tone(o, t + 0.35 + i * 0.06, { type: 'sine', f: f * p, d: 0.3, v: 0.03 }));
+    return 0.8;
+  },
+  chest_locked: (k, o, t, p) => {
+    k.tone(o, t, { f: 140 * p, f2: 100, d: 0.12, v: 0.2 });
+    k.noise(o, t, { filter: 'lowpass', f: 700 * p, d: 0.08, v: 0.15 });
+    return 0.18;
+  },
+  cog_key_collect: (k, o, t, p) => {
+    [0, 0.05, 0.1].forEach((dt) => k.noise(o, t + dt, { filter: 'bandpass', f: 3000 * p, q: 5, d: 0.02, v: 0.06 })); // (clockwork clicks)
+    k.tone(o, t + 0.16, { type: 'sine', f: 1568 * p, d: 0.7, v: 0.06 });
+    k.tone(o, t + 0.16, { type: 'sine', f: 2349 * p, d: 0.4, v: 0.025 });
+    return 0.9;
+  },
+  elixir_drink: (k, o, t, p) => {
+    [0, 0.22, 0.44].forEach((dt) => k.noise(o, t + dt, { filter: 'bandpass', f: 600 * p, q: 3, a: 0.02, d: 0.1, v: 0.12 }));
+    k.tone(o, t + 0.6, { type: 'sine', f: 660 * p, f2: 990 * p, a: 0.1, d: 0.5, v: 0.04 });
+    return 1.2;
+  },
+  fire_blast_cast: (k, o, t, p) => {
+    k.noise(o, t, { filter: 'bandpass', f: 300 * p, f2: 1800 * p, q: 1, a: 0.06, d: 0.4, v: 0.22 });
+    k.noise(o, t + 0.05, { filter: 'lowpass', f: 1200 * p, d: 0.35, v: 0.1 });
+    return 0.5;
+  },
+  fire_blast_hit: (k, o, t, p) => {
+    k.noise(o, t, { filter: 'lowpass', f: 2000 * p, f2: 300, d: 0.4, v: 0.25 });
+    for (let i = 0; i < 6; i++) k.noise(o, t + 0.05 + i * 0.05 + Math.random() * 0.03, { filter: 'highpass', f: 2500 * p, d: 0.015, v: 0.08 }); // (crackles)
+    return 0.55;
+  },
+  burn_loop: (k, o, t, p) => k.noise(o, t, { filter: 'lowpass', f: 1000 * p, d: 0.3, v: 0.06 }) - t, // (a drone when looped)
+  furnace_guardian_stomp: (k, o, t, p) => {
+    k.tone(o, t, { f: 55 * p, f2: 38, a: 0.02, d: 0.45, v: 0.3 });
+    k.noise(o, t, { filter: 'lowpass', f: 300 * p, f2: 60, a: 0.03, d: 0.9, v: 0.25 }); // (the rumble)
+    return 1;
+  },
+  furnace_guardian_steam_burst: (k, o, t, p) => {
+    k.noise(o, t, { filter: 'highpass', f: 1800 * p, a: 0.02, d: 0.9, v: 0.22 });
+    k.noise(o, t, { filter: 'lowpass', f: 600 * p, a: 0.01, d: 0.2, v: 0.2 });
+    return 1;
+  },
+  furnace_guardian_charge: (k, o, t, p) => {
+    k.vowel(o, t, { f: 60 * p, f2: 110 * p, a: 0.3, d: 0.7, v: 0.2, formants: [450, 1100] });
+    k.noise(o, t, { filter: 'bandpass', f: 300 * p, f2: 1400 * p, q: 1.5, a: 0.4, d: 0.6, v: 0.12 });
+    return 1.1;
+  },
+  furnace_guardian_roar: (k, o, t, p) => {
+    k.vowel(o, t, { f: 80 * p, f2: 60 * p, a: 0.15, d: 1.1, v: 0.24, formants: [550, 1000] });
+    k.noise(o, t, { filter: 'lowpass', f: 900 * p, a: 0.2, d: 1, v: 0.14 }); // (the furnace's breath)
+    return 1.3;
+  },
+  steam_barrier_close: (k, o, t, p) => {
+    k.noise(o, t, { filter: 'highpass', f: 1200 * p, f2: 3500 * p, a: 0.3, d: 0.4, v: 0.16 });
+    k.tone(o, t + 0.65, { f: 90 * p, f2: 70, d: 0.2, v: 0.15 }); // (the seal)
+    return 0.9;
+  },
+  steam_barrier_open: (k, o, t, p) => {
+    k.tone(o, t, { f: 80 * p, f2: 100, d: 0.15, v: 0.12 });
+    k.noise(o, t + 0.05, { filter: 'highpass', f: 3500 * p, f2: 1200 * p, a: 0.05, d: 0.8, v: 0.15 });
+    return 0.9;
+  },
+  element_orb_hum: (k, o, t, p) => k.tone(o, t, { type: 'sine', f: 220 * p, a: 0.2, d: 0.8, v: 0.04 }) - t, // (a drone when looped)
   tick_whir: (k, o, t, p) => {
     k.tone(o, t, { type: 'square', f: 880 * p, f2: 1320 * p, a: 0.02, d: 0.18, v: 0.04 });
     k.noise(o, t, { filter: 'bandpass', f: 1800 * p, q: 3, a: 0.05, d: 0.35, v: 0.06 });
@@ -522,8 +735,19 @@ export const DRONES = {
   sandstorm_wind: (k, out, p) => windDrone(k, out, p, { f: 300, q: 0.6, lfo: 0.12, depth: 160 }), // (a soft low breeze)
   // The river while the horse is in it: a quiet, slowly moving wash.
   river_flow: (k, out, p) => windDrone(k, out, p, { f: 1000, q: 0.5, lfo: 0.3, depth: 250 }),
-  // A rail grind: a bright, wobbling steel scrape.
-  rail_grind: (k, out, p) => windDrone(k, out, p, { f: 2600, q: 3, lfo: 9, depth: 700 }),
+  // A rail grind: a bright, wobbling steel scrape with a fast sparkle (its pitch follows the speed).
+  rail_grind: (k, out, p) => windDrone(k, out, p, { f: 2400, q: 3, lfo: 9, depth: 600, crackle: { rate: 27, depth: 0.25 } }),
+  // Gearhaven ambience: all very quiet, slow-moving (no pulse).
+  gear_turn: (k, out, p) => windDrone(k, out, p, { f: 140, q: 2.5, lfo: 0.35, depth: 40, gain: 0.8 }),
+  steam_hiss: (k, out, p) => windDrone(k, out, p, { f: 4200, q: 0.7, lfo: 0.2, depth: 900, gain: 0.5 }),
+  factory_hum: (k, out, p) => humDrone(k, out, p, { f: 55, partials: [1, 2, 3], wobble: 0.15, cutoff: 400, gain: 0.5 }),
+  // The ride's machines.
+  saw_spin: (k, out, p) => humDrone(k, out, p, { f: 820, partials: [1, 1.5], type: 'sawtooth', wobble: 6, cutoff: 2600, gain: 0.07 }),
+  conveyor_belt: (k, out, p) => windDrone(k, out, p, { f: 260, q: 1.2, lfo: 3, depth: 60, gain: 0.6 }),
+  tick_hover: (k, out, p) => humDrone(k, out, p, { f: 150, partials: [1, 2], type: 'sawtooth', wobble: 18, cutoff: 700, gain: 0.05 }),
+  // The Fire level.
+  burn_loop: (k, out, p) => windDrone(k, out, p, { f: 900, q: 0.8, lfo: 0.5, depth: 300, gain: 0.5, crackle: { rate: 19, depth: 0.5 } }),
+  element_orb_hum: (k, out, p) => humDrone(k, out, p, { f: 220, partials: [1, 1.5, 2], wobble: 0.3, cutoff: 1500, gain: 0.25, rise: 6 }),
   boss_fire_breath: (k, out, p) => {
     const ctx = k.ctx;
     const g = ctx.createGain();
@@ -556,8 +780,12 @@ export const DRONES = {
   },
 };
 
-/** A howling wind: band-passed noise whose centre sweeps slowly (also the music's wind layer). */
-export function windDrone(k, out, p, { f, q, lfo, depth }) {
+/**
+ * A howling wind: band-passed noise whose centre sweeps slowly (also the music's wind layer).
+ * `gain` scales it; `crackle` adds a fast amplitude flutter (sparks, a fire). `pitch(p, t)` moves
+ * its centre live (a rail grind's speed).
+ */
+export function windDrone(k, out, p, { f, q, lfo, depth, gain = 1, crackle = null }) {
   const ctx = k.ctx;
   const g = ctx.createGain();
   g.gain.value = 0;
@@ -574,15 +802,66 @@ export function windDrone(k, out, p, { f, q, lfo, depth }) {
   const depthGain = ctx.createGain();
   depthGain.gain.value = depth;
   osc.connect(depthGain).connect(bp.frequency);
-  src.connect(bp).connect(g);
+  const shaped = ctx.createGain();
+  shaped.gain.value = 1;
+  src.connect(bp).connect(shaped).connect(g);
+  let flutter = null;
+  if (crackle) {
+    flutter = ctx.createOscillator();
+    flutter.type = 'square';
+    flutter.frequency.value = crackle.rate;
+    const fd = ctx.createGain();
+    fd.gain.value = crackle.depth;
+    flutter.connect(fd).connect(shaped.gain);
+    flutter.start();
+  }
   src.start();
   osc.start();
   return {
-    level: (v, t) => g.gain.setTargetAtTime(max(0, v), t, 0.3),
+    level: (v, t) => g.gain.setTargetAtTime(max(0, v) * gain, t, 0.3),
+    pitch: (q2, t) => bp.frequency.setTargetAtTime(f * max(0.05, q2), t, 0.1),
     stop: (t) => {
       g.gain.setTargetAtTime(0, t, 0.3);
       src.stop(t + 2);
       osc.stop(t + 2);
+      flutter?.stop(t + 2);
+    },
+  };
+}
+
+/** A soft hum: a few harmonics through a low-pass, wobbling a little (machines, a propeller, an orb; `rise` s to swell in). */
+export function humDrone(k, out, p, { f, partials = [1], type = 'sine', wobble = 0.2, cutoff = 800, gain = 1, rise = 0 }) {
+  const ctx = k.ctx;
+  const g = ctx.createGain();
+  g.gain.value = 0;
+  g.connect(out);
+  const lp = ctx.createBiquadFilter();
+  lp.type = 'lowpass';
+  lp.frequency.value = cutoff;
+  lp.connect(g);
+  const lfo = ctx.createOscillator();
+  lfo.frequency.value = wobble;
+  const oscs = partials.map((m, i) => {
+    const o = ctx.createOscillator();
+    o.type = type;
+    o.frequency.value = f * m * p;
+    const pg = ctx.createGain();
+    pg.gain.value = 1 / (i + 1);
+    const wd = ctx.createGain();
+    wd.gain.value = f * m * 0.01; // (a gentle wobble of the pitch)
+    lfo.connect(wd).connect(o.frequency);
+    o.connect(pg).connect(lp);
+    o.start();
+    return { o, m };
+  });
+  lfo.start();
+  return {
+    level: (v, t) => g.gain.setTargetAtTime(max(0, v) * gain, t, rise ? rise / 3 : 0.3),
+    pitch: (q2, t) => oscs.forEach(({ o, m }) => o.frequency.setTargetAtTime(f * m * max(0.05, q2), t, 0.1)),
+    stop: (t) => {
+      g.gain.setTargetAtTime(0, t, 0.3);
+      for (const { o } of oscs) o.stop(t + 2);
+      lfo.stop(t + 2);
     },
   };
 }

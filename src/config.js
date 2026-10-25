@@ -684,6 +684,7 @@ export const CONFIG = {
       swirl: { count: 48, size: [0.08, 0.2], speed: 2.8, color: 0xffe6a8, opacity: 0.85 },
       gears: { count: 12, size: [0.16, 0.36], from: [4, 8], time: [0.9, 1.6], spin: 6, color: 0xc9a23a },
       shake: 0.1, shakeTime: 1.2,
+      gearWhooshes: 4,         // small gears whooshing past into it as it opens (gear_whoosh)
       reachDelay: 0.25,        // Amy reaches for him this long after the pull begins
       pullTime: 2.4,           // the portal pulls AJ and the horse in (accelerating, a little spiral)
       spiral: 0.8, shrink: 0.35, // radians of spiral; their size at the core
@@ -900,6 +901,26 @@ export const CONFIG = {
     // rounded up: 14 / 28 / 42 of 42) unlocks its reward for the rest of Part 2, kept between
     // sections and applied in every Part 2 level (once each; missing gears never blocks anything).
     // A banner, a chime (`gear_reward`), and tick marks at the tiers on the gear counter.
+    // Part 2's sounds (soundCatalog.js names; files in public/audio/ replace the synthesized ones).
+    // Ambience: very quiet loops per section (`ambience[section]`: name → level, × `ambienceVolume`),
+    // faded in / out over `ambienceFade` s between sections. The music: Gearhaven's theme, the
+    // faster "chase" one while grinding a rail (lingering `chaseLinger` s after), the Part 2
+    // ending's; a stub level reuses Gearhaven's (`music.phases.stub`).
+    sound: {
+      ambience: {
+        courtyard: { clock_tick: 0.6, gear_turn: 0.5, steam_hiss: 0.3 },
+        ride: { factory_hum: 0.5, gear_turn: 0.35, clock_tick: 0.25 },
+        stub: { clock_tick: 0.4, gear_turn: 0.3 },
+      },
+      ambienceVolume: 0.35, ambienceFade: 1.5,
+      chaseLinger: 3,
+      grind: { volume: [0.32, 0.55], pitch: [0.85, 1.2] }, // the rail grind: from grind.speed to its maxSpeed
+      sawRange: 40, sawVolume: 0.5, conveyorRange: 35, conveyorVolume: 0.6, hammerRange: 45, ventIdleVolume: 0.35, // (3D: quieter with distance)
+      streak: { gap: 1.2, max: 8, step: 1, spinVolume: 0.5 }, // gears in a quick row (within `gap` s): each `step` semitones higher, up to `max`
+      tickHover: 0.35,         // Tick's propeller hum (from where he floats)
+      clank: { minSpeed: 6, ref: 15, volume: 0.5 }, // the armoured horse's plates clinking (above a walk; rate by speed)
+      robotStep: { small: 0.45, boss: 0.7 }, // s between a walking robot's / the mech boss's steps (the Robots test)
+    },
     gearsInLevel: { ride: 42 },
     gearRewardTiers: [
       { at: 1 / 3, reward: 'heart' },  // +1 max heart and a full heal
@@ -1068,7 +1089,6 @@ export const CONFIG = {
         beltDeckRow: 14, beltDeckAcross: 3, beltFrame: 0.5, beltTop: 0.3,
       },
       sparks: { max: 90, perSecond: 70, life: 0.35, speed: 4, size: 0.09, color: 0xffc24a, hot: 0xfff2c0 },
-      grindVolume: 0.5,
       // Lamp posts along the street, just outside the curbs (their heads glow; the look's point lights sit on the nearest).
       lamps: { every: 30, lat: 8.1, height: 4.2, head: 0.28, halo: 1.1, clear: 4 },
       // Steam vents on the street: stepping on one launches the horse high (a puff, a whoosh).
@@ -1589,6 +1609,7 @@ export const CONFIG = {
       gem_collect: 0.04, heart_lost: 0.15, heart_gained: 0.18, horse_neigh: 1.5, horse_scream: 1.5, horse_snort: 1, horse_eat: 2.5,
       skel_rattle: 0.6, slime_squelch: 0.25, bat_hit: 0.08, skel_hit: 0.08, boss_hurt: 0.12, ability_empty: 0.25,
       amy_gasp: 4, aj_hup: 0.3, aj_hya: 0.25, aj_ugh: 0.4, boss_roar: 1.5, thunder_soft: 2, rock_rumble: 0.5,
+      gear_collect: 0.03, gear_whoosh: 0.12, steam_vent: 0.25, hammer_swing: 0.3, robot_walk: 0.12, boss_mech_step: 0.25, rail_land: 0.1, rail_leave: 0.2, horse_stumble: 0.4,
     },
     // 3D feel for effects with a position: quieter with distance from the camera, panned left / right.
     distance: { ref: 5, rolloff: 1.1, max: 90, pan: 0.85 },
@@ -1602,12 +1623,21 @@ export const CONFIG = {
       batRange: 40,          // a bat this close and attacking / waiting → the bat-attack music
       bossRange: 45,         // within this of the arena (boss alive) → the boss music
       // The section for each part of the story (see soundscape.js).
-      phases: { title: null, town: 'forest', forest: 'forest', bats: 'bats', boss: 'boss', afterBoss: 'pit', girlScene: 'pit', desertTired: 'pit', pit: 'pit', chase: 'chase', sandstorm: 'sandstorm', gate: 'gate', ending: 'ending', gameover: null, gearhaven: 'gearhaven' },
+      phases: {
+        title: null, town: 'forest', forest: 'forest', bats: 'bats', boss: 'boss', afterBoss: 'pit', girlScene: 'pit', desertTired: 'pit', pit: 'pit', chase: 'chase', sandstorm: 'sandstorm', gate: 'gate', ending: 'ending', gameover: null,
+        // Part 2 (the portal scene ends Part 1; the rest is set by the Part 2 chapter: soundscape.musicPhase)
+        part2Portal: 'part2Portal', gearhaven: 'gearhaven', gearhavenChase: 'gearhavenChase', part2End: 'part2End',
+        elementFire: 'elementFire', elementLightning: 'elementLightning', elementSteam: 'elementSteam', elementMagnet: 'elementMagnet', elementTime: 'elementTime',
+        amyTheme: 'amyTheme', finalFight: 'finalFight',
+        stub: 'gearhaven', // (a level that is still a stub reuses the Gearhaven theme)
+      },
     },
     loops: {                 // pulse loops: one hit every `period` s (÷ rate)
       hoof_walk: { period: 0.42, volume: 0.45 }, hoof_trot: { period: 0.3, volume: 0.55 }, hoof_gallop: { period: 0.36, volume: 0.7 },
       bat_flap: { period: 0.13, volume: 0.35 }, low_health_beat: { period: 1.15, volume: 0.5 },
       horse_breath: { period: 0.75, volume: 0.6 },
+      // Part 2: the slow two-note tick-tock (one tick + one tock a period), the horse's brass plates clinking at a trot
+      clock_tick: { period: 1.0, volume: 1 }, horse_clank: { period: 0.32, volume: 0.6 },
     },
     // The river: a soft splash as the horse first enters the water (at most one per
     // throttle.river_splash 0.6 s) and a very quiet wash while it stays in (river_flow), both
@@ -1632,7 +1662,10 @@ export const CONFIG = {
         boss: { freq: 85, jitter: 0.1, type: 'sawtooth', volume: 0.35, length: 0.11, formant: 500 },
         // AJ weak and grunting (the Lazarus Pit's "I'm ok."): lower, slower, longer blips (own charsPerBlip).
         ajWeak: { freq: 175, jitter: 0.05, type: 'square', volume: 0.2, length: 0.14, formant: 650, charsPerBlip: 3 },
-        tick: { freq: 620, jitter: 0.06, type: 'square', volume: 0.14, length: 0.045, formant: 3200 }, // Tick: a small bright robot chirp
+        // Tick: a high, cute, quick chirp-blip per letter — the tick_beep sound (its file if there is one)
+        tick: { sound: 'tick_beep', freq: 1400, jitter: 0.08, type: 'square', volume: 0.14, length: 0.045, formant: 3600, charsPerBlip: 1 },
+        // Amy in Part 2: softer and cooler than in Part 1 — lower, slower, longer, hushed (a breathy low-pass)
+        amy2: { freq: 330, jitter: 0.05, type: 'sine', volume: 0.13, length: 0.11, formant: 1300, charsPerBlip: 3 },
       },
       speakers: { hero: 'aj', aj: 'aj', girl: 'amy', boss: 'boss', tick: 'tick' }, // cinematic speaker key → character
     },

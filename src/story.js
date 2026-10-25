@@ -938,6 +938,8 @@ export class Story {
       const toCam = this.cam.camera.position.clone().sub(at).setY(0).normalize();
       this.portal.openAt(at, toCam.lengthSq() > 0 ? toCam : st.inward.clone()); // (its face toward the camera)
       this.sound?.play('portal_open');
+      // (small gears flying past into it, one after another)
+      for (let i = 0; i < PO.gearWhooshes; i++) this.sound?.play('gear_whoosh', { delay: 0.2 + i * 0.28, pitch: 0.9 + i * 0.07, volume: 0.8 });
       this.cinematic.shake(PO.shake, PO.shakeTime);
     })();
     return this.portalPlaced;
@@ -958,7 +960,7 @@ export class Story {
     const pull = { done: false };
     this.pull = pull;
     horse.scripted = true;
-    this.sound?.play('portal_whoosh');
+    this.sound?.play('portal_pull'); // (a swirling suck)
     this.#tween((t) => {
       if (t >= PO.reachDelay && !girl.pointing) {
         girl.frightened = true; // (shock)
