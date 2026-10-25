@@ -19,6 +19,7 @@ const B = F.boss;
 const A = F.arena;
 const AR = CONFIG.arena;
 const RG = AR.bossRegenPercentPerSec / 100;
+const WHITE = new THREE.Color(0xffffff);
 
 /** The plaza: a silver floor ringed by a low brass wall, a furnace glow at its foot, pillars, the entrance arch and its steam barrier. */
 export async function buildArena() {
@@ -95,6 +96,10 @@ export class Guardian {
     this.regenerating = false;
     this.burn = null;
     this.flash = 0;
+    this.whiteFlash = 0;
+    this.evadeCooldown = 0;
+    this.evadeT = 0;
+    this.getWheelThreat = null;
     this.marksDone = new Set();
     this.centre = new THREE.Vector3();
     this.pillars = [];
@@ -109,6 +114,7 @@ export class Guardian {
     const model = await loadRobotModel('boss', this.assets ?? {});
     // The hot red-orange glow: its own copies of the materials (the Robots test's George stays green).
     this.mats = [];
+    this.hitMaterials = [];
     model.traverse((o) => {
       if (!o.isMesh || !o.material.isMeshLambertMaterial) return; // (his body; not the glowing eye)
       const src = o.material;
@@ -120,6 +126,7 @@ export class Guardian {
       m.emissiveIntensity = B.glow.tint * 0.5;
       o.material = m;
       this.mats.push(m);
+      this.hitMaterials.push({ material: m, color: m.color.clone(), emissive: m.emissive?.clone(), intensity: m.emissiveIntensity });
     });
     // The furnace in his chest.
     const fu = B.glow.furnace;
@@ -168,6 +175,10 @@ export class Guardian {
     this.sinceHit = 0;
     this.regenerating = false;
     this.burn = null;
+    this.flash = 0;
+    this.whiteFlash = 0;
+    this.evadeCooldown = 0;
+    this.evadeT = 0;
     this.marksDone.clear();
     this.place(this.centre);
     this.model.visible = true;
@@ -189,7 +200,7 @@ export class Guardian {
   }
 
   /** Hits: the Batarang (1), a fire ball (3), a burn (1 a second). Stunned, he takes extra. */
-  takeHit(damage, source = 'batarang') {
+  takeHit(damage, source = 'batarang', impact = null) {
     if (!this.alive || this.state === 'dying') return false;
     if (this.state === 'idle') this.#notice();
     const dmg = damage * (this.state === 'stunned' ? B.charge.stunDamage : 1);
@@ -197,6 +208,16 @@ export class Guardian {
     this.sinceHit = 0;
     this.regenerating = false;
     this.flash = B.hurtFlash;
+    if (source === 'cog' || source === 'wheel') {
+      this.whiteFlash = F.hit.robotFlash;
+      if (impact?.direction) {
+        const push = impact.direction.clone().setY(0);
+        if (push.lengthSq() > 1e-5) {
+          push.normalize();
+          this.#move(push.x, push.z, F.weaponImpact.push);
+        }
+      }
+    }
     this.stats.hits++;
     for (const [i, share] of A.gems.marks.entries()) {
       if (!this.marksDone.has(i) && this.hp / this.maxHp <= share) {
@@ -248,8 +269,18 @@ export class Guardian {
     this.t += dt;
     for (const k of Object.keys(this.cool)) this.cool[k] = Math.max(0, this.cool[k] - dt);
     this.flash = Math.max(0, this.flash - dt);
+    this.whiteFlash = Math.max(0, this.whiteFlash - dt);
+    if (playing) {
+      this.evadeCooldown = Math.max(0, this.evadeCooldown - dt);
+      this.evadeT = Math.max(0, this.evadeT - dt);
+    }
     const hot = 0.45 + 0.1 * Math.sin(performance.now() / 260);
-    for (const m of this.mats) m.emissiveIntensity = B.glow.tint * (hot + (this.flash > 0 ? 0.9 : 0) + (this.state === 'steamWind' || this.state === 'stompWind' ? 0.5 : 0));
+    const white = this.whiteFlash > 0 ? this.whiteFlash / F.hit.robotFlash : 0;
+    for (const entry of this.hitMaterials) {
+      entry.material.color.copy(entry.color).lerp(WHITE, white);
+      if (entry.emissive) entry.material.emissive.copy(white > 0 ? WHITE : entry.emissive);
+      entry.material.emissiveIntensity = B.glow.tint * (hot + (this.flash > 0 ? 0.9 : 0) + (this.state === 'steamWind' || this.state === 'stompWind' ? 0.5 : 0)) + white * 1.5;
+    }
     this.furnace.scale.setScalar(1 + 0.12 * Math.sin(performance.now() / 120));
     if (!playing) {
       this.anim?.update(0);
@@ -268,6 +299,7 @@ export class Guardian {
       if (this.regenerating) this.hp = Math.min(this.maxHp, this.hp + this.maxHp * RG * dt);
     }
     this.#updateBalls(dt);
+    this.#considerWheelJump();
     const to = hero.position;
     const dx = to.x - this.position.x;
     const dz = to.z - this.position.z;
@@ -458,6 +490,10 @@ export class Guardian {
       this.position.z = this.centre.z + (lz / ld) * max;
     }
     this.model.position.copy(this.position);
+    if (this.evadeT > 0) {
+      const k = 1 - this.evadeT / B.wheelAvoid.duration;
+      this.model.position.y += Math.sin(Math.PI * k) * B.wheelAvoid.height;
+    }
     this.model.rotation.y = this.heading;
     this.anim?.update(dt);
     // keep the telegraphs on his feet where they belong
@@ -475,6 +511,19 @@ export class Guardian {
     let diff = want - this.heading;
     diff = Math.atan2(Math.sin(diff), Math.cos(diff));
     this.heading += Math.max(-B.turn * dt, Math.min(B.turn * dt, diff));
+  }
+
+  #considerWheelJump() {
+    const wheel = this.getWheelThreat?.();
+    if (!wheel || this.evadeCooldown > 0) return;
+    const dx = this.position.x - wheel.pos.x;
+    const dz = this.position.z - wheel.pos.z;
+    const along = dx * wheel.dir.x + dz * wheel.dir.z;
+    const lateral = Math.abs(dx * wheel.dir.z - dz * wheel.dir.x);
+    if (along <= 0 || along > B.wheelAvoid.range || lateral > B.wheelAvoid.lateral) return;
+    this.evadeCooldown = B.wheelAvoid.cooldown;
+    this.evadeT = B.wheelAvoid.duration;
+    this.stats.wheelDodges = (this.stats.wheelDodges ?? 0) + 1;
   }
 
   /** Walk / rush by `d` along (dx, dz), out of the pillars. */
@@ -644,4 +693,3 @@ export class Guardian {
     this.onShake?.(B.stomp.shake * 0.8);
   }
 }
-

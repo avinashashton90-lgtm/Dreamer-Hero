@@ -13,6 +13,7 @@ import { trackPoint } from './rideModel.js';
 const F = CONFIG.part2.fire;
 const SC = F.scouts;
 const SW = F.swords;
+const WHITE = new THREE.Color(0xffffff);
 
 class Foe {
   constructor(kind, model, ctx) {
@@ -33,6 +34,25 @@ class Foe {
     this.pop = 0;
     this.grace = 0;
     this.hurt = false;
+    this.flash = 0;
+    this.hitMaterials = [];
+    const materials = new Map();
+    model.traverse((o) => {
+      if (!o.isMesh) return;
+      const clone = (material) => {
+        if (!materials.has(material)) materials.set(material, material.clone());
+        return materials.get(material);
+      };
+      o.material = Array.isArray(o.material) ? o.material.map(clone) : clone(o.material);
+    });
+    for (const material of materials.values()) {
+      this.hitMaterials.push({
+        material,
+        color: material.color?.clone(),
+        emissive: material.emissive?.clone(),
+        intensity: material.emissiveIntensity,
+      });
+    }
     model.visible = false;
     this.anim = model.userData.animator;
   }
@@ -46,6 +66,7 @@ class Foe {
     this.t = 0;
     this.burn = null;
     this.hurt = false;
+    this.flash = 0;
     this.model.visible = true;
     this.model.scale.setScalar(1);
     this.model.position.copy(position);
@@ -60,10 +81,16 @@ class Foe {
   }
 
   /** Damage from the Batarang / a fire ball / a burn. Returns false if it didn't count (already dying). */
-  takeHit(damage, source = 'batarang') {
+  takeHit(damage, source = 'batarang', impact = null) {
     if (!this.alive) return false;
     this.hp -= damage;
     this.pop = 0.14;
+    this.flash = F.hit.robotFlash;
+    if ((source === 'cog' || source === 'wheel') && impact?.direction) {
+      const push = impact.direction.clone().setY(0);
+      if (push.lengthSq() > 1e-5) this.position.addScaledVector(push.normalize(), F.weaponImpact.push);
+      this.#walls();
+    }
     if (this.hp <= 0.0001) this.#die(source);
     return true;
   }
@@ -125,11 +152,20 @@ class Foe {
     this.t += dt;
     this.grace = Math.max(0, this.grace - dt);
     this.pop = Math.max(0, this.pop - dt);
+    this.flash = Math.max(0, this.flash - dt);
     this.kind === 'scout' ? this.#scout(dt) : this.#sword(dt);
     this.model.position.copy(this.position);
     this.model.rotation.y = this.heading;
     if (this.state !== 'rise') this.model.scale.setScalar(1 + this.pop * 0.5);
     this.anim?.update(dt);
+    const flash = this.flash > 0 ? this.flash / F.hit.robotFlash : 0;
+    for (const entry of this.hitMaterials) {
+      if (entry.color && entry.material.color) entry.material.color.copy(entry.color).lerp(WHITE, flash);
+      if (entry.emissive && entry.material.emissive) {
+        entry.material.emissive.copy(entry.emissive).lerp(WHITE, flash);
+        entry.material.emissiveIntensity = entry.intensity + flash * 1.5;
+      }
+    }
   }
 
   // --- scouts ---------------------------------------------------------------------

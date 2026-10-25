@@ -34,6 +34,7 @@ export class FireFx {
     this.m = new THREE.Matrix4();
     this.c = new THREE.Color();
     this.flashes = [];
+    this.impacts = [];
   }
 
   /** One particle. `up` extra rise, `g` gravity (negative: it floats up). */
@@ -48,6 +49,29 @@ export class FireFx {
       const a = Math.random() * Math.PI * 2;
       const e = Math.random() * 0.9 + 0.1;
       this.emit(at, new THREE.Vector3(Math.cos(a) * speed * e, Math.random() * up + up * 0.3, Math.sin(a) * speed * e), { life: life * (0.6 + Math.random() * 0.6), size: size * (0.6 + Math.random() * 0.8), color: Math.random() < 0.35 ? F.accent2 : color, g: 6 });
+    }
+  }
+
+  impact(at, color) {
+    const I = F.weaponImpact;
+    const group = new THREE.Group();
+    const flash = new THREE.Mesh(new THREE.SphereGeometry(I.flashRadius, 10, 8), new THREE.MeshBasicMaterial({
+      color, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false,
+    }));
+    const ring = new THREE.Mesh(new THREE.RingGeometry(I.ringInner, I.ringOuter, 20).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({
+      color, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+    }));
+    group.add(flash, ring);
+    group.position.copy(at);
+    this.mesh.parent.add(group);
+    this.impacts.push({ group, flash, ring, age: 0 });
+    for (let i = 0; i < I.sparks; i++) {
+      const a = (i / I.sparks) * Math.PI * 2;
+      const dir = new THREE.Vector3(Math.cos(a), 0, Math.sin(a));
+      const start = at.clone().addScaledVector(dir, I.sparkRadius);
+      this.emit(start, dir.multiplyScalar(I.sparkSpeed).add(new THREE.Vector3(0, I.sparkUp, 0)), {
+        life: I.life, size: 0.1, color, g: 3,
+      });
     }
   }
 
@@ -80,16 +104,33 @@ export class FireFx {
     mesh.count = L.length;
     mesh.instanceMatrix.needsUpdate = true;
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    for (let i = this.impacts.length - 1; i >= 0; i--) {
+      const effect = this.impacts[i];
+      effect.age += dt;
+      const k = Math.max(0, 1 - effect.age / F.weaponImpact.life);
+      effect.flash.material.opacity = k * 0.95;
+      effect.flash.scale.setScalar(0.45 + (1 - k) * 0.8);
+      effect.ring.material.opacity = k * 0.95;
+      effect.ring.scale.setScalar(0.5 + (1 - k) * 2.2);
+      if (k <= 0) {
+        effect.group.removeFromParent();
+        effect.flash.geometry.dispose();
+        effect.flash.material.dispose();
+        effect.ring.geometry.dispose();
+        effect.ring.material.dispose();
+        this.impacts.splice(i, 1);
+      }
+    }
   }
 }
 
 export class Arsenal {
   /**
-   * @param {{ scene, hero, horse, fx: FireFx, sound, targets: () => object[], assets? }} o
+   * @param {{ scene, hero, horse, fx: FireFx, sound, cam?, ui?, targets: () => object[], assets? }} o
    * `targets()` lists the live foes (and the boss) a throw can aim at.
    */
-  constructor({ scene, hero, horse, fx, sound, targets, onEvent }) {
-    Object.assign(this, { scene, hero, horse, fx, sound, targets, onEvent });
+  constructor({ scene, hero, horse, fx, sound, cam, ui, targets, onEvent }) {
+    Object.assign(this, { scene, hero, horse, fx, sound, cam, ui, targets, onEvent });
     this.layout = '2'; // (the HUD's button set for the fighting levels: input.js layout foot2 / ride2)
     this.ammo = F.startAmmo;
     this.fireUnlocked = false; // (the Fire Element recovered: Fire Blast for the rest of Part 2)
@@ -266,6 +307,56 @@ export class Arsenal {
     return null;
   }
 
+  #robotAt(p, skip) {
+    for (const t of this.targets()) {
+      if (!t.alive || skip.has(t) || t.untargetable) continue;
+      const centre = this.#centre(t);
+      if (p.distanceToSquared(centre) <= F.hit.robotRadius ** 2) return t;
+    }
+    return null;
+  }
+
+  #wheelAt(p, skip) {
+    const wheelRadius = GW.radius;
+    const hitSphere = (t, centre, radius) => p.distanceToSquared(centre) <= (wheelRadius + radius) ** 2;
+    for (const t of this.targets()) {
+      if (!t.alive || skip.has(t) || t.untargetable) continue;
+      if (t.isBoss) {
+        const L = F.hit.guardianLegs;
+        const sideX = Math.cos(t.heading) * L.side;
+        const sideZ = -Math.sin(t.heading) * L.side;
+        for (const sign of [-1, 1]) {
+          const leg = new THREE.Vector3(t.position.x + sideX * sign, t.position.y + L.height, t.position.z + sideZ * sign);
+          if (hitSphere(t, leg, L.radius)) return t;
+        }
+      }
+      if (hitSphere(t, this.#centre(t), F.hit.robotRadius)) return t;
+    }
+    return null;
+  }
+
+  #impact(t, at, damage, source, direction) {
+    if (t.takeHit(damage, source, { direction, point: at }) === false) return false;
+    this.fx.impact(at, source === 'cog' ? CS.color : GW.color);
+    this.sound?.play('robot_hit', { position: at, pitch: source === 'cog' ? 0.9 : 0.7 });
+    this.cam?.shake?.(F.weaponImpact.shake, F.weaponImpact.shakeTime);
+    const camera = this.cam?.camera;
+    if (camera && this.ui?.damageNumber) {
+      const screen = at.clone().project(camera);
+      const width = globalThis.innerWidth ?? 0;
+      const height = globalThis.innerHeight ?? 0;
+      const x = (screen.x + 1) * width / 2;
+      const y = (1 - screen.y) * height / 2;
+      const margin = F.weaponImpact.popupMargin;
+      this.ui.damageNumber(
+        width ? THREE.MathUtils.clamp(x, margin, width - margin) : 0,
+        height ? THREE.MathUtils.clamp(y, margin, height - margin) : 0,
+        `-${damage}`,
+      );
+    }
+    return true;
+  }
+
   // --- the loop -------------------------------------------------------------------
 
   update(dt) {
@@ -411,26 +502,26 @@ export class Arsenal {
     const c = this.cog;
     const rider = this.horse.mounted ? Math.abs(this.horse.speed) : 0;
     if (c.target?.alive) c.end.copy(this.#centre(c.target));
+    const oldU = c.u;
     c.u = Math.min(1, c.u + ((CS.speed + rider * 0.2) * dt) / c.dist);
-    c.pos.lerpVectors(c.start, c.end, c.u);
-    c.pos.y += CS.arc * 4 * c.u * (1 - c.u);
+    const pointAt = (u) => c.start.clone().lerp(c.end, u).setY(c.start.y + (c.end.y - c.start.y) * u + CS.arc * 4 * u * (1 - u));
+    const stepCount = Math.max(1, Math.ceil(c.pos.distanceTo(pointAt(c.u)) / 0.4));
+    let hit = null;
+    for (let i = 1; i <= stepCount; i++) {
+      c.pos.copy(pointAt(oldU + ((c.u - oldU) * i) / stepCount));
+      hit = this.#robotAt(c.pos, new Set());
+      if (hit) break;
+    }
     this.cogMesh.position.copy(c.pos);
     this.cogMesh.rotation.x += 14 * dt;
     this.cogMesh.rotation.y += 9 * dt;
-    const hit = c.u < 1 ? this.#foeAt(c.pos, new Set(), 0.2) : null;
-    if (c.u >= 1 || hit) {
+    if (hit) {
       this.cog = null;
       this.cogMesh.visible = false;
-      const at = c.pos.clone();
-      this.fx.burst(at, 12, { speed: 4.5, life: 0.5, size: 0.14, color: CS.color, up: 2 });
-      this.sound?.play('batarang_hit', { position: at, pitch: 0.7 });
-      for (const t of this.targets()) {
-        if (!t.alive || t.untargetable) continue;
-        const d = Math.hypot(t.position.x - at.x, t.position.z - at.z) - t.radius;
-        if (d > 1.2 || at.y > t.position.y + t.height + 1.2) continue;
-        t.takeHit(CS.damage, 'cog');
-        this.stats.hits++;
-      }
+      if (this.#impact(hit, c.pos.clone(), CS.damage, 'cog', c.end.clone().sub(c.start).normalize())) this.stats.hits++;
+    } else if (c.u >= 1) {
+      this.cog = null;
+      this.cogMesh.visible = false;
     }
   }
 
@@ -448,7 +539,7 @@ export class Arsenal {
     if (t) dir = new THREE.Vector3(t.position.x - h.x, 0, t.position.z - h.z).normalize();
     const ground = this.horse.mounted ? this.horse.position.y : h.y;
     this.wheel = {
-      pos: new THREE.Vector3(h.x + dir.x * 1.2, ground + GW.height * 0.5 + 0.1, h.z + dir.z * 1.2),
+      pos: new THREE.Vector3(h.x + dir.x * 1.2, ground + GW.radius, h.z + dir.z * 1.2),
       dir, travelled: 0, hit: new Set(), ground, k: 1, bounces: 0, rebounded: false, hopT: 0,
     };
     this.wheelMesh.visible = true;
@@ -470,9 +561,9 @@ export class Arsenal {
       w.pos.addScaledVector(w.dir, step / n);
       // a wall (the plaza's wall, a pillar, the road's side walls and fences): bounce off it, a little slower
       if (world?.collide && w.bounces < GW.maxBounces) {
-        tmp.set(w.pos.x, w.ground + GW.height * 0.5, w.pos.z);
+        tmp.set(w.pos.x, w.ground + GW.radius, w.pos.z);
         vel.copy(w.dir).multiplyScalar(speed);
-        world.collide(tmp, vel, GW.radius * 0.6);
+        world.collide(tmp, vel, GW.radius * 0.5);
         const dx = tmp.x - w.pos.x;
         const dz = tmp.z - w.pos.z;
         const d = Math.hypot(dx, dz);
@@ -490,13 +581,10 @@ export class Arsenal {
           this.fx.burst(w.pos, 6, { speed: 3, life: 0.3, size: 0.1, color: GW.color, up: 1 });
         }
       }
-      const t = this.#foeAt(new THREE.Vector3(w.pos.x, w.ground + 0.3, w.pos.z), w.hit, GW.radius * 0.6);
+      const t = this.#wheelAt(w.pos, w.hit);
       if (t) {
         w.hit.add(t);
-        t.takeHit(GW.damage, 'wheel');
-        this.stats.hits++;
-        this.fx.burst(w.pos, 10, { speed: 4, life: 0.4, size: 0.14, color: GW.color, up: 1.5 });
-        this.sound?.play('batarang_hit', { position: w.pos, pitch: 0.6 });
+        if (this.#impact(t, w.pos.clone(), GW.damage, 'wheel', w.dir)) this.stats.hits++; // (the impact flash, the number popup and the shake)
         if (!w.rebounded) {
           // it reflects off the first robot it hits: back off the robot's side, with room to roll home
           let nx = w.pos.x - t.position.x;
@@ -505,7 +593,9 @@ export class Arsenal {
           nx /= d;
           nz /= d;
           const into = w.dir.x * nx + w.dir.z * nz;
-          w.dir.set(w.dir.x - 2 * into * nx, 0, w.dir.z - 2 * into * nz).normalize();
+          if (t.isBoss || into >= 0) w.dir.negate();
+          else w.dir.set(w.dir.x - 2 * into * nx, 0, w.dir.z - 2 * into * nz).normalize();
+          w.pos.addScaledVector(w.dir, GW.radius * 0.2);
           w.rebounded = true;
           w.k *= GW.reboundKeep;
           w.hopT = GW.hopTime;
@@ -517,7 +607,7 @@ export class Arsenal {
     w.travelled += step;
     if (w.hopT > 0) w.hopT = Math.max(0, w.hopT - dt);
     const hop = w.hopT > 0 ? Math.sin(Math.PI * (1 - w.hopT / GW.hopTime)) * GW.hop : 0;
-    w.pos.y = w.ground + GW.height * 0.5 + 0.1 + hop;
+    w.pos.y = w.ground + GW.radius + hop;
     this.wheelMesh.position.copy(w.pos);
     this.wheelMesh.rotation.y = -Math.atan2(w.dir.z, w.dir.x);
     this.wheelGear.rotation.z -= (speed / GW.radius) * dt; // (rolling: the rim keeps pace with the ground)

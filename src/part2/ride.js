@@ -436,7 +436,8 @@ export class Ride {
       const y = railHeight(rail, n.s);
       const onRamp = !rail.upper && n.s < rail.s[0] + G.ramp;
       const dy = horse.position.y - y;
-      const ok = onRamp ? dy <= G.above && dy >= -0.6 : horse.velocity.y <= 0 && !horse.grounded && dy <= G.above && dy >= -0.4;
+      const snap = rail.upper ? (G.upperSnap ?? G.above) : G.above;
+      const ok = onRamp ? dy <= G.above && dy >= -0.6 : horse.velocity.y <= 0 && !horse.grounded && dy <= snap && dy >= -0.4;
       if (ok) return this.#startGrind(rail, n.s);
     }
   }
