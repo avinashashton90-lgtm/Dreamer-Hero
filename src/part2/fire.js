@@ -178,8 +178,8 @@ export class FireLevel {
 
   /** Live foes and the Guardian: what a throw can aim at. */
   targets() {
-    const out = this.foes ? this.foes.targets : [];
-    if (this.guardian?.alive && this.guardian.model?.visible) return [...out, this.guardian];
+    const out = this.foes?.targets ?? [];
+    if (this.guardian?.alive && this.guardian.model?.visible && this.guardian.position) return [...out, this.guardian];
     return out;
   }
 

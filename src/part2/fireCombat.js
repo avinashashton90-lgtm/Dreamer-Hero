@@ -284,12 +284,23 @@ export class Arsenal {
     return { at: h.position.clone().setY(h.position.y + 1.3), heading, fwd: new THREE.Vector3(Math.sin(heading), 0, Math.cos(heading)) };
   }
 
+  /** A target a weapon may still aim at: it exists, is alive and has a position (a foe can be removed mid-flight). */
+  #valid(t) {
+    return !!(t && t.alive && t.position && !t.untargetable);
+  }
+
+  /** The foes a weapon can touch right now (a missing or half-removed entry is skipped, never thrown on). */
+  #live() {
+    const list = this.targets?.() ?? [];
+    return list.filter((t) => t && t.position);
+  }
+
   /** The nearest living foe within range in any direction, preferring ones ahead (one behind counts `prefer`× as far). */
   pick(range = BT.range) {
     const { at, fwd } = this.#origin();
     let best = null;
     let bd = Infinity;
-    for (const t of this.targets()) {
+    for (const t of this.#live()) {
       if (!t.alive || t.untargetable) continue;
       const dx = t.position.x - at.x;
       const dz = t.position.z - at.z;
@@ -302,7 +313,7 @@ export class Arsenal {
   }
 
   #face(target) {
-    if (!target || this.horse.mounted) return;
+    if (!this.#valid(target) || this.horse.mounted) return;
     this.hero.facing = Math.atan2(target.position.x - this.hero.position.x, target.position.z - this.hero.position.z);
   }
 
@@ -312,7 +323,7 @@ export class Arsenal {
 
   /** The foe whose hit body (a vertical capsule from its feet, padded) contains `p`, other than those in `skip`. */
   #foeAt(p, skip, pad = F.hit.pad, up = 0) {
-    for (const t of this.targets()) {
+    for (const t of this.#live()) {
       if (!t.alive || skip.has(t) || t.untargetable) continue;
       if (p.y < t.position.y - pad || p.y > t.position.y + t.height + pad + up) continue;
       if (Math.hypot(p.x - t.position.x, p.z - t.position.z) <= t.radius + pad) return t;
@@ -321,7 +332,7 @@ export class Arsenal {
   }
 
   #robotAt(p, skip) {
-    for (const t of this.targets()) {
+    for (const t of this.#live()) {
       if (!t.alive || skip.has(t) || t.untargetable) continue;
       const centre = this.#centre(t);
       if (p.distanceToSquared(centre) <= F.hit.robotRadius ** 2) return t;
@@ -332,7 +343,7 @@ export class Arsenal {
   #wheelAt(p, skip) {
     const wheelRadius = GW.radius;
     const hitSphere = (t, centre, radius) => p.distanceToSquared(centre) <= (wheelRadius + radius) ** 2;
-    for (const t of this.targets()) {
+    for (const t of this.#live()) {
       if (!t.alive || skip.has(t) || t.untargetable) continue;
       if (t.isBoss) {
         const L = F.hit.guardianLegs;
@@ -468,7 +479,7 @@ export class Arsenal {
   }
 
   #throwBall(hand, target) {
-    const t = target?.alive ? target : this.pick(FB.range);
+    const t = this.#valid(target) ? target : this.pick(FB.range);
     const { fwd } = this.#origin();
     const end = t ? this.#centre(t) : hand.clone().addScaledVector(fwd, FB.forward).setY(this.hero.position.y + 0.3);
     const dist = hand.distanceTo(end);
@@ -481,7 +492,7 @@ export class Arsenal {
   #flyBall(dt) {
     const f = this.ball;
     const rider = this.horse.mounted ? Math.abs(this.horse.speed) : 0;
-    if (f.target?.alive) f.end.copy(this.#centre(f.target)); // (it follows its target)
+    if (this.#valid(f.target)) f.end.copy(this.#centre(f.target)); // (it follows its target)
     f.u = Math.min(1, f.u + ((FB.speed + rider * 0.2) * dt) / f.dist);
     const u = f.u;
     f.pos.lerpVectors(f.start, f.end, u);
@@ -499,7 +510,7 @@ export class Arsenal {
    * edge, spinning round its axle and slowing down, wobbles and falls over flat at the end (a wall stops it the same way), then fades.
    */
   #throwCog(hand, target) {
-    const t = target?.alive ? target : this.pick(CS.range);
+    const t = this.#valid(target) ? target : this.pick(CS.range);
     const { fwd } = this.#origin();
     const end = t ? this.#centre(t) : hand.clone().addScaledVector(fwd, CS.forward).setY(this.hero.position.y + CS.size);
     const dir = new THREE.Vector3(end.x - hand.x, 0, end.z - hand.z);
@@ -523,7 +534,7 @@ export class Arsenal {
     const rest = c.ground + CS.size;
     if (c.phase === 'fly') {
       const rider = this.horse.mounted ? Math.abs(this.horse.speed) : 0;
-      if (c.target?.alive) c.end.copy(this.#centre(c.target));
+      if (this.#valid(c.target)) c.end.copy(this.#centre(c.target));
       const oldU = c.u;
       c.u = Math.min(1, c.u + ((CS.speed + rider * 0.2) * dt) / c.dist);
       const pointAt = (u) => c.start.clone().lerp(c.end, u).setY(c.start.y + (c.end.y - c.start.y) * u + CS.arc * 4 * u * (1 - u));
@@ -650,7 +661,7 @@ export class Arsenal {
    * `wheelWallBounceKeep` of its speed. The Guardian: damage, then it drops and stops. It fades out at the end of its range.
    */
   #rollWheel(hand, target) {
-    const t = target?.alive ? target : this.pick(GW.range);
+    const t = this.#valid(target) ? target : this.pick(GW.range);
     const { fwd } = this.#origin();
     const h = this.hero.position;
     let dir = fwd.clone().setY(0).normalize();
@@ -771,7 +782,7 @@ export class Arsenal {
     this.ring.scale.setScalar(1);
     this.ring.material.opacity = 0.9;
     this.sound?.play('fire_blast_hit', { position: at });
-    for (const t of this.targets()) {
+    for (const t of this.#live()) {
       if (!t.alive || t.untargetable) continue;
       const d = Math.hypot(t.position.x - at.x, t.position.z - at.z) - t.radius;
       if (d > FB.splash || at.y > t.position.y + t.height + 1.5) continue;
