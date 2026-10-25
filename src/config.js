@@ -1039,6 +1039,7 @@ export const CONFIG = {
       // — all inside the map's bounds (the horse is clamped to CONFIG.world) — so section 1 reuses its
       // rails, vents and deck. Plaza on the straight (s 700–860), sword robots on the last leg.
       ride: {
+        counts: { smallRobots: 6 }, // scout robots built for the ride (the pool the groups are called from)
         points: [[260, 110], [260, 300], [360, 380], [360, 540], [500, 600], [660, 600], [800, 600], [800, 140]],
         checkpoints: [0, 205, 335, 495, 625, 700, 960, 1130],
         ground: { size: [1400, 1200] },
@@ -1063,6 +1064,7 @@ export const CONFIG = {
         door: { s: 1318, scale: 2.4, reach: 4.5 },
         quest: 'fire',
       },
+      shield: { color: 0x6ec6ff }, // the Shield ability button's colour (Part 2)
       // Seven cog keys; two lie on the main line and five sit close enough to collect from the saddle.
       // [s, lat, height above the street]. The gate and all three chests cost five keys in total.
       keys: [[120, 0, 0], [212, 0, 0], [412, -2.2, 0], [730, -2.0, 0], [775, 2.0, 0], [835, -2.0, 0], [900, 2.2, 0]],
@@ -1099,6 +1101,7 @@ export const CONFIG = {
       plaza: { from: 700, to: 860, braziers: 5 },
       // Section 2: scout robots (Leela) in groups of 2 run at the horse from the front and wide.
       scouts: {
+        groupSize: 2,                    // scouts called together
         triggers: [452, 508, 562, 616],  // s at which a group is called
         ahead: [42, 54], lat: 6.0,       // they start this far along the trail ahead, wide (±lat)
         speed: 14.5, hp: 2, radius: 0.5, height: 1.55, reach: 2.4, lunge: 0.35, damage: 0.25, // 2 Batarang hits
@@ -1136,6 +1139,7 @@ export const CONFIG = {
         openTime: 1.6, pedestalTime: 2.2,
       },
       boss: {
+        meleeDamage: 1, staggerDamage: 1.5, staggerDuration: 1.5, // melee hits on the Guardian (1), the bonus while he is staggered by a parry, and how long that lasts
         radius: 2.6, height: 6.5, walk: 3.4, walkEnraged: 4.6, enrageAt: 0.5, turn: 2.2,
         glow: { color: 0xff5a1c, tint: 0.5, furnace: { size: 0.9, up: 0.64, out: 0.7 } },
         recover: 1.4, recoverEnraged: 0.8,
@@ -2296,7 +2300,7 @@ export const DIALOGUE = {
     audio: 'Audio test',
     part1: 'Part 1', part2: 'Part 2',
     invulnerable: (on) => `Invulnerable: ${on ? 'yes' : 'no'}`, heroState: (s) => `Hero state: ${s}`,
-    portal: 'Portal scene', arrival: 'Gearhaven arrival', fire: 'Fire level (start)', fireBoss: 'Fire boss', firePlaza: 'Fire plaza chests', giveKeys: (n) => `Give ${n} cog keys`, lightning: 'Lightning level', steam: 'Steam level',
+    portal: 'Portal scene', arrival: 'Gearhaven arrival', fire: 'Fire level (start)', fireBoss: 'Fire boss', firePlaza: 'Fire plaza chests', giveKeys: (n) => `Give ${n} cog keys`, giveShield: 'Toggle Shield', giveAllElements: 'Toggle all Elements', giveFireOnly: 'Toggle Fire Element only', lightning: 'Lightning level', steam: 'Steam level',
     magnet: 'Magnet level', time: 'Time level', final: "Amy's final fight", part2Ending: 'Part 2 ending', robots: 'Robots test', ride: 'Gearhaven ride', props: 'Props test', look: (name) => `Look: ${name}`, giveGears: (n) => `Give ${n} gears`,
     on: 'Test menu on', off: 'Test menu off',
   },
@@ -2342,7 +2346,8 @@ export const DIALOGUE = {
       quest: 'Ride to the furnace gate', start: 'Furnace city! Keep to the road.', gears: '⚙',
       questBoss: 'Defeat the Furnace Guardian', questElement: 'Take the Fire Element', bossName: 'Furnace Guardian',
       needs: (n) => `Needs ${n} cog key${n > 1 ? 's' : ''}`,
-      got: { cogKey: 'Cog key!', elixirHeal: (n) => `Green potion: +${n} heart${n > 1 ? 's' : ''}`, elixirEnergy: 'Blue potion: the horse is rested', gem: (n) => `+${n} gem${n > 1 ? 's' : ''}`, heartContainer: 'Heart container: +1 max heart!', gearBundle: (n) => `+${n} gears`, runeStone: 'Rune stone', wandPiece: 'Wand piece' },
+      shieldCooldown: 'Shield locked',
+      got: { shield: 'Shield unlocked!', cogKey: 'Cog key!', elixirHeal: (n) => `Green potion: +${n} heart${n > 1 ? 's' : ''}`, elixirEnergy: 'Blue potion: the horse is rested', gem: (n) => `+${n} gem${n > 1 ? 's' : ''}`, heartContainer: 'Heart container: +1 max heart!', gearBundle: (n) => `+${n} gears`, runeStone: 'Rune stone', wandPiece: 'Wand piece' },
       keysLabel: 'Cog keys', keyIcon: '🗝',
       blastUnlocked: 'Fire Blast unlocked!', blastHint: 'Tap Fire to throw a fireball — it burns!',
       ammoOut: 'Out of gems!',
