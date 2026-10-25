@@ -161,7 +161,7 @@ export class Arsenal {
       );
       this.ballMesh.visible = false;
       scene.add(this.ballMesh);
-      this.cogMesh = new THREE.Mesh(gearGeometry(CS.size, 8, 0.25), new THREE.MeshLambertMaterial({ color: CS.color, emissive: 0x6a4a10 }));
+      this.cogMesh = new THREE.Mesh(gearGeometry(CS.size, 8, 0.25), new THREE.MeshLambertMaterial({ color: CS.color, emissive: 0x6a4a10, transparent: true }));
       this.cogMesh.visible = false;
       scene.add(this.cogMesh);
       this.wheelMesh = new THREE.Group();
@@ -198,7 +198,7 @@ export class Arsenal {
   cooldownFraction(name) {
     if (name === 'batarang') return this.proj ? 1 : this.cooldowns.batarang / BT.cooldown;
     if (name === 'fireBlast') return this.cooldowns.fireBlast / FB.cooldown;
-    if (name === 'cogShot') return this.cog ? 1 : this.cooldowns.cogShot / CS.cooldown;
+    if (name === 'cogShot') return this.cog?.phase === 'fly' ? 1 : this.cooldowns.cogShot / CS.cooldown;
     if (name === 'gearWheel') return this.wheel ? 1 : this.cooldowns.gearWheel / GW.cooldown;
     return 0;
   }
@@ -489,42 +489,153 @@ export class Arsenal {
     if (u >= 1 || hit) this.#explode(f.pos.clone());
   }
 
-  /** Cog Shot: a spinning golden cog thrown in an arc at the nearest foe (or ahead); 2 damage where it lands. */
+  /**
+   * Cog Shot: the big golden cog is thrown from the hand in a small arc at the nearest foe (or ahead), upright like a coin on its edge
+   * (its axle sideways to its way). A robot in its path takes `CS.damage` and it drops there. Landing: a little bounce, then it rolls on its
+   * edge, spinning round its axle and slowing down, wobbles and falls over flat at the end (a wall stops it the same way), then fades.
+   */
   #throwCog(hand, target) {
     const t = target?.alive ? target : this.pick(CS.range);
     const { fwd } = this.#origin();
-    const end = t ? this.#centre(t) : hand.clone().addScaledVector(fwd, CS.forward).setY(this.hero.position.y + 0.4);
-    this.cog = { start: hand.clone(), end, dist: Math.max(2, hand.distanceTo(end)), u: 0, pos: hand.clone(), target: t };
+    const end = t ? this.#centre(t) : hand.clone().addScaledVector(fwd, CS.forward).setY(this.hero.position.y + CS.size);
+    const dir = new THREE.Vector3(end.x - hand.x, 0, end.z - hand.z);
+    if (dir.lengthSq() < 1e-4) dir.copy(fwd);
+    dir.setY(0).normalize();
+    const ground = this.horse.mounted ? this.horse.position.y : this.hero.position.y;
+    this.cog = {
+      start: hand.clone(), end, dist: Math.max(2, hand.distanceTo(end)), u: 0, pos: hand.clone(), target: t,
+      phase: 'fly', dir, speed: 0, ground, vy: 0, landed: false, t: 0, spin: 0, lean: 0, hit: false,
+    };
+    this.cogMesh.material.opacity = 1;
     this.cogMesh.visible = true;
     this.cogMesh.position.copy(hand);
+    this.cogMesh.rotation.set(0, -Math.atan2(dir.z, dir.x), 0, 'YXZ');
     this.stats.cogs = (this.stats.cogs ?? 0) + 1;
   }
 
   #flyCog(dt) {
     const c = this.cog;
-    const rider = this.horse.mounted ? Math.abs(this.horse.speed) : 0;
-    if (c.target?.alive) c.end.copy(this.#centre(c.target));
-    const oldU = c.u;
-    c.u = Math.min(1, c.u + ((CS.speed + rider * 0.2) * dt) / c.dist);
-    const pointAt = (u) => c.start.clone().lerp(c.end, u).setY(c.start.y + (c.end.y - c.start.y) * u + CS.arc * 4 * u * (1 - u));
-    const stepCount = Math.max(1, Math.ceil(c.pos.distanceTo(pointAt(c.u)) / 0.4));
-    let hit = null;
-    for (let i = 1; i <= stepCount; i++) {
-      c.pos.copy(pointAt(oldU + ((c.u - oldU) * i) / stepCount));
-      hit = this.#robotAt(c.pos, new Set());
-      if (hit) break;
+    const R = CS.roll;
+    const rest = c.ground + CS.size;
+    if (c.phase === 'fly') {
+      const rider = this.horse.mounted ? Math.abs(this.horse.speed) : 0;
+      if (c.target?.alive) c.end.copy(this.#centre(c.target));
+      const oldU = c.u;
+      c.u = Math.min(1, c.u + ((CS.speed + rider * 0.2) * dt) / c.dist);
+      const pointAt = (u) => c.start.clone().lerp(c.end, u).setY(c.start.y + (c.end.y - c.start.y) * u + CS.arc * 4 * u * (1 - u));
+      const stepCount = Math.max(1, Math.ceil(c.pos.distanceTo(pointAt(c.u)) / 0.4));
+      let hit = null;
+      for (let i = 1; i <= stepCount; i++) {
+        c.pos.copy(pointAt(oldU + ((c.u - oldU) * i) / stepCount));
+        hit = this.#robotAt(c.pos, new Set());
+        if (hit) break;
+        // (a wall or a pillar in its way: it drops there)
+        const world = this.horse.world;
+        if (world?.collide) {
+          const tmp = c.pos.clone();
+          world.collide(tmp, new THREE.Vector3(), CS.size);
+          if (Math.hypot(tmp.x - c.pos.x, tmp.z - c.pos.z) > 0.01) {
+            c.pos.x = tmp.x;
+            c.pos.z = tmp.z;
+            c.phase = 'fall';
+            c.t = 0;
+            c.speed = 0;
+            break;
+          }
+        }
+      }
+      c.spin += (CS.speed / CS.size) * dt * R.flySpin;
+      if (c.phase !== 'fly') {
+        /* (dropped at a wall) */
+      } else if (hit) {
+        // damage and the impact flash; it drops where it struck and falls over
+        if (this.#impact(hit, c.pos.clone(), CS.damage, 'cog', c.end.clone().sub(c.start).normalize())) this.stats.hits++;
+        c.hit = true;
+        c.phase = 'fall';
+        c.t = 0;
+        c.speed = 0;
+      } else if (c.u >= 1) {
+        // landed: a little bounce, then it rolls on along the way it was thrown
+        c.phase = 'roll';
+        c.speed = R.speed;
+        c.vy = c.pos.y > rest + 0.2 ? 0 : R.landBounce;
+      }
+    }
+    if (c.phase === 'roll' || c.phase === 'wobble') {
+      const step = c.speed * dt;
+      c.pos.addScaledVector(c.dir, step);
+      c.spin += (c.speed / CS.size) * dt;
+      // a wall (the plaza's wall, a pillar, the road's side walls): it stops there and falls over
+      const world = this.horse.world;
+      if (world?.collide) {
+        const tmp = new THREE.Vector3(c.pos.x, rest, c.pos.z);
+        const vel = c.dir.clone().multiplyScalar(c.speed);
+        world.collide(tmp, vel, CS.size);
+        if (Math.hypot(tmp.x - c.pos.x, tmp.z - c.pos.z) > 0.01) {
+          c.pos.x = tmp.x;
+          c.pos.z = tmp.z;
+          c.speed = 0;
+        }
+      }
+      if (c.phase === 'roll') {
+        c.speed = Math.max(0, c.speed - R.decel * dt);
+        const t = this.#robotAt(new THREE.Vector3(c.pos.x, c.ground + CS.size, c.pos.z), c.struck ??= new Set()); // (a robot it rolls into, once each)
+        if (t) {
+          c.struck.add(t);
+          if (this.#impact(t, c.pos.clone(), CS.damage, 'cog', c.dir.clone())) this.stats.hits++;
+          c.speed = 0;
+        }
+        if (c.speed < R.fallSpeed) {
+          c.phase = 'wobble';
+          c.t = 0;
+        }
+      } else {
+        c.speed = Math.max(0, c.speed - R.decel * dt);
+        c.t += dt;
+        // the wobble: it sways more and more, then tips over and lies flat
+        const k = Math.min(1, c.t / R.wobble);
+        c.lean = Math.sin(c.t * R.wobbleRate) * R.wobbleAmp * k;
+        if (c.t >= R.wobble) {
+          c.phase = 'fall';
+          c.t = 0;
+          c.leanFrom = c.lean;
+        }
+      }
+    }
+    // height: falling to the ground, the landing bounce, rolling along it
+    if (c.phase !== 'fly') {
+      if (c.phase === 'fall') {
+        c.t += dt;
+        const k = Math.min(1, c.t / R.fall);
+        c.lean = (c.leanFrom ?? 0) + (Math.PI / 2 - (c.leanFrom ?? 0)) * k * k; // (tips over onto its face)
+        const floor = c.ground + CS.size * Math.cos(c.lean) + 0.06;
+        c.vy -= R.gravity * dt; // (dropping from where it struck, then settling on the ground)
+        c.pos.y = Math.max(floor, c.pos.y + c.vy * dt);
+        if (c.pos.y <= floor) c.vy = 0;
+        c.speed = 0;
+        if (c.t >= R.fall + R.fade) {
+          this.cog = null;
+          this.cogMesh.visible = false;
+          this.cogMesh.material.opacity = 1;
+          return;
+        }
+        this.cogMesh.material.opacity = c.t > R.fall ? Math.max(0, 1 - (c.t - R.fall) / R.fade) : 1;
+      } else {
+        c.vy -= R.gravity * dt;
+        c.pos.y += c.vy * dt;
+        if (c.pos.y <= rest) {
+          c.pos.y = rest;
+          if (!c.landed && c.vy < -1) {
+            c.landed = true;
+            c.vy = R.landBounce; // (the one bounce)
+            this.fx.burst(new THREE.Vector3(c.pos.x, c.ground + 0.1, c.pos.z), 5, { speed: 2, life: 0.3, size: 0.09, color: CS.color, up: 0.8 });
+          } else c.vy = 0;
+        }
+      }
     }
     this.cogMesh.position.copy(c.pos);
-    this.cogMesh.rotation.x += 14 * dt;
-    this.cogMesh.rotation.y += 9 * dt;
-    if (hit) {
-      this.cog = null;
-      this.cogMesh.visible = false;
-      if (this.#impact(hit, c.pos.clone(), CS.damage, 'cog', c.end.clone().sub(c.start).normalize())) this.stats.hits++;
-    } else if (c.u >= 1) {
-      this.cog = null;
-      this.cogMesh.visible = false;
-    }
+    // upright on its edge, facing its way; spinning round its axle; leaning (the wobble, the fall)
+    this.cogMesh.rotation.set(c.lean, -Math.atan2(c.dir.z, c.dir.x), -c.spin, 'YXZ');
   }
 
   /**

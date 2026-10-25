@@ -509,6 +509,59 @@ const items0 = () => { fire.items.restore(null); fire.arsenal.clear(); fire.arse
   p2.sound.manager = null;
 }
 
+// 3d) The big cog (Cog Shot) is an upright coin: thrown in an arc, one bounce, rolls on its edge slowing down, wobbles, falls flat, fades.
+{
+  fresh();
+  const ar = fire.arsenal, f = fire.foes, CS = F.weapons.cogShot, R = CS.roll;
+  f.reset(0); f.clear();
+  place(300, 0, { speed: 0 });
+  fire.items.keys = 2;
+  ar.cooldowns.cogShot = 0;
+  const keys0 = fire.items.keys;
+  const used = ar.use('cogShot');
+  const phases = [];
+  let maxY0 = -Infinity, upright = true, spun = 0, lastSpin = 0, rolled0 = null, rolledMax = 0, speedStart = null, speedLate = null, bounced = false, lastY = null, risen = false, maxLeanWobble = 0, flatLean = 0, fadedOut = false;
+  await seconds(8, () => {
+    const c = ar.cog;
+    if (!c) { if (phases.length) fadedOut = phases.includes('fall'); return phases.length > 0; } // (the throw pose first, then the cog)
+    if (phases.at(-1) !== c.phase) phases.push(c.phase);
+    const m = ar.cogMesh;
+    if (c.phase === 'roll' || c.phase === 'fly') upright &&= Math.abs(m.rotation.x) < 1e-6 && m.rotation.order === 'YXZ';
+    spun += Math.abs(m.rotation.z - lastSpin);
+    lastSpin = m.rotation.z;
+    if (c.phase === 'roll') {
+      rolled0 ??= c.pos.clone();
+      rolledMax = Math.max(rolledMax, c.pos.distanceTo(rolled0));
+      speedStart ??= c.speed;
+      speedLate = c.speed;
+      if (lastY !== null && c.pos.y > lastY + 1e-3) risen = true;
+      lastY = c.pos.y;
+    }
+    if (c.phase === 'wobble') maxLeanWobble = Math.max(maxLeanWobble, Math.abs(c.lean));
+    if (c.phase === 'fall') flatLean = Math.max(flatLean, c.lean);
+    return false;
+  });
+  check(used && fire.items.keys === keys0 - CS.keys, `Cog Shot: thrown (1 key spent, 2 damage as before)`);
+  check(phases.join(',').startsWith('fly,roll') && phases.includes('wobble') && phases.at(-1) === 'fall' && fadedOut, `the big cog flies in an arc, lands, rolls, wobbles, falls over and fades (${phases.join(' → ')})`);
+  check(upright && spun > 8 && rolledMax > 3 && speedLate < speedStart && risen && maxLeanWobble > 0.05 && flatLean > Math.PI / 2 - 0.2, `it lands upright on its edge, bounces once, rolls ${rolledMax.toFixed(1)} on its edge spinning round its axle (${spun.toFixed(0)} rad), slows (${speedStart?.toFixed(1)} → ${speedLate?.toFixed(1)}), wobbles and tips flat`);
+  check(!ar.cog && !ar.cogMesh.visible, 'and it is gone');
+  // aimed at the road's side wall it stops there and falls over (never through it)
+  place(300, 0, { speed: 0 });
+  horse.heading += Math.PI / 2;
+  fire.items.keys = 1;
+  ar.cooldowns.cogShot = 0;
+  ar.use('cogShot');
+  let maxLat = 0, wallPhases = [];
+  await seconds(8, () => {
+    const c = ar.cog;
+    if (!c) return wallPhases.length > 0;
+    if (wallPhases.at(-1) !== c.phase) wallPhases.push(c.phase);
+    maxLat = Math.max(maxLat, Math.abs(track.nearest(c.pos.x, c.pos.z, 30).lateral));
+    return false;
+  });
+  check(wallPhases.includes('fall') && maxLat < CONFIG.part2.ride.wall.offset + 1, `thrown at the wall the big cog stops at it (${maxLat.toFixed(1)} off the middle) and falls over`);
+}
+
 // 4) Section 4: sword robots patrol, alert, sidestep, charge, wind up (a red ring), swing for half a heart; 4 HP; Fire Blast burns.
 {
   fresh();
@@ -534,12 +587,20 @@ const items0 = () => { fire.items.restore(null); fire.arsenal.clear(); fire.arse
       ar.gearStock = weapon === 'gearWheel' ? GW.gears : 0;
       const hp = target.hp;
       const used = ar.use(weapon);
-      let started = false;
+      let started = false, pre = null, post = null, d0 = null, same = true;
       await seconds(3, () => {
         started ||= weapon === 'cogShot' ? !!ar.cog : !!ar.wheel;
+        const w = ar.wheel;
+        if (w) {
+          d0 ??= w.dir.clone();
+          if (!post && w.hit.size) post = w.speed;
+          else if (!post) pre = w.speed;
+          if (post !== null) same &&= w.dir.dot(d0) > 0.8;
+        }
         return started && !ar.cog && !ar.wheel && target.hp < hp;
       });
       check(used && target.hp <= hp - F.weapons[weapon].damage, `${weapon} damages ${kind} (${hp} → ${target.hp})`);
+      if (weapon === 'gearWheel') check(post !== null && pre && Math.abs(post / pre - GW.wheelSpeedKeepOnHit) < 0.06 && same, `the Gear Wheel keeps ${(post / pre).toFixed(2)} of its speed after the ${kind} robot and rolls on the same way (no sideways launch)`);
     }
     target.active = true;
   }

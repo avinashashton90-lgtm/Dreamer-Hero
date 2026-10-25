@@ -1079,7 +1079,7 @@ export const CONFIG = {
       // Cog Shot (a spinning cog thrown in an arc, 2 damage, spends 1 cog key) and Gear Wheel (a fast spinning wheel rolling along
       // the ground, 3 damage, spends 4 brass gears): the level's two extra weapons; Fire Blast is his from the start of the level.
       weapons: {
-        cogShot: { damage: 2, cooldown: 1.2, speed: 26, arc: 3, range: 26, forward: 14, size: 0.5, keys: 1, color: 0xf0c048 },
+        cogShot: { damage: 2, cooldown: 1.2, speed: 26, arc: 3, range: 26, forward: 14, size: 0.5, keys: 1, color: 0xf0c048, roll: { flySpin: 0.6, speed: 11, decel: 4.5, fallSpeed: 2.5, gravity: 18, landBounce: 2.2, wobble: 0.6, wobbleRate: 22, wobbleAmp: 0.4, fall: 0.35, fade: 0.5 } }, // (an upright coin: thrown in an arc, one bounce, rolls on its edge slowing down, wobbles and falls flat, fades)
         gearWheel: { damage: 3, cooldown: 2.0, speed: 30, range: 34, radius: 1.5, height: 0.9, gears: 6, color: 0xd8a640, roll: 'gear_roll', maxBounces: 4, wheelSpeedKeepOnHit: 0.25, wheelWallBounceKeep: 0.6, hitPop: 2.6, wallPop: 1.6, gravity: 18, stopSpeed: 3, fade: 0.5, throwArc: { time: 0.32, height: 0.9, landBounce: 2.2 }, lean: { max: 0.3, rate: 1.5, ease: 8 } }, // (an upright wheel: thrown in a small arc, a little bounce, rolls spinning round its axle; a robot hit keeps `wheelSpeedKeepOnHit` of its speed and pops it up — it rolls on the same way; a wall keeps `wheelWallBounceKeep`; the Guardian stops it)
       },
       weaponImpact: { life: 0.28, flashRadius: 0.72, ringInner: 0.14, ringOuter: 0.24, sparks: 12, sparkRadius: 0.42, sparkSpeed: 3.6, sparkUp: 1.1, shake: 0.08, shakeTime: 0.18, push: 0.28, popupMargin: 32 },
