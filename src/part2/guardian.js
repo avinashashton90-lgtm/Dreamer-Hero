@@ -266,6 +266,11 @@ export class Guardian {
   update(dt, playing = true) {
     if (!this.model?.visible) return;
     const hero = this.hero;
+    // AJ is down (or getting up): whatever he was doing stops, and nothing new starts until he is alive again
+    if (hero.life && hero.life !== 'alive' && this.alive && ['stompWind', 'stompRing', 'steamWind', 'steam', 'chargeWind', 'charge', 'fireWind'].includes(this.state)) {
+      this.#hideTelegraphs();
+      this.#toRecover();
+    }
     this.t += dt;
     for (const k of Object.keys(this.cool)) this.cool[k] = Math.max(0, this.cool[k] - dt);
     this.flash = Math.max(0, this.flash - dt);
@@ -547,6 +552,7 @@ export class Guardian {
 
   /** What to do next (while chasing): a random pick among the attacks that can be used from here. */
   #choose(dist) {
+    if (this.hero.life && this.hero.life !== 'alive') return;
     const opts = [];
     if (this.cool.charge <= 0 && dist > B.charge.min) opts.push('charge');
     if (this.cool.steam <= 0 && dist > B.steam.min && dist < B.steam.max) opts.push('steam');

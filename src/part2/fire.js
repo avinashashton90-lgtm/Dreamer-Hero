@@ -307,6 +307,13 @@ export class FireLevel {
     }
   }
 
+  /** AJ is down: whatever he had in flight stops. */
+  onHeroDown() {
+    if (!this.arsenal) return;
+    this.arsenal.clear();
+    this.arsenal.pending = null;
+  }
+
   /** The fog and the lamps warm toward the furnace's red-orange. */
   #tint(on) {
     const p = this.p;
@@ -610,6 +617,9 @@ export class FireLevel {
     if (!debug) this.ride.stop();
     this.stage = 'boss';
     this.arsenal.levelOn = true; // (also when "Fire boss" jumps straight in)
+    // every protection flag cleared (a leftover from the ride, a respawn, a hit), then at most `entryProtection` s of it
+    hero.resetStatus();
+    hero.protectFor(A.entryProtection);
     // a fresh fight: the Guardian is up, so no pedestal and no Fire Element scene until he falls
     this.bossDown = false;
     this.pedestal = null;

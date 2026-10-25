@@ -304,6 +304,7 @@ async function boot() {
   };
   /** The hero takes `n` hearts of damage from (fromX, fromZ); opts.knockback false for e.g. fire. */
   damageHero = (n, fromX, fromZ, opts = {}) => {
+    if (levels.id === 'part2' && hero.life !== 'alive') return false; // (Part 2's one hero state: nothing hurts him while he is down or getting up)
     if (dying || hero.invincible || !state.is(STATES.PLAY)) return false;
     n = story.chaseHit(n, opts.source); // (the sandstorm chase: never below half a heart, a grace after each hit)
     if (n <= 0) return false;
@@ -313,6 +314,11 @@ async function boot() {
     input.unstick(); // (a hit never leaves a drag or a touch stuck: a live swipe keeps turning the camera)
     cam.shake(CONFIG.combat.shake.heavy, CONFIG.combat.shake.time);
     if (lives.damage(n)) {
+      // Part 2 runs its own downed state (Part2.down: lie down, revive once, get up, a safety timeout) — this file's fade needs Part 1's loop
+      if (levels.id === 'part2' && levels.current.down) {
+        levels.current.down();
+        return true;
+      }
       // Out of hearts: fade out, then use a respawn (on the horse at the last checkpoint) or Game Over.
       dying = true;
       input.setEnabled(false);
@@ -574,6 +580,8 @@ async function boot() {
     });
     const audioTest = new AudioTestPanel(overlay, audio);
     testMenu = new TestMenu(overlay, [
+      { info: () => DIALOGUE.testMenu.invulnerable(hero.invincible) },
+      { info: () => DIALOGUE.testMenu.heroState(hero.life) },
       { header: DIALOGUE.testMenu.part1 },
       ...Object.entries(jumps).map(item),
       { header: DIALOGUE.testMenu.part2 },

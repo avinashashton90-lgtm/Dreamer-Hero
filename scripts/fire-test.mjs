@@ -52,10 +52,11 @@ const lives = new Lives();
 const soundscape = { musicPhase: null };
 const hurts = [];
 const damageHero = (n, x, z, opts = {}) => {
-  if (hero.invincible || state.is(STATES.CUTSCENE)) return false;
+  if (hero.life !== 'alive' || hero.invincible || state.is(STATES.CUTSCENE)) return false; // (as main.js's damageHero does in Part 2)
   hero.hurt(x, z, opts.knockback !== false, opts.source !== 'fire');
-  lives.damage(n);
+  const dead = lives.damage(n);
   hurts.push({ n, source: opts.source });
+  if (dead) levels.current.down?.(); // (Part 2's own downed state)
   return true;
 };
 const part1 = { id: 'part1', scene: world.scene, enter: () => { for (const o of [hero.model, hero.shadow, horse.model, horse.shadow]) world.scene.add(o); }, exit() {} };
@@ -457,19 +458,24 @@ const items0 = () => { fire.items.restore(null); fire.arsenal.clear(); fire.arse
   ar.cooldowns.gearWheel = 0;
   const dir0 = new THREE.Vector3(Math.sin(horse.heading), 0, Math.cos(horse.heading));
   ar.use('gearWheel');
-  let maxBounce = 0, spin0 = null, spun = 0, lastRot = 0, dirEnd = null, y0 = Infinity, y1 = -Infinity;
+  let maxBounce = 0, spun = 0, lastRot = 0, dirEnd = null, y0 = Infinity, y1 = -Infinity, upright = true, speedBefore = null, keepSeen = null, prevSpeed = null, prevBounces = 0, maxLean = 0;
   await seconds(3, () => {
     const w = ar.wheel;
     if (!w) return maxBounce > 0;
+    if (w.bounces > prevBounces && prevSpeed) { keepSeen ??= w.speed / prevSpeed; dirEnd ??= w.dir.clone(); }
+    prevBounces = w.bounces;
+    prevSpeed = w.speed;
     maxBounce = Math.max(maxBounce, w.bounces);
     spun += Math.abs(ar.wheelGear.rotation.z - lastRot);
     lastRot = ar.wheelGear.rotation.z;
     y0 = Math.min(y0, w.pos.y); y1 = Math.max(y1, w.pos.y);
-    dirEnd = w.dir.clone();
+    maxLean = Math.max(maxLean, Math.abs(ar.wheelMesh.rotation.x));
+    upright &&= Math.abs(ar.wheelMesh.rotation.z) < 1e-6 && ar.wheelMesh.rotation.order === 'YXZ'; // (the rim stands on its edge: its face is vertical)
     return false;
   });
-  check(maxBounce >= 1 && dirEnd && dirEnd.dot(dir0) < 0.5 && y1 - y0 > 0.1 && spun > 10 && loops.some((l) => l.name === GW.roll), `the wheel spins as it rolls (${spun.toFixed(0)} rad), hops and bounces off the wall (${maxBounce} bounce, new heading dot ${dirEnd?.dot(dir0).toFixed(2)}), the gear_roll loop plays`);
-  // a robot: the first one it hits is hit and the wheel rebounds
+  check(maxBounce >= 1 && dirEnd && dirEnd.dot(dir0) < 0.5 && keepSeen !== null && Math.abs(keepSeen - GW.wheelWallBounceKeep) < 0.08 && y1 - y0 > 0.1 && spun > 10 && upright && maxLean <= GW.lean.max + 0.01 && loops.some((l) => l.name === GW.roll),
+    `the wheel stands upright and spins round its axle as it rolls (${spun.toFixed(0)} rad), is thrown in an arc (${(y1 - y0).toFixed(1)} of height), bounces gently off the wall keeping ${keepSeen?.toFixed(2)} of its speed (${GW.wheelWallBounceKeep}), the gear_roll loop plays`);
+  // a robot: damage and a flash, then it keeps a quarter of its speed, pops up and rolls on the same way (never a sideways launch); once per robot
   f.reset(0);
   place(430, 0, { speed: CONFIG.horse.maxSpeed });
   held.moveY = 1;
@@ -480,16 +486,26 @@ const items0 = () => { fire.items.restore(null); fire.arsenal.clear(); fire.arse
   ar.cooldowns.gearWheel = 0;
   const target = ar.pick();
   const hp0 = target.hp;
-  const flashes0 = ui.flashes, nums0 = ar.stats.hits;
+  const impacts0 = ar.fx.impacts.length;
   ar.use('gearWheel');
-  let wdir0 = null, back = false, sawReb = false;
+  let wdir0 = null, hitSeen = null, popped = false, sameWay = true, rolledOn = false, spPre = null, wasUpright = true;
   await seconds(3, () => {
     const w = ar.wheel;
-    if (w && !wdir0) wdir0 = w.dir.clone();
-    if (w?.rebounded) { sawReb = true; if (wdir0 && w.dir.dot(wdir0) < 0) back = true; }
-    return sawReb && !ar.wheel;
+    if (!w) return !!hitSeen;
+    if (!wdir0) wdir0 = w.dir.clone();
+    if (!hitSeen && w.hit.size > 0) hitSeen = { speed: w.speed, pre: spPre };
+    spPre = w.speed;
+    if (hitSeen) {
+      popped ||= w.vy > 0 || w.pos.y > w.ground + GW.radius + 0.02;
+      sameWay &&= w.dir.dot(wdir0) > 0.8;
+      rolledOn ||= w.travelled > 0 && w.speed > 0;
+    }
+    wasUpright &&= Math.abs(ar.wheelMesh.rotation.z) < 1e-6;
+    return false;
   });
-  check(sawReb && back && (!target.alive || target.hp < hp0) && ar.stats.hits > nums0 && ar.stats.rebounds >= 1, `the wheel hits the first robot (${hp0} → ${target.alive ? target.hp : 0} HP, ${GW.damage} damage) and rebounds back the way it came`);
+  const keep = hitSeen && hitSeen.pre ? hitSeen.speed / hitSeen.pre : -1;
+  check(hitSeen && (!target.alive || target.hp < hp0) && Math.abs(keep - GW.wheelSpeedKeepOnHit) < 0.06 && popped && sameWay && rolledOn && wasUpright && ar.fx.impacts.length >= impacts0 && !ar.stats.rebounds,
+    `the wheel hits a robot (${hp0} → ${target.alive ? target.hp : 0} HP, ${GW.damage} damage, the impact flash), keeps ${keep.toFixed(2)} of its speed (${GW.wheelSpeedKeepOnHit}), pops up and rolls on the same way — no sideways launch, no mirror bounce`);
   p2.sound.manager = null;
 }
 
@@ -681,16 +697,17 @@ const rel = (v) => new THREE.Vector3(C.x + v[0], 0, C.z + v[1]);
   const dodgesBefore = G.stats.wheelDodges ?? 0;
   const wheelDir = new THREE.Vector3(G.position.x - hero.position.x, 0, G.position.z - hero.position.z).normalize();
   const numbersBeforeWheel = ui.numbers.length;
-  let bounced = false, wheelImpact = false, wheelStarted = false;
+  let wheelImpact = false, wheelStarted = false, wheelStopped = false, wheelBounced = false;
   const wheelUsed = ar.use('gearWheel');
   await seconds(2, () => {
     wheelStarted ||= !!ar.wheel;
-    bounced ||= !!ar.wheel && ar.wheel.dir.dot(wheelDir) < 0;
+    wheelStopped ||= !!ar.wheel?.stopped && ar.wheel.speed === 0;
+    wheelBounced ||= !!ar.wheel && ar.wheel.dir.dot(wheelDir) < 0;
     wheelImpact ||= ar.fx.impacts.length > 0;
     return wheelStarted && !ar.wheel;
   });
-  check(wheelUsed && wheelStarted && G.hp <= hpWheel - F.weapons.gearWheel.damage && bounced && ar.gearStock === 0 && (G.stats.wheelDodges ?? 0) === dodgesBefore + 1,
-    `the four-gear Gear Wheel hits the Guardian at its legs/body, damages it and bounces back; the Guardian makes one timely dodge`);
+  check(wheelUsed && wheelStarted && G.hp <= hpWheel - F.weapons.gearWheel.damage && wheelStopped && !wheelBounced && ar.gearStock === 0 && (G.stats.wheelDodges ?? 0) === dodgesBefore + 1,
+    `the Gear Wheel hits the Guardian at its legs/body, damages it, then drops and stops (no bounce); the Guardian makes one timely dodge`);
   check(wheelImpact && ui.numbers.slice(numbersBeforeWheel).some((n) => n.text === '-3'),
     'the boss impact shows a "-3" damage popup');
   ar.clear();
@@ -929,6 +946,80 @@ const rel = (v) => new THREE.Vector3(C.x + v[0], 0, C.z + v[1]);
   // leaving the level puts its tints and models away
   await levels.load('part2', { start: 'courtyard' });
   check(!fire.parts.root.visible && ui.keys?.show === false && p2.scene.fog.color.getHex() === p2.scene.background.getHex(), 'out of the level: its models hidden, the cog-key counter gone, the look restored');
+}
+
+// 10) The one hero state (alive / downed / respawning): no invulnerability left over from the ride, and dying again and again always ends alive.
+{
+  const P2c = CONFIG.part2.down;
+  const D = CONFIG.testMenu;
+  check(DIALOGUE.testMenu.invulnerable(true) === 'Invulnerable: yes' && DIALOGUE.testMenu.invulnerable(false) === 'Invulnerable: no' && DIALOGUE.testMenu.heroState('downed') === 'Hero state: downed', 'the ?debug menu lines read "Invulnerable: yes / no" and "Hero state: …"');
+  void D;
+  await levels.load('part2', { start: 'fire' });
+  await run(0.5);
+  const f2 = p2.fire;
+  const ar2 = f2.arsenal;
+  lives.reset?.();
+  lives.setHearts(lives.maxHearts);
+  // a hit on the ride leaves protection; entering the plaza clears every flag, then protects at most `entryProtection` s
+  hero.iframes = 50; hero.reviveShield = 50; hero.superArmor = true; // (worst case: stuck flags)
+  place(1290, 0, { speed: 0 });
+  await f2.ride.onFinish();
+  await run(0.3);
+  check(p2.at === 'fireBoss' && hero.life === 'alive' && !hero.superArmor && hero.iframes === 0 && hero.reviveShield <= F.arena.entryProtection && hero.reviveShield > 0, `entering the plaza clears every protection flag (a stuck 50 s one too), then at most ${F.arena.entryProtection} s of protection (${hero.reviveShield.toFixed(2)} left)`);
+  await run(F.arena.entryProtection + 0.3);
+  check(!hero.invincible && hero.life === 'alive', 'it expires on its own: AJ is vulnerable (Invulnerable: no)');
+  const g2 = f2.guardian;
+  const hearts0 = lives.hearts;
+  const hurts0 = hurts.length;
+  g2.hitHero(F.boss.stomp.damage, g2.position, { source: 'stomp' });
+  await run(1.2);
+  g2.hitHero(F.boss.fireball.damage, g2.position, { source: 'fireball' });
+  await run(1.2);
+  g2.hitHero(F.boss.steam.damage, g2.position, { source: 'steam', knockback: false });
+  check(hurts.length === hurts0 + 3 && lives.hearts < hearts0 - 1.9, `stomp, fireball and steam all reach AJ right after the plaza ride (${hearts0} → ${lives.hearts} hearts)`);
+  // dying, four times in a row: down, locked, revived once, up, alive, controls back
+  for (let i = 1; i <= 4; i++) {
+    await run(1.2); // (past the last hit's invincibility)
+    if (i === 4) { // (the fourth time: from the saddle on the ride)
+      await levels.load('part2', { start: 'fire' });
+      await run(0.5);
+      place(300, 0, { speed: CONFIG.horse.maxSpeed * 0.3 });
+      await run(0.3);
+    }
+    lives.setHearts(0.5);
+    const respawns0 = lives.respawns;
+    const ok = damageHero(1, hero.position.x, hero.position.z, { source: 'stomp' });
+    const lockedAfter = p2.fire.arsenal.blockReason('batarang') === 'down' && !p2.fire.arsenal.use('batarang') && !p2.fire.arsenal.use('gearWheel') && !p2.fire.arsenal.use('fireBlast');
+    const noHit = damageHero(1, hero.position.x, hero.position.z, { source: 'stomp' }) === false;
+    await run(0.5);
+    check(ok && hero.life === 'downed' && hero.deathT > 0 && !input.enabled && lockedAfter && noHit && input.combat.hidden === true, `death ${i}${i === 4 ? ' (on the ride)' : ''}: AJ is downed, the fall plays, controls and ability buttons are locked, nothing can hurt him`);
+    await run(P2c.time + 0.2);
+    check(hero.life === 'respawning' && lives.respawns === respawns0 - 1 && lives.hearts === lives.maxHearts, `…after ${P2c.time} s the revive runs once: hearts full, a respawn used, getting up`);
+    await run(P2c.getUp + 0.3);
+    check(hero.life === 'alive' && hero.deathT < 0 && hero.getUpT < 0 && input.enabled && hero.reviveShield > 0 && hero.reviveShield <= P2c.protection && p2.downPhase === null, `…up again: alive, the lying-down animation cleared, controls back, ${hero.reviveShield.toFixed(1)} s of protection that ends on its own`);
+    lives.respawns = Math.max(lives.respawns, 2); // (more lives for the next round)
+    await run(P2c.protection + 0.2);
+    check(!hero.invincible, '…and the protection has expired');
+  }
+  // the safety timeout: a get-up that never finishes is forced alive
+  hero.die(); p2.downPhase = 'getup'; p2.downT = P2c.safety - 0.1; hero.life = 'respawning'; hero.getUpT = 0; lives.hearts = lives.maxHearts;
+  await seconds(0.5, () => { if (hero.life !== 'alive') hero.getUpT = 0; return hero.life === 'alive'; });
+  check(hero.life === 'alive' && p2.downPhase === null && (p2.stats.downSafety ?? 0) >= 1, `the ${P2c.safety} s safety timeout forces a stuck get-up back to alive`);
+  // the watchdog: a protection flag that never ticks down is wiped
+  hero.reviveShield = 1e6;
+  await seconds(CONFIG.part2.down.invincibleMax + 0.5, () => hero.reviveShield < 1e5);
+  check(hero.reviveShield < 1e5 && !hero.invincible, `a stuck protection flag is wiped by the watchdog after ${CONFIG.part2.down.invincibleMax} s`);
+  // Game Over after the last respawn
+  lives.respawns = 0;
+  lives.setHearts(0.5);
+  await run(1.2);
+  damageHero(1, hero.position.x, hero.position.z, { source: 'stomp' });
+  await run(P2c.time + 0.3);
+  check(state.is(STATES.GAMEOVER) && p2.downPhase === 'over', 'with no respawn left, the fall ends in Game Over (once)');
+  state.set(STATES.PLAY);
+  p2.retry();
+  await run(0.5);
+  check(hero.life === 'alive' && input.enabled, 'Retry: alive, controls on');
 }
 
 console.log(failed ? '\nFIRE TEST FAILED' : '\nFIRE TEST PASSED');

@@ -165,7 +165,7 @@ export class Arsenal {
       this.cogMesh.visible = false;
       scene.add(this.cogMesh);
       this.wheelMesh = new THREE.Group();
-      this.wheelGear = new THREE.Mesh(gearGeometry(GW.radius, 12, 0.35), new THREE.MeshLambertMaterial({ color: GW.color, emissive: 0x4a3008 }));
+      this.wheelGear = new THREE.Mesh(gearGeometry(GW.radius, 12, 0.35), new THREE.MeshLambertMaterial({ color: GW.color, emissive: 0x4a3008, transparent: true }));
       this.wheelMesh.add(this.wheelGear);
       this.wheelMesh.visible = false;
       scene.add(this.wheelMesh);
@@ -204,6 +204,7 @@ export class Arsenal {
   }
 
   canAfford(name) {
+    if (this.hero.life && this.hero.life !== 'alive') return false;
     if (name === 'batarang') return this.ammo > 0;
     if (name === 'cogShot' || name === 'gearWheel') return this.usesLeft(name) > 0;
     return this.has(name);
@@ -220,6 +221,7 @@ export class Arsenal {
   /** Why `name` can't be used now (null: it can). */
   blockReason(name) {
     if (!this.has(name)) return 'locked';
+    if (this.hero.life && this.hero.life !== 'alive') return 'down'; // (lying down, or getting up: nothing can be thrown)
     if (this.pending || (name === 'batarang' && this.proj)) return 'busy';
     if (this.cooldowns[name] > 0) return 'cooldown';
     if (name === 'batarang' && this.ammo <= 0) return 'gems';
@@ -374,7 +376,7 @@ export class Arsenal {
         this.pending = null;
         if (name === 'batarang') this.#throwBatarang(hand, target);
         else if (name === 'cogShot') this.#throwCog(hand, target);
-        else if (name === 'gearWheel') this.#rollWheel(target);
+        else if (name === 'gearWheel') this.#rollWheel(hand, target);
         else this.#throwBall(hand, target);
         this.sound?.play({ batarang: 'batarang_throw', cogShot: 'batarang_throw', gearWheel: 'gear_whoosh' }[name] ?? 'fire_blast_cast', { position: hand, pitch: name === 'cogShot' ? 0.7 : 1 });
       }
@@ -526,12 +528,13 @@ export class Arsenal {
   }
 
   /**
-   * Gear Wheel: a fast spinning wheel rolls along the ground (toward the nearest foe, else ahead). It spins as it rolls
-   * (speed ÷ radius), hops a little and bounces off walls (`GW.wallKeep` of its speed kept, `GW.maxBounces` at most),
-   * and rebounds off the first robot it hits (damage as usual, then back the way it came). Everything it touches takes
-   * `GW.damage` once; the `gear_roll` loop plays while it rolls.
+   * Gear Wheel: a real wheel — it stands upright like a coin on its edge, thrown forward from AJ's hand in a small arc, a little bounce on
+   * landing, then it rolls along the ground (toward the nearest foe, else ahead), spinning round its axle as fast as it travels
+   * (speed ÷ radius), leaning a little into turns. Hitting a small or medium robot: damage, the impact flash, then it keeps
+   * `wheelSpeedKeepOnHit` of its speed, pops up and rolls on the same way (each robot once per throw). A wall: a gentle bounce keeping
+   * `wheelWallBounceKeep` of its speed. The Guardian: damage, then it drops and stops. It fades out at the end of its range.
    */
-  #rollWheel(target) {
+  #rollWheel(hand, target) {
     const t = target?.alive ? target : this.pick(GW.range);
     const { fwd } = this.#origin();
     const h = this.hero.position;
@@ -539,30 +542,32 @@ export class Arsenal {
     if (t) dir = new THREE.Vector3(t.position.x - h.x, 0, t.position.z - h.z).normalize();
     const ground = this.horse.mounted ? this.horse.position.y : h.y;
     this.wheel = {
-      pos: new THREE.Vector3(h.x + dir.x * 1.2, ground + GW.radius, h.z + dir.z * 1.2),
-      dir, travelled: 0, hit: new Set(), ground, k: 1, bounces: 0, rebounded: false, hopT: 0,
+      pos: new THREE.Vector3(hand.x + dir.x * 0.4, hand.y, hand.z + dir.z * 0.4),
+      dir, speed: GW.speed + (this.horse.mounted ? Math.abs(this.horse.speed) * 0.5 : 0), travelled: 0, hit: new Set(), ground,
+      phase: 'air', air: 0, y0: hand.y, vy: 0, bounces: 0, fade: 0, stopped: false, lean: 0, turn: 0,
     };
+    this.wheelGear.material.opacity = 1;
     this.wheelMesh.visible = true;
     this.wheelMesh.position.copy(this.wheel.pos);
-    this.wheelMesh.rotation.y = -Math.atan2(dir.z, dir.x); // (its axle across its way)
+    this.wheelMesh.rotation.set(0, -Math.atan2(dir.z, dir.x), 0);
     this.stats.wheels = (this.stats.wheels ?? 0) + 1;
   }
 
   #rollOn(dt) {
     const w = this.wheel;
-    const rider = this.horse.mounted ? Math.abs(this.horse.speed) : 0;
-    const speed = (GW.speed + rider * 0.5) * w.k;
-    const step = speed * dt;
-    const n = Math.max(1, Math.ceil(step / 0.6));
+    const rest = w.ground + GW.radius; // (the axle's height when it rolls)
     const world = this.horse.world;
+    const step = w.speed * dt;
+    const n = Math.max(1, Math.ceil(step / 0.6));
     const tmp = new THREE.Vector3();
     const vel = new THREE.Vector3();
-    for (let i = 0; i < n; i++) {
+    const prevDir = w.dir.clone();
+    for (let i = 0; i < n && !w.stopped; i++) {
       w.pos.addScaledVector(w.dir, step / n);
-      // a wall (the plaza's wall, a pillar, the road's side walls and fences): bounce off it, a little slower
-      if (world?.collide && w.bounces < GW.maxBounces) {
-        tmp.set(w.pos.x, w.ground + GW.radius, w.pos.z);
-        vel.copy(w.dir).multiplyScalar(speed);
+      // a wall (the plaza's wall, a pillar, the road's side walls and fences): a gentle bounce
+      if (world?.collide && w.bounces < GW.maxBounces && w.phase === 'roll') {
+        tmp.set(w.pos.x, rest, w.pos.z);
+        vel.copy(w.dir).multiplyScalar(w.speed);
         world.collide(tmp, vel, GW.radius * 0.5);
         const dx = tmp.x - w.pos.x;
         const dz = tmp.z - w.pos.z;
@@ -575,48 +580,70 @@ export class Arsenal {
           w.pos.x = tmp.x;
           w.pos.z = tmp.z;
           w.bounces++;
-          w.k *= GW.wallKeep;
-          w.hopT = GW.hopTime;
-          this.sound?.play('batarang_hit', { position: w.pos, pitch: 0.5, volume: 0.6 });
-          this.fx.burst(w.pos, 6, { speed: 3, life: 0.3, size: 0.1, color: GW.color, up: 1 });
+          w.speed *= GW.wheelWallBounceKeep;
+          w.vy = GW.wallPop;
+          this.sound?.play('batarang_hit', { position: w.pos, pitch: 0.5, volume: 0.5 });
+          this.fx.burst(w.pos, 5, { speed: 2.5, life: 0.3, size: 0.09, color: GW.color, up: 1 });
         }
       }
       const t = this.#wheelAt(w.pos, w.hit);
       if (t) {
-        w.hit.add(t);
+        w.hit.add(t); // (once per robot per throw)
         if (this.#impact(t, w.pos.clone(), GW.damage, 'wheel', w.dir)) this.stats.hits++; // (the impact flash, the number popup and the shake)
-        if (!w.rebounded) {
-          // it reflects off the first robot it hits: back off the robot's side, with room to roll home
-          let nx = w.pos.x - t.position.x;
-          let nz = w.pos.z - t.position.z;
-          const d = Math.hypot(nx, nz) || 1;
-          nx /= d;
-          nz /= d;
-          const into = w.dir.x * nx + w.dir.z * nz;
-          if (t.isBoss || into >= 0) w.dir.negate();
-          else w.dir.set(w.dir.x - 2 * into * nx, 0, w.dir.z - 2 * into * nz).normalize();
-          w.pos.addScaledVector(w.dir, GW.radius * 0.2);
-          w.rebounded = true;
-          w.k *= GW.reboundKeep;
-          w.hopT = GW.hopTime;
-          w.travelled = Math.min(w.travelled, GW.range * 0.4);
-          this.stats.rebounds = (this.stats.rebounds ?? 0) + 1;
+        if (t.isBoss) {
+          w.speed = 0; // (the Guardian: it drops and stops)
+          w.stopped = true;
+          w.vy = 0;
+          w.phase = 'roll';
+          w.fade = GW.fade;
+          this.stats.wheelStops = (this.stats.wheelStops ?? 0) + 1;
+        } else {
+          w.speed *= GW.wheelSpeedKeepOnHit; // (it loses most of its speed, pops up and rolls on the same way)
+          w.vy = GW.hitPop;
+          this.stats.wheelHits = (this.stats.wheelHits ?? 0) + 1;
         }
       }
     }
     w.travelled += step;
-    if (w.hopT > 0) w.hopT = Math.max(0, w.hopT - dt);
-    const hop = w.hopT > 0 ? Math.sin(Math.PI * (1 - w.hopT / GW.hopTime)) * GW.hop : 0;
-    w.pos.y = w.ground + GW.radius + hop;
-    this.wheelMesh.position.copy(w.pos);
-    this.wheelMesh.rotation.y = -Math.atan2(w.dir.z, w.dir.x);
-    this.wheelGear.rotation.z -= (speed / GW.radius) * dt; // (rolling: the rim keeps pace with the ground)
-    this.sound?.manager?.setLoop('gearRoll', GW.roll, { volume: 0.5, rate: 0.8 + 0.4 * w.k, position: w.pos });
-    if (Math.random() < dt * 30) this.fx.emit(w.pos.clone().setY(w.ground + 0.1), new THREE.Vector3((Math.random() - 0.5) * 2, 1.5, (Math.random() - 0.5) * 2), { life: 0.3, size: 0.09, color: F.accent2, g: 6 });
-    if (w.travelled >= GW.range) {
-      this.wheel = null;
-      this.wheelMesh.visible = false;
+    // height: thrown in an arc from the hand, a small bounce where it lands, then rolling on the ground (pops from hits and walls fall back)
+    if (w.phase === 'air') {
+      w.air = Math.min(1, w.air + dt / GW.throwArc.time);
+      const u = w.air;
+      w.pos.y = w.y0 + (rest - w.y0) * u + GW.throwArc.height * 4 * u * (1 - u);
+      if (u >= 1) {
+        w.phase = 'roll';
+        w.vy = GW.throwArc.landBounce;
+        this.fx.burst(new THREE.Vector3(w.pos.x, w.ground + 0.1, w.pos.z), 5, { speed: 2, life: 0.3, size: 0.09, color: GW.color, up: 0.8 });
+      }
+    } else {
+      w.vy -= GW.gravity * dt;
+      w.pos.y += w.vy * dt;
+      if (w.pos.y <= rest) {
+        w.pos.y = rest;
+        w.vy = 0;
+      }
     }
+    // the end: out of range, or too slow to roll on — it fades away
+    if (!w.fade && (w.travelled >= GW.range || w.speed < GW.stopSpeed)) w.fade = GW.fade;
+    if (w.fade) {
+      w.fade = Math.max(0, w.fade - dt);
+      this.wheelGear.material.opacity = Math.max(0, w.fade / GW.fade);
+      w.speed *= Math.max(0, 1 - dt * 3);
+      if (w.fade <= 0) {
+        this.wheel = null;
+        this.wheelMesh.visible = false;
+        this.wheelGear.material.opacity = 1;
+        return;
+      }
+    }
+    // upright, facing its way; spinning round its axle with the ground; a little lean into turns
+    const turn = Math.atan2(prevDir.x * w.dir.z - prevDir.z * w.dir.x, prevDir.x * w.dir.x + prevDir.z * w.dir.z);
+    w.lean += ((GW.lean.max * Math.max(-1, Math.min(1, turn / Math.max(dt, 1e-3) / GW.lean.rate))) - w.lean) * Math.min(1, dt * GW.lean.ease);
+    this.wheelMesh.position.copy(w.pos);
+    this.wheelMesh.rotation.set(w.lean, -Math.atan2(w.dir.z, w.dir.x), 0, 'YXZ');
+    this.wheelGear.rotation.z -= (w.speed / GW.radius) * dt;
+    this.sound?.manager?.setLoop('gearRoll', GW.roll, { volume: 0.5 * Math.min(1, w.speed / GW.speed), rate: 0.8 + 0.4 * Math.min(1, w.speed / GW.speed), position: w.pos });
+    if (w.phase === 'roll' && w.pos.y <= rest + 0.05 && Math.random() < dt * 30 * Math.min(1, w.speed / GW.speed)) this.fx.emit(w.pos.clone().setY(w.ground + 0.1), new THREE.Vector3((Math.random() - 0.5) * 2, 1.5, (Math.random() - 0.5) * 2), { life: 0.3, size: 0.09, color: F.accent2, g: 6 });
   }
 
   /** The ball bursts: everyone within the splash takes the damage and catches fire. */

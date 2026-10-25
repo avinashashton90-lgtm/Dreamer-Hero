@@ -490,7 +490,11 @@ export class HeroAnimator {
 
     if (hero.deathT >= 0 && !hero.riding) {
       primary = 'death';
-      this.#scrub('death', hero.deathT, [0, C.death.time]);
+      this.#scrub('death', Math.min(hero.deathT, C.death.time), [0, C.death.time]); // (played once: he stays down on the last frame)
+    } else if (hero.getUpT >= 0 && !hero.riding) {
+      primary = 'death'; // (the get-up: the fall played backwards)
+      const k = Math.min(1, hero.getUpT / CONFIG.part2.down.getUp);
+      this.#scrub('death', C.death.time * (1 - k), [0, C.death.time]);
     } else if (hero.riding) {
       primary = 'ride';
     } else if (hero.drink) {

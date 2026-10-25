@@ -233,6 +233,9 @@ export class Hero {
     this.facePitch = 0; // scripted: look up / down (radians)
     this.hitT = 0; // seconds left of the hit reaction (taking damage)
     this.deathT = -1; // seconds into the death fall (≥ 0 after the last heart is lost)
+    this.life = 'alive'; // 'alive' | 'downed' | 'respawning': the one state movement, attacks, abilities and damage check in Part 2
+    this.getUpT = -1; // seconds into the get-up (the fall played backwards) after a revive
+    this.invincibleFor = 0; // how long he has been continuously protected (the watchdog, Part 2)
     this.appliedSlump = 0; // how far the exhaustion slump bends the spine this frame (radians)
     this.phase = 0; // walk cycle
     this.time = 0;
@@ -398,10 +401,40 @@ export class Hero {
   /** Out of hearts: the death fall plays (until the respawn puts him back on the horse). */
   die() {
     if (this.deathT < 0) this.deathT = 0;
+    this.life = 'downed';
+    this.getUpT = -1;
     this.hurtT = this.riderFlinch = 0; // (no blink on the way down)
     this.attack = null;
     this.throwAnim = null;
     this.dodgeT = 0;
+  }
+
+  /** Revived: the fall plays backwards (the get-up), then he is alive again (Part 2: `Part2.#finishDown`). */
+  getUp() {
+    this.life = 'respawning';
+    this.deathT = -1;
+    this.getUpT = 0;
+    this.attack = null;
+    this.throwAnim = null;
+  }
+
+  /**
+   * Safety net (Part 2, every frame, real time): protection never outlasts `CONFIG.part2.down.invincibleMax` —
+   * a flag that somehow never clears is wiped. Returns true when it had to.
+   */
+  watchdog(realDt) {
+    if (this.life === 'alive' && this.invincible && !this.superArmor) this.invincibleFor += realDt;
+    else this.invincibleFor = 0;
+    if (this.invincibleFor > CONFIG.part2.down.invincibleMax) {
+      this.resetStatus();
+      return true;
+    }
+    return false;
+  }
+
+  /** Can a hit land on him right now (alive and not protected)? */
+  get vulnerable() {
+    return this.life === 'alive' && !this.invincible;
   }
 
   /** The Lazarus Pit cup is in his hand. */
@@ -578,6 +611,10 @@ export class Hero {
     this.hurtRed = Math.max(0, (this.hurtRed ?? 0) - dt);
     this.riderFlinch = Math.max(0, (this.riderFlinch ?? 0) - dt);
     if (this.deathT >= 0) this.deathT += dt;
+    if (this.getUpT >= 0) {
+      this.getUpT += dt;
+      if (this.getUpT >= CONFIG.part2.down.getUp) this.getUpT = -1;
+    }
     if (u.animator) {
       u.animator.update(dt, this);
       this.appliedSlump = u.animator.slump;
@@ -642,6 +679,10 @@ export class Hero {
 
   /** Invincibility, blink, red flashes and flinch back to normal at once (a death, a respawn). */
   resetStatus() {
+    this.life = 'alive';
+    this.deathT = this.getUpT = -1;
+    this.superArmor = false;
+    this.invincibleFor = 0;
     this.iframes = this.hurtT = this.hurtRed = this.riderFlinch = this.hitT = this.redFlicker = this.reviveShield = 0;
     this.model.visible = true;
     for (const m of this.model.userData.mats ?? []) {

@@ -141,6 +141,7 @@ class Part2 {
 
   /** Into Gearhaven: take the hero, horse and camera over; start at `start`. */
   async enter({ start = 'arrival' } = {}) {
+    this.#clearDown();
     const { hero, horse, cam } = this;
     // (what Part 1 lent us: kept from the first entry only — re-entering at another start keeps it)
     this.leaveRide();
@@ -183,6 +184,7 @@ class Part2 {
   /** Back out (to Part 1): everything borrowed is handed back. */
   exit() {
     const { hero, horse, cam } = this;
+    this.#clearDown();
     this.leaveRide();
     this.ui.setElements?.([], false);
     this.ui.setCogKeys?.(0, false);
@@ -833,13 +835,21 @@ class Part2 {
     const fireRide = this.at === 'fire';
     // (in the Fire level AJ can get down and walk: the horse then stands, and ride.js leaves him alone)
     const mounted = riding && (!fireRide || horse.controlsHero);
+    this.#downTick(realDt);
+    if (live) hero.watchdog(realDt); // (no protection flag outlives `down.invincibleMax`)
+    const alive = hero.life === 'alive';
     const fire = this.fire;
     const fight = !!fire?.stage && (this.at === 'fire' || this.at === 'fireBoss'); // (the Fire level's fighting: the Batarang and Fire Blast)
     // After the Fire Element, Fire Blast is his everywhere (the Arsenal outside the level too).
     const armed = !fight && !!fire?.built && this.elements.includes('fire') && !fire.stage;
     if (playing) {
-      if (!input.enabled) input.setEnabled(true);
+      if (alive && !input.enabled) input.setEnabled(true);
       inp = input.read();
+      if (!alive) {
+        // down (or getting up): every control is dead — no moving, jumping, abilities, mounting; the view stays still
+        input.setEnabled(false);
+        Object.assign(inp, { moveX: 0, moveY: 0, jumpPressed: false, jumpHeld: false, gallop: false, ability: null, attackPressed: false, dodgePressed: false, mountPressed: false, lookDX: 0, lookDY: 0 });
+      }
       if (this.at === 'robots' || this.at === 'props') inp.moveX = inp.moveY = 0; // (AJ stands for scale; a swipe turns the view)
       else cam.rotate(inp.lookDX, inp.lookDY, inp.lookSensitivity);
       inp.attackPressed = inp.dodgePressed = false; // (no melee here: the elements bring the abilities)
@@ -853,7 +863,7 @@ class Part2 {
       }
       // The HUD: no gems (the elements replace them; the ride counts brass gears), no horse
       // energy, no boss bar; Jump (and Gallop on the ride).
-      input.setCombatButtons(mounted, fight || armed ? fire.arsenal : this.abilities, !(fight || armed));
+      input.setCombatButtons(mounted, fight || armed ? fire.arsenal : this.abilities, !(fight || armed) || !alive);
       if (fireRide) {
         // The Dismount button (hold 0.4 s, only below the horse's speed limit) and, on foot beside the horse, Mount — as in Part 1,
         // all through the ride and its plaza (in the boss plaza AJ is already on foot and the horse waits by the gate).
@@ -935,6 +945,75 @@ class Part2 {
   // --- the Fire level's hooks (main.js calls these in Part 2) ------------------------------------
 
   /** Died (and a respawn was used): back at the last checkpoint on the ride, or revived inside the plaza. */
+  /**
+   * Hearts at zero (main.js, after `lives.damage`): the one downed state. The fall plays once, controls and ability buttons are locked
+   * (nothing in the chapter reads input while `hero.life` isn't 'alive'), a mounted AJ gets down first, then `#downTick` runs the
+   * revive once; a watchdog (`down.safety`) forces him alive if anything fails to clear.
+   */
+  down() {
+    const { hero, horse } = this;
+    if (hero.life !== 'alive') return; // (once: a second blow while down does nothing)
+    hero.die();
+    this.input.setEnabled(false);
+    this.downT = 0;
+    this.downPhase = 'down';
+    this.fire?.onHeroDown?.();
+    if (horse.mode === 'riding') {
+      horse.speed = 0;
+      horse.toggle(hero); // (down off the horse first: the fall plays on foot beside it)
+    }
+  }
+
+  /** Nothing pending from a fall (a level change, Retry, a new game): alive, unlocked, no timers. */
+  #clearDown() {
+    this.downPhase = null;
+    this.downT = 0;
+    if (this.hero.life !== 'alive' || this.hero.deathT >= 0 || this.hero.getUpT >= 0) this.hero.resetStatus();
+  }
+
+  /** Every frame (real time): the downed state's clock — lie down, revive (once), get up, alive; the safety timeout. */
+  #downTick(realDt) {
+    const D = P2.down;
+    const { hero } = this;
+    if (!this.downPhase) {
+      if (hero.life !== 'alive') this.downPhase = 'down'; // (downed by something else: the clock still runs)
+      else return;
+    }
+    if (this.downPhase === 'over' || this.state.paused || this.state.is(this.STATES.GAMEOVER)) return;
+    this.downT += realDt;
+    if (this.downPhase === 'down' && this.downT >= D.time) this.#revive();
+    else if (this.downPhase === 'getup' && hero.getUpT < 0) this.#finishDown();
+    if (this.downPhase && this.downT >= D.safety) {
+      if (this.downPhase === 'down') this.#revive();
+      this.#finishDown(); // (the safety timeout: alive again whatever is stuck)
+      this.stats.downSafety = (this.stats.downSafety ?? 0) + 1;
+    }
+  }
+
+  /** The revive, once: hearts full (a respawn used) at the revival point, the get-up begins; or Game Over. */
+  #revive() {
+    if (this.downPhase !== 'down') return;
+    this.downPhase = 'getup';
+    if (this.lives.resolveDeath() !== 'respawn') {
+      this.downPhase = 'over'; // (Game Over: he stays down until Retry; nothing runs twice)
+      this.state.set(this.STATES.GAMEOVER);
+      return;
+    }
+    this.respawn();
+    this.hero.getUp();
+  }
+
+  /** Up again: alive, unlocked, the idle pose, then `protection` s of protection that ends on its own. */
+  #finishDown() {
+    const { hero } = this;
+    this.downPhase = null;
+    this.downT = 0;
+    hero.resetStatus();
+    hero.protectFor(P2.down.protection);
+    this.input.setEnabled(true);
+    this.stats.revives = (this.stats.revives ?? 0) + 1;
+  }
+
   respawn() {
     if (this.at === 'fire') this.fire.respawn();
     else if (this.at === 'fireBoss') this.fire.reviveInArena();
@@ -943,6 +1022,7 @@ class Part2 {
 
   /** Game Over → Retry: the Fire level again from its start (anywhere else: the courtyard). */
   retry() {
+    this.#clearDown();
     this.cinematic.stop?.();
     this.lives?.reset?.();
     if (this.at === 'fire' || this.at === 'fireBoss' || this.at === 'fireElement') return this.enterFire();

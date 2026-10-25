@@ -45,7 +45,20 @@ export class TestMenu {
     this.panel = document.createElement('div');
     this.panel.className = 'test-panel';
     this.panel.style.display = 'none';
+    this.infos = [];
+    this.infoTimer = setInterval(() => {
+      if (this.panel.style.display !== 'none') for (const [el, fn] of this.infos) el.textContent = fn();
+    }, CONFIG.testMenu.infoMs);
     for (const item of items) {
+      if (item.info) {
+        // (a live read-out line, refreshed while the panel is open: "Invulnerable: no", "Hero state: alive")
+        const line = document.createElement('div');
+        line.className = 'test-info';
+        line.textContent = item.info();
+        this.infos.push([line, item.info]);
+        this.panel.append(line);
+        continue;
+      }
       if (item.header) {
         // (a section heading: "Part 1", "Part 2")
         const h = document.createElement('div');

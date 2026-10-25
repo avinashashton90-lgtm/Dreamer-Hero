@@ -1017,6 +1017,10 @@ export const CONFIG = {
     // The Fire Element's level (part2/fire.js): the furnace city ride (the Gearhaven ride's own
     // machinery on a new layout: conveyors, steam vents, rails, gears), scout robots, a chest plaza,
     // sword robots and the Furnace Guardian in a sealed circular plaza; then the Fire Element.
+    // Hearts at zero in Part 2 (Part2.down): `time` s on the floor (the fall plays once, controls and buttons locked, nothing can hurt him), then the
+    // revive (hearts full, the revival point), `getUp` s getting up (the fall backwards), then alive with `protection` s of protection. If anything
+    // fails to clear, `safety` s after the fall he is forced alive; protection never lasts longer than `invincibleMax` s (a watchdog wipes a stuck flag).
+    down: { time: 2.0, getUp: 0.8, safety: 4, protection: 3, invincibleMax: 4 },
     fire: {
       accent: 0xff4a1c, accent2: 0xffa040, ember: 0x4a1608, // red-orange; the fog warms toward `ember` (`fogMix`)
       fogMix: 0.38, lightColor: 0xff7a2a,
@@ -1076,7 +1080,7 @@ export const CONFIG = {
       // the ground, 3 damage, spends 4 brass gears): the level's two extra weapons; Fire Blast is his from the start of the level.
       weapons: {
         cogShot: { damage: 2, cooldown: 1.2, speed: 26, arc: 3, range: 26, forward: 14, size: 0.5, keys: 1, color: 0xf0c048 },
-        gearWheel: { damage: 3, cooldown: 2.0, speed: 30, range: 34, radius: 1.5, height: 0.9, gears: 6, color: 0xd8a640, hop: 0.35, hopTime: 0.35, wallKeep: 0.85, maxBounces: 4, reboundKeep: 0.9, roll: 'gear_roll' }, // (spins with its rolling: speed ÷ radius; bounces a little off walls, rebounds off the first robot it hits)
+        gearWheel: { damage: 3, cooldown: 2.0, speed: 30, range: 34, radius: 1.5, height: 0.9, gears: 6, color: 0xd8a640, roll: 'gear_roll', maxBounces: 4, wheelSpeedKeepOnHit: 0.25, wheelWallBounceKeep: 0.6, hitPop: 2.6, wallPop: 1.6, gravity: 18, stopSpeed: 3, fade: 0.5, throwArc: { time: 0.32, height: 0.9, landBounce: 2.2 }, lean: { max: 0.3, rate: 1.5, ease: 8 } }, // (an upright wheel: thrown in a small arc, a little bounce, rolls spinning round its axle; a robot hit keeps `wheelSpeedKeepOnHit` of its speed and pops it up — it rolls on the same way; a wall keeps `wheelWallBounceKeep`; the Guardian stops it)
       },
       weaponImpact: { life: 0.28, flashRadius: 0.72, ringInner: 0.14, ringOuter: 0.24, sparks: 12, sparkRadius: 0.42, sparkSpeed: 3.6, sparkUp: 1.1, shake: 0.08, shakeTime: 0.18, push: 0.28, popupMargin: 32 },
       // Potions along the road: 3 green and 3 blue on the ride, 2 green in the plaza. [s, lat] — off the gem line (±1.6).
@@ -1115,6 +1119,7 @@ export const CONFIG = {
       arena: {
         at: [300, 0, -60], radius: 24, wall: 23, pillars: { count: 4, ring: 13, radius: 1.3, height: 7 },
         spawn: [0, 17], horse: [0, 21], boss: [0, -7],   // [x, z] from the centre: AJ's entrance, the horse's place, the Guardian's
+        entryProtection: 1,                              // entering the plaza clears every protection flag, then protects him this long at most (s)
         stayIn: 1.4,                                     // while the Guardian stands nobody leaves: AJ is kept this far inside the wall
         gate: { width: 9, close: 1.4, steam: 40 },       // the steam barrier at the entrance (z+): closes when the Guardian notices AJ
         notice: 22,                                      // the Guardian notices AJ within this
@@ -1759,6 +1764,7 @@ export const CONFIG = {
   // Hidden test menu (testMenu.js): only with ?debug in the URL. Every jump starts with full
   // hearts and this many uses of each ability (gems = uses × the ability's gem cost).
   testMenu: {
+    infoMs: 250,             // the panel's live lines ("Invulnerable: no", "Hero state: alive") refresh this often
     param: 'debug',
     holdSeconds: 3,          // holding the HUD speaker button this long switches the test menu on / off...
     storageKey: 'dreamerHero.testMenu', // ...remembered here (localStorage, try/catch)
@@ -2280,6 +2286,7 @@ export const DIALOGUE = {
     pit: 'Lazarus Pit scene', chase: 'Desert chase', storm: 'Sandstorm', gate: 'Castle gate cinematic',
     audio: 'Audio test',
     part1: 'Part 1', part2: 'Part 2',
+    invulnerable: (on) => `Invulnerable: ${on ? 'yes' : 'no'}`, heroState: (s) => `Hero state: ${s}`,
     portal: 'Portal scene', arrival: 'Gearhaven arrival', fire: 'Fire level (start)', fireBoss: 'Fire boss', firePlaza: 'Fire plaza chests', giveKeys: (n) => `Give ${n} cog keys`, lightning: 'Lightning level', steam: 'Steam level',
     magnet: 'Magnet level', time: 'Time level', final: "Amy's final fight", part2Ending: 'Part 2 ending', robots: 'Robots test', ride: 'Gearhaven ride', props: 'Props test', look: (name) => `Look: ${name}`, giveGears: (n) => `Give ${n} gears`,
     on: 'Test menu on', off: 'Test menu off',
