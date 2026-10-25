@@ -6,14 +6,20 @@ import { loadClockTowerModel } from './clockTower.js';
 import { loadCastleModel } from '../world.js';
 import { applyCastleKit } from '../castleKit.js';
 import { roleMaterial, steamMaterial } from './looks.js';
+import { loadItemModel } from './items.js';
 
 // The "Props test" (?debug; CONFIG.part2.propsTest): every kind of kit prop in a row, so they can
 // be looked at — the turning gears (gear_01, the gear cluster, a Factory Kit cog, the collectible
 // gear), the spinning saw, a Factory Kit conveyor with moving slats, a pipe stack puffing steam,
 // a catwalk, the Coaster Kit's Monorail and Steel rails on their supports, the clock tower and the Castle Kit gate (its
-// leaves opening and shutting). Each `item` = { name, x, width, height }; `update(dt)` animates.
+// leaves opening and shutting), and every item type (items.js: cog key, elixirs, gem, heart container, gear bundle, rune stone, wand piece, the two chests opening and shutting). Each `item` = { name, x, width, height }; `update(dt)` animates.
 
 const PT = CONFIG.part2.propsTest;
+// (item types shown, with their labels)
+const PROP_ITEMS = {
+  'Item: cog key': 'cogKey', 'Item: healing elixir': 'elixirHeal', 'Item: energy elixir': 'elixirEnergy', 'Item: gem': 'gem', 'Item: heart container': 'heartContainer',
+  'Item: gear bundle': 'gearBundle', 'Item: rune stone': 'runeStone', 'Item: wand piece': 'wandPiece', 'Item: chest (small)': 'chest', 'Item: chest (big)': 'chestBig',
+};
 const R = CONFIG.part2.ride;
 
 export async function buildPropsShowcase(opts = {}) {
@@ -39,6 +45,34 @@ export async function buildPropsShowcase(opts = {}) {
     const decor = buildGearDecor([{ shape, metal, pos: new THREE.Vector3(it.x, r * 1.15, 0), face: 0, r, speed: PT.spin }], shapes);
     group.add(decor.group);
     updates.push((dt) => spinGearDecor(decor, dt));
+  }
+  // Every kind of item (part2/items.js): pickups float, bob and spin; the two chests open and shut.
+  {
+    const IT = PT.items;
+    for (const [name, type] of Object.entries(IT.types ?? PROP_ITEMS)) {
+      const model = await loadItemModel(type);
+      const chest = type === 'chest' || type === 'chestBig';
+      const sc = chest ? IT.chestScale : IT.scale;
+      model.scale.setScalar(sc);
+      const w = chest ? CONFIG.part2.items.chests[type === 'chest' ? 'small' : 'big'].size[0] * sc + 0.6 : IT.width;
+      const it = slot(name, w, chest ? 1.4 * sc : 1.6 * sc, model);
+      model.position.y = chest ? 0 : 1.0 * sc;
+      const phase = Math.random() * 6;
+      let ti = 0;
+      updates.push((dt) => {
+        ti += dt;
+        if (chest) {
+          const k = Math.max(0, Math.sin((ti / 4) * Math.PI * 2)); // opens and shuts
+          model.userData.lid.rotation.x = -CONFIG.part2.items.chest.lidAngle * Math.min(1, k * 1.6);
+          model.userData.beam.material.opacity = CONFIG.part2.items.chest.beam.opacity * Math.min(1, k * 1.6);
+          model.userData.glow.material.opacity = 0.85 * Math.min(1, k * 1.6);
+        } else {
+          model.userData.spin.rotation.y += CONFIG.part2.items.spin * dt;
+          model.position.y = 1.0 * sc + Math.sin(ti * CONFIG.part2.items.bobRate + phase) * CONFIG.part2.items.bob * sc;
+        }
+      });
+      it.item = type;
+    }
   }
   // The saw: its blade sliding along the slot, spinning.
   const S = R.saw;

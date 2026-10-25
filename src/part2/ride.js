@@ -20,10 +20,17 @@ import { loadSkylineModel, trailSpots } from './skyline.js';
 // staggers the horse; never a heart), brass gears to collect, checkpoints, and the Fire
 // Element's door. Its models come from the kits where they load (rideModel.js).
 
-const R = CONFIG.part2.ride;
-const G = R.grind;
+let R = CONFIG.part2.ride; // (the ride in use: a level with its own layout switches it with useRideConfig)
+let G = R.grind;
 const SND = CONFIG.part2.sound; // the ride's sounds (soundCatalog.js names; 3D where they have a place)
-const DA = R.deckAssist;
+let DA = R.deckAssist;
+
+/** Makes `cfg` (a copy of CONFIG.part2.ride with its own layout) the ride this module builds and runs. */
+export function setRideConfig(cfg) {
+  R = cfg;
+  G = cfg.grind;
+  DA = cfg.deckAssist;
+}
 const HC = CONFIG.horse;
 const { clamp, lerp } = THREE.MathUtils;
 

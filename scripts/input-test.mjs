@@ -74,7 +74,7 @@ check(R.owners.size === 0 && R.held.size === 0, 'endAll clears everything');
 // bottom-right (right half, nothing in the middle), and a tap on each goes to that button.
 {
   const LY = CONFIG.input.layout;
-  for (const mode of ['foot', 'ride']) {
+  for (const mode of ['foot', 'ride', 'foot2', 'ride2']) { // (foot2 / ride2: Part 2's fighting levels — Jump / Gallop, the Batarang and Fire Blast)
     for (const [w, h] of CONFIG.input.checkSizes) {
       for (const safe of [{ right: 0, bottom: 0 }, { right: 44, bottom: 21 }]) {
         const circles = buttonLayout(mode, w, h, safe);
@@ -94,9 +94,9 @@ check(R.owners.size === 0 && R.held.size === 0, 'endAll clears everything');
         const off = circles.filter((c) => c.x - c.r < w / 2 || c.x + c.r > w - safe.right || c.y - c.r < h * 0.15 || c.y + c.r > h - safe.bottom).map((c) => c.name);
         const R2 = new TouchRouter(() => circles.map((c) => ({ ...c })), () => w);
         const routed = circles.filter((c, i) => R2.start(100 + i, c.x, c.y) === `button:${c.name}`).length;
-        const corner = circles.find((c) => c.name === (mode === 'foot' ? 'attack' : 'gallop'));
+        const corner = circles.find((c) => c.name === { foot: 'attack', ride: 'gallop', foot2: 'jump', ride2: 'gallop' }[mode]);
         const nearest = Math.max(...circles.map((c) => c.x + c.y)) === corner.x + corner.y;
-        check(!small.length && !overlaps.length && !off.length && routed === circles.length && nearest && !circles.some((c) => c.name === 'mount' && mode === 'ride'),
+        check(!small.length && !overlaps.length && !off.length && routed === circles.length && nearest && !circles.some((c) => c.name === 'mount' && mode.startsWith('ride')),
           `${mode} ${w}x${h}${safe.right ? ' (insets)' : ''}: ${circles.length} corner buttons ≥ ${LY.minButton}px${small.length ? ' SMALL ' + small : ''}, clear space ≥ ${LY.minGap}px between them${dismount ? ' and the Dismount button' : ''} (min ${minGap.toFixed(0)}px)${overlaps.length ? ' TOO CLOSE ' + overlaps.join(' ') : ''}, off-corner ${off.join(' ') || 'none'}, taps routed ${routed}/${circles.length}, ${corner.name} in the corner`);
       }
     }

@@ -9,8 +9,9 @@ import { loadClockTowerModel } from './clockTower.js';
 import { buildPropsShowcase } from './propsTest.js';
 import { buildLookRig, applyLook, nextLook, look, primeLookTints } from './looks.js';
 import { makeFloorMaterial } from './floor.js';
-import { RideWorld, Ride, loadRide } from './ride.js';
-import { trackPoint } from './rideModel.js';
+import { RideWorld, Ride, loadRide, setRideConfig } from './ride.js';
+import { trackPoint, setRideModelConfig } from './rideModel.js';
+import { FireLevel } from './fire.js';
 import { GearRewards, gearTiers } from './gearRewards.js';
 import { Part2Sound } from './sound.js';
 
@@ -23,6 +24,8 @@ import { Part2Sound } from './sound.js';
 // door — its brass gears unlocking the gear rewards (gearRewards.js: +1 heart, the horse's
 // armour, a bonus charge and Tick's glow; kept between sections, applied everywhere) —, a "coming soon" stub platform per element level and for Amy's final fight, the Part 2
 // ending screen, and (?debug) the "Robots test" showcase of Tick and the four mech robots.
+// The Fire Element's level (fire.js) follows the ride: the Fire door's ride now ends at the furnace
+// city, whose boss (the Furnace Guardian) guards the Fire Element; the other four are stubs.
 
 const P2 = CONFIG.part2;
 const GH = P2.gearhaven;
@@ -50,6 +53,11 @@ class Part2 {
     this.banners = []; // gear-reward banners waiting to show (one after another)
     this.bannerT = 0;
     this.sounds = new Part2Sound(this); // (Part 2's music, ambience and loops: sound.js)
+    this.elements = []; // the Elements recovered (ids, in order): the HUD's row, kept across Part 2
+    this.extraHearts = 0; // heart containers from the Fire level's big chest (+1 max heart each)
+    this.rc = RD; // the ride config in use (the first ride's, or the Fire level's)
+    this.rideKey = 'ride';
+    this.questOverride = null;
   }
 
   async init() {
@@ -85,9 +93,23 @@ class Part2 {
     this.ride = new Ride({ parts: this.rideParts, world: this.rideWorld, horse: this.horse, hero: this.hero, sound: this.sound, cam: this.cam, ui: this.ui });
     this.ride.onGear = (n) => {
       this.gears = (this.gears ?? 0) + 1; // (the currency, kept across rides)
-      this.#gearProgress(true);
+      this.gearProgress(true);
     };
-    this.ride.onFinish = () => this.#travel(() => this.enterLevel(RD.quest)); // (the Fire Element's door: its stub)
+    this.ride.onFinish = () => this.travel(() => this.enterFire()); // (the end of the ride: the furnace city, the Fire Element's level)
+    this.rides = { ride: { ride: this.ride, parts: this.rideParts, world: this.rideWorld, cfg: RD } };
+    this.fire = new FireLevel(this); // (built the first time it is entered)
+  }
+
+  /** Make the ride `key` ('ride' | 'fire') the one in use: its world, models, config (ride.js and rideModel.js read it). */
+  useRide(key) {
+    const r = key === 'fire' ? { ride: this.fire.ride, parts: this.fire.parts, world: this.fire.world, cfg: this.fire.cfg } : this.rides.ride;
+    this.rideKey = key;
+    this.ride = r.ride;
+    this.rideParts = r.parts;
+    this.rideWorld = r.world;
+    this.rc = r.cfg;
+    setRideConfig(r.cfg);
+    setRideModelConfig(r.cfg);
   }
 
   /** A platform per element level (and Amy's fight): floating far off, a crystal, a door back. */
@@ -121,7 +143,7 @@ class Part2 {
   async enter({ start = 'arrival' } = {}) {
     const { hero, horse, cam } = this;
     // (what Part 1 lent us: kept from the first entry only — re-entering at another start keeps it)
-    this.#leaveRide();
+    this.leaveRide();
     if (hero.world !== this.world) this.saved = { heroWorld: hero.world, horseWorld: horse.world, camWorld: cam.world, bodies: this.cinematic.bodies };
     hero.world = horse.world = cam.world = this.world;
     for (const o of [hero.model, hero.shadow, horse.model, horse.shadow]) this.scene.add(o);
@@ -130,7 +152,7 @@ class Part2 {
     horse.hold = false;
     horse.speed = 0;
     horse.model.add(this.upgrade); // (a key on its back; the brass plates once earned)
-    this.#applyRewards();
+    this.applyRewards();
     hero.model.visible = horse.model.visible = true;
     this.soundscape && (this.soundscape.musicPhase = P2.music);
     // (the talking blips come from where each speaker is: Tick's from Tick, AJ's from AJ; Amy's
@@ -152,13 +174,17 @@ class Part2 {
     if (start === 'robots') return this.showRobots();
     if (start === 'props') return this.showProps();
     if (start === 'ride') return this.enterRide();
+    if (start === 'fireBoss') return this.fire.build().then(() => this.fire.debugBoss());
+    if (start === 'firePlaza') return this.fire.build().then(() => this.fire.debugPlaza());
     return this.enterLevel(start);
   }
 
   /** Back out (to Part 1): everything borrowed is handed back. */
   exit() {
     const { hero, horse, cam } = this;
-    this.#leaveRide();
+    this.leaveRide();
+    this.ui.setElements?.([], false);
+    this.ui.setCogKeys?.(0, false);
     if (this.saved) {
       hero.world = this.saved.heroWorld;
       horse.world = this.saved.horseWorld;
@@ -188,32 +214,35 @@ class Part2 {
   newGame() {
     this.rewards.reset();
     this.gears = 0;
+    this.elements = [];
+    this.extraHearts = 0;
+    this.fire?.newGame();
     this.banners.length = 0;
-    if (this.saved) this.#applyRewards();
+    if (this.saved) this.applyRewards();
   }
 
   /** The level's gears now (the ride's): the counter with its tier marks; tiers reached unlock their rewards. */
-  #gearProgress(pulse = false) {
+  gearProgress(pulse = false) {
     const { ride } = this;
     const total = ride.total;
-    const now = this.rewards.progress('ride', ride.count, total, RD.quest);
+    const now = this.rewards.progress(this.rideKey, ride.count, total, 'fire');
     const tiers = gearTiers(total).map((t) => ({ at: t.at, reached: ride.count >= t.count }));
     this.ui.setGears?.(ride.count, total, true, pulse, tiers);
     for (const r of now) {
       this.banners.push(D2.gearReward.banner(D2.gearReward[r]));
       if (r === 'heart') {
-        this.#applyRewards();
+        this.applyRewards();
         this.lives?.setHearts?.(this.lives.maxHearts); // (+1 heart and a full heal)
       }
     }
-    if (now.length) this.#applyRewards();
+    if (now.length) this.applyRewards();
   }
 
   /** The rewards earned so far, on everything: the extra heart, the horse's armour, Tick's glow. */
-  #applyRewards() {
+  applyRewards() {
     const GR = P2.gearRewards;
     const rw = this.rewards;
-    this.lives?.setBonusHearts?.(rw.bonusHearts);
+    this.lives?.setBonusHearts?.(rw.bonusHearts + this.extraHearts);
     const armour = rw.has('armour');
     this.horse.damageScale = armour ? GR.armourDamage : 1;
     this.horse.stumbleScale = armour ? GR.armourStumble : 1;
@@ -232,16 +261,23 @@ class Part2 {
     this.bannerT = P2.gearRewards.bannerMs / 1000;
   }
 
+  /** (?debug "Give 3 cog keys") In the Fire level. */
+  giveKeys(n) {
+    if (!this.fire?.stage) return false;
+    this.fire.giveKeys(n);
+    return true;
+  }
+
   /** (?debug "Give 14 gears") On the ride: collect the next `n` of its gears. */
   giveGears(n) {
-    if (this.at !== 'ride') return false;
+    if (this.at !== 'ride' && this.at !== 'fire') return false;
     this.ride.giveGears(n);
     return true;
   }
 
   // --- placing the riders ------------------------------------------------------
 
-  #onFoot(p, yaw) {
+  onFoot(p, yaw) {
     const { hero, horse } = this;
     if (horse.mode !== 'idle') horse.mode = 'idle';
     hero.riding = false;
@@ -250,7 +286,7 @@ class Part2 {
     hero.lastSafe.copy(p);
   }
 
-  #horseAt(p, heading) {
+  horseAt(p, heading) {
     const { horse } = this;
     horse.position.copy(p);
     horse.heading = heading;
@@ -258,7 +294,7 @@ class Part2 {
     horse.grounded = true;
   }
 
-  #behind(yaw) {
+  behind(yaw) {
     const { cam, hero } = this;
     cam.yaw = yaw + Math.PI;
     cam.snapTo(hero.position);
@@ -280,7 +316,7 @@ class Part2 {
     this.stats.arrivals++;
     if (!state.is(STATES.CUTSCENE)) state.set(STATES.CUTSCENE);
     const land = new THREE.Vector3(...A.start);
-    this.#horseAt(land.clone().setY(A.drop), A.heading);
+    this.horseAt(land.clone().setY(A.drop), A.heading);
     horse.mode = 'riding';
     horse.everMounted = true;
     hero.startRiding();
@@ -329,7 +365,7 @@ class Part2 {
   #drop(land) {
     const { horse } = this;
     const from = horse.position.clone();
-    return this.#tween((t) => {
+    return this.tween((t) => {
       const k = Math.min(1, t / P2.arrival.fallTime);
       horse.position.lerpVectors(from, land, k * k);
       if (k >= 1) {
@@ -346,7 +382,7 @@ class Part2 {
   #getDown() {
     const { horse, hero } = this;
     horse.toggle(hero, -1);
-    return this.#tween(() => horse.mode === 'idle');
+    return this.tween(() => horse.mode === 'idle');
   }
 
   /**
@@ -412,7 +448,7 @@ class Part2 {
     this.ajSpot.yaw = up ? Math.atan2(clock.x - this.ajSpot.pos.x, clock.z - this.ajSpot.pos.z) : this.#talkStage().ajYaw;
     const from = hero.facePitch;
     const to = up ? -C.lookUp : 0;
-    this.#tween((t) => {
+    this.tween((t) => {
       const k = Math.min(1, t / 0.5);
       hero.facePitch = from + (to - from) * THREE.MathUtils.smoothstep(k, 0, 1);
       return k >= 1;
@@ -427,7 +463,7 @@ class Part2 {
     const dist = Math.hypot(st.aj.x - from.x, st.aj.z - from.z);
     const walkYaw = Math.atan2(st.aj.x - from.x, st.aj.z - from.z);
     this.ajSpot = { pos: from.clone(), yaw: walkYaw };
-    return this.#tween((t) => {
+    return this.tween((t) => {
       const k = Math.min(1, (t * P2.arrival.stage.walkSpeed) / Math.max(dist, 1e-3));
       this.ajSpot.pos.lerpVectors(from, st.aj, k).setY(from.y);
       if (k >= 1) this.ajSpot.yaw = st.ajYaw;
@@ -442,7 +478,7 @@ class Part2 {
     const st = this.#talkStage();
     tick.target = st.tick;
     tick.lookAt = st.tickLook;
-    return this.#tween(() => tick.position.distanceTo(tick.target) < 0.4);
+    return this.tween(() => tick.position.distanceTo(tick.target) < 0.4);
   }
 
   /** The scene is over (also on Skip): on foot in the courtyard, the first objective. */
@@ -453,10 +489,10 @@ class Part2 {
     const land = new THREE.Vector3(...A.start);
     if (horse.mode !== 'idle' || hero.riding) {
       // (skipped mid-scene: the horse stands where it lands, AJ on foot beside it)
-      this.#horseAt(land, A.heading);
+      this.horseAt(land, A.heading);
       horse.mode = 'idle';
       const st = this.#talkStage();
-      this.#onFoot(st.aj, st.ajYaw);
+      this.onFoot(st.aj, st.ajYaw);
       hero.stopRiding?.(hero.position.clone(), st.ajYaw);
     }
     this.ajSpot = null;
@@ -472,19 +508,19 @@ class Part2 {
 
   /** On foot in the courtyard; the objective is the next element (the Fire Element first). */
   toCourtyard({ keepPlace = false, from = null } = {}) {
-    this.#leaveRide();
+    this.leaveRide();
     const { hero, horse, state, STATES } = this;
     this.at = 'courtyard';
     if (!keepPlace) {
       const doorAt = from ? this.gearhaven.userData.doors[from]?.at : null;
       const p = doorAt ? doorAt.clone().multiplyScalar(0.8) : new THREE.Vector3(...P2.courtyard.spawn);
       const yaw = doorAt ? Math.atan2(-p.x, -p.z) : Math.PI;
-      this.#onFoot(p, yaw);
-      this.#horseAt(p.clone().add(new THREE.Vector3(2.4, 0, 1.5)), yaw);
+      this.onFoot(p, yaw);
+      this.horseAt(p.clone().add(new THREE.Vector3(2.4, 0, 1.5)), yaw);
       horse.mode = 'idle';
       this.tick.place(p.clone().add(new THREE.Vector3(-1.3, P2.tick.float, 0)), yaw);
-      this.#behind(yaw);
-    } else this.#behind(hero.facing);
+      this.behind(yaw);
+    } else this.behind(hero.facing);
     if (!state.is(STATES.PLAY)) state.set(STATES.PLAY);
     this.objective = P2.courtyard.first;
     this.ui.toast(D2.objectives[this.objective]);
@@ -497,45 +533,64 @@ class Part2 {
    * world: the street, walls, rails, deck), the gold sky; gears from 0; checkpoints; the Fire
    * Element's door at its end (ride.onFinish → its stub).
    */
-  enterRide() {
-    const { hero, horse, state, STATES, ui, ride } = this;
-    this.#leaveRide();
-    this.at = 'ride';
+  enterRide(which = 'ride') {
+    const { hero, horse, state, STATES, ui } = this;
+    this.leaveRide();
+    this.useRide(which);
+    const { ride, rc } = this;
+    this.at = which;
     this.stats.rides = (this.stats.rides ?? 0) + 1;
-    this.#useWorld(this.rideWorld, RD.sky);
+    this.useWorld(this.rideWorld, rc.sky);
     this.gearhaven.visible = false;
     this.rideParts.root.visible = true;
     ride.reset();
     // (the horse's own trail, checkpoints and callbacks, handed back after the ride)
     this.horseSaved = { route: horse.route, checkpoints: horse.checkpoints, last: horse.lastCheckpoint, onCheckpoint: horse.onCheckpoint, onRespawn: horse.onRespawn };
     const track = this.rideWorld.track;
-    horse.setRoute(track, RD.checkpoints.map((s) => s / track.length));
+    horse.setRoute(track, rc.checkpoints.map((s) => s / track.length));
     horse.onCheckpoint = (i) => {
       this.rideParts.flags[i - 1]?.userData.flag.material.color.setHex(CONFIG.checkpoints.reachedColor);
       ui.toast(DIALOGUE.checkpoint);
+      if (which === 'fire') this.fire.checkpoint(i);
     };
     horse.onRespawn = () => ride.stop();
     const start = trackPoint(track, 2);
-    this.#horseAt(start.pos, start.heading);
+    this.horseAt(start.pos, start.heading);
     horse.scripted = horse.hold = false;
     horse.galloping = false;
     horse.stamina = 1;
     horse.mountNow(hero);
     this.tick.place(start.pos.clone().setY(P2.tick.float), start.heading);
-    this.#behind(start.heading);
+    this.behind(start.heading);
     if (!state.is(STATES.PLAY)) state.set(STATES.PLAY);
-    this.#gearProgress();
-    ui.toast(D2.ride.start);
+    this.gearProgress();
+    if (which === 'fire') this.fire.onEnterRide({ fresh: this.freshFire !== false });
+    else ui.toast(D2.ride.start);
+  }
+
+  /** The Fire Element's level: the furnace city (built the first time), from its start. */
+  async enterFire({ fresh = true } = {}) {
+    await this.fire.build();
+    this.freshFire = fresh;
+    this.enterRide('fire');
+    this.freshFire = true;
   }
 
   /** Out of the ride (to a stub, the courtyard, anywhere): back to Gearhaven's floors and sky. */
-  #leaveRide() {
-    if (!this.rideParts?.root.visible) return;
+  leaveRide({ keepFire = false } = {}) {
+    const shown = !!this.rideParts?.root.visible;
+    if (!keepFire && this.fire?.stage) {
+      this.fire.leave(); // (out of the Fire level: its models and tints put away)
+      this.gearhaven.visible = true;
+      this.useWorld(this.world, GH);
+    }
+    if (!shown) return;
     const { hero, horse } = this;
     this.ride.stop();
     this.rideParts.root.visible = false;
     this.gearhaven.visible = true;
-    this.#useWorld(this.world, GH);
+    this.useWorld(this.world, GH);
+    this.useRide('ride');
     if (this.horseSaved) {
       horse.route = this.horseSaved.route;
       horse.checkpoints = this.horseSaved.checkpoints;
@@ -554,7 +609,7 @@ class Part2 {
   }
 
   /** The hero, horse and camera on `world`; the sky and fog of `look` ({ background, fog }). */
-  #useWorld(world, area) {
+  useWorld(world, area) {
     this.hero.world = this.horse.world = this.cam.world = world;
     // (the colours are the look's; the fog's reach is the area's — the courtyard's or the ride's)
     this.scene.fog.near = area.fog.near;
@@ -569,24 +624,25 @@ class Part2 {
 
   /** A level: today a stub platform ("coming soon") with its crystal and the door back. */
   enterLevel(id) {
-    this.#leaveRide();
+    if (id === 'fire') return this.enterFire();
+    this.leaveRide();
     const { state, STATES, ui } = this;
     const s = this.stubs[id];
     if (!s) return this.toCourtyard();
     this.at = id;
     this.stats.stubs[id] = (this.stats.stubs[id] ?? 0) + 1;
     const p = new THREE.Vector3(s.x, 0, P2.levels.stub.back - 2.5);
-    this.#onFoot(p, Math.PI);
-    this.#horseAt(new THREE.Vector3(3, 0, 6), Math.PI); // (it waits in the courtyard)
+    this.onFoot(p, Math.PI);
+    this.horseAt(new THREE.Vector3(3, 0, 6), Math.PI); // (it waits in the courtyard)
     this.tick.place(p.clone().add(new THREE.Vector3(-1.3, P2.tick.float, 0)), Math.PI);
-    this.#behind(Math.PI);
+    this.behind(Math.PI);
     if (!state.is(STATES.PLAY)) state.set(STATES.PLAY);
     ui.toast(D2.comingSoon(D2.levelNames[id]));
   }
 
   /** The Part 2 ending: "To be continued... Part 3" and the summary (main.js shows it). */
   ending() {
-    this.#leaveRide();
+    this.leaveRide();
     const { state, STATES } = this;
     this.at = 'ending';
     state.set(STATES.ENDING); // (from play or a cutscene)
@@ -600,7 +656,7 @@ class Part2 {
    * browser), the camera slowly orbiting the row (a swipe turns it). AJ stands at the end for scale.
    */
   async showRobots() {
-    this.#leaveRide();
+    this.leaveRide();
     const SC = P2.showcase;
     const { state, STATES } = this;
     this.at = 'robots';
@@ -646,8 +702,8 @@ class Part2 {
     S.group.visible = true;
     // AJ for scale at the near end; the horse by him; Tick in his slot.
     const first = S.items[0];
-    this.#onFoot(new THREE.Vector3(first.x - 2.4, 0, SC.z + 1.5), 0);
-    this.#horseAt(new THREE.Vector3(first.x - 5, 0, SC.z + 3), 0);
+    this.onFoot(new THREE.Vector3(first.x - 2.4, 0, SC.z + 1.5), 0);
+    this.horseAt(new THREE.Vector3(first.x - 5, 0, SC.z + 3), 0);
     this.tick.place(new THREE.Vector3(first.x, P2.tick.float, SC.z), 0);
     this.tick.target = new THREE.Vector3(first.x, P2.tick.float, SC.z);
     this.tick.lookAt = new THREE.Vector3(first.x, P2.tick.float, SC.z + 20);
@@ -668,7 +724,7 @@ class Part2 {
    * browser); the camera slides along the row and back (a swipe moves it). AJ at the near end for scale.
    */
   async showProps() {
-    this.#leaveRide();
+    this.leaveRide();
     const PT = P2.propsTest;
     const { state, STATES } = this;
     this.at = 'props';
@@ -694,8 +750,8 @@ class Part2 {
     const S = this.props;
     S.group.visible = true;
     const first = S.items[0];
-    this.#onFoot(new THREE.Vector3(first.x - 3, 0, PT.z + 2), 0);
-    this.#horseAt(new THREE.Vector3(first.x - 5.5, 0, PT.z + 3.5), 0);
+    this.onFoot(new THREE.Vector3(first.x - 3, 0, PT.z + 2), 0);
+    this.horseAt(new THREE.Vector3(first.x - 5.5, 0, PT.z + 3.5), 0);
     this.tick.place(new THREE.Vector3(first.x - 2, P2.tick.float, PT.z + 3.5), 0);
     S.pan = -S.width / 2;
     this.ui.toast(D2.propsTest);
@@ -743,6 +799,9 @@ class Part2 {
     if (this.at === 'robots') return D2.robotsTest;
     if (this.at === 'props') return D2.propsTest;
     if (this.at === 'ride') return D2.ride.quest;
+    if (this.at === 'fire') return D2.fire.quest;
+    if (this.at === 'fireBoss') return this.questOverride ?? D2.fire.questBoss;
+    if (this.at === 'fireElement') return D2.fire.questElement;
     if (this.at === 'courtyard') return D2.objectives[this.objective];
     if (this.stubs[this.at]) return D2.comingSoon(D2.levelNames[this.at]);
     return null;
@@ -768,14 +827,20 @@ class Part2 {
       }
     }
     let inp = null;
-    const riding = this.at === 'ride'; // (the Gearhaven ride: on the horse, ride.js)
+    const riding = this.at === 'ride' || this.at === 'fire'; // (a ride: on the horse, ride.js)
+    const fire = this.fire;
+    const fight = !!fire?.stage && (this.at === 'fire' || this.at === 'fireBoss'); // (the Fire level's fighting: the Batarang and Fire Blast)
+    // After the Fire Element, Fire Blast is his everywhere (the Arsenal outside the level too).
+    const armed = !fight && !!fire?.built && this.elements.includes('fire') && !fire.stage;
     if (playing) {
       if (!input.enabled) input.setEnabled(true);
       inp = input.read();
       if (this.at === 'robots' || this.at === 'props') inp.moveX = inp.moveY = 0; // (AJ stands for scale; a swipe turns the view)
       else cam.rotate(inp.lookDX, inp.lookDY, inp.lookSensitivity);
-      inp.attackPressed = inp.dodgePressed = false; // (no fighting here yet: the elements will bring abilities)
+      inp.attackPressed = inp.dodgePressed = false; // (no melee here: the elements bring the abilities)
+      const ability = inp.ability;
       inp.ability = null;
+      if (ability && (fight || armed)) fire.useAbility(ability);
       if (riding) this.ride.update(dt, inp); // (the horse carries him: rails, conveyors, cogs)
       else {
         hero.lastDt = dt;
@@ -783,21 +848,27 @@ class Part2 {
       }
       // The HUD: no gems (the elements replace them; the ride counts brass gears), no horse
       // energy, no boss bar; Jump (and Gallop on the ride).
-      input.setCombatButtons(riding, this.abilities, true);
+      input.setCombatButtons(riding || (horse.mounted && fight), fight || armed ? fire.arsenal : this.abilities, !(fight || armed));
       input.setMountButton(false);
       input.setDismountButton(false, false, realDt, null, 1);
       input.setGallopButton(riding, DIALOGUE.gallop, horse.stamina, horse.galloping, false);
       ui.showGems(false);
       ui.setHorseEnergy(1, false, false);
-      ui.setBossBar(false, 1, '', false);
+      const g = fire?.guardian;
+      const bossOn = this.at === 'fireBoss' && !!g?.model?.visible && g.state !== 'idle' && g.state !== 'dead';
+      ui.setBossBar(bossOn, bossOn ? g.hp / g.maxHp : 1, D2.fire.bossName, bossOn && g.regenerating);
+      ui.setElements?.(this.elements, true);
       this.#checkDoors();
       const goal = this.at === 'courtyard' ? this.gearhaven.userData.doors[this.objective]?.at : null;
-      const dist = riding ? Math.max(0, Math.round(RD.door.s - this.ride.s)) : goal ? Math.round(Math.hypot(goal.x - hero.position.x, goal.z - hero.position.z)) : null;
+      const dist = riding ? Math.max(0, Math.round(this.rc.door.s - this.ride.s)) : goal ? Math.round(Math.hypot(goal.x - hero.position.x, goal.z - hero.position.z)) : null;
       ui.setQuest(this.questText, dist);
     }
     if (!playing && this.ajSpot && horse.mode === 'idle') hero.puppet(this.ajSpot.pos, this.ajSpot.yaw, live ? dt : 0); // (the arrival: AJ to his place)
+    hero.lastDt = live ? dt : 0; // (the rider's status timers — invincibility, the hurt blink — tick in his pose, mounted or not)
     horse.update(live ? dt : 0, riding && playing ? inp : null, cam.yaw, hero); // (ridden only on the ride; else it stands)
     if (riding && playing) this.ride.after(dt);
+    if (fire?.stage) fire.update(live ? dt : 0, live ? realDt : 0, playing);
+    else if (armed) fire.updateIdle(live && playing ? dt : 0);
     spinHorseKey(this.upgrade, live ? dt : 0);
     this.tick.update(live ? dt : 0, { position: hero.position, facing: hero.facing }); // (beside AJ, unless sent somewhere)
     this.#showBanners(paused ? 0 : realDt);
@@ -821,26 +892,59 @@ class Part2 {
     if (this.at === 'courtyard') {
       const d = this.gearhaven.userData.doors[this.objective];
       // (the Fire door opens onto the Gearhaven ride; the others onto their stubs)
-      if (d && Math.hypot(h.x - d.at.x, h.z - d.at.z) < R) this.#travel(() => (this.objective === RD.quest ? this.enterRide() : this.enterLevel(this.objective)));
+      if (d && Math.hypot(h.x - d.at.x, h.z - d.at.z) < R) this.travel(() => (this.objective === RD.quest ? this.enterRide() : this.enterLevel(this.objective)));
     } else if (this.stubs[this.at]) {
       const s = this.stubs[this.at];
       if (Math.hypot(h.x - s.door.x, h.z - s.door.z) < R) {
         const from = this.at;
-        this.#travel(() => this.toCourtyard({ from: P2.levels.order.includes(from) ? from : null }));
+        this.travel(() => this.toCourtyard({ from: P2.levels.order.includes(from) ? from : null }));
       }
     }
   }
 
   /** A quick white flash between places. */
-  #travel(go) {
+  travel(go) {
     if (this.travelling) return;
     this.travelling = true;
     this.sound?.play('portal_whoosh', { volume: 0.5 });
-    this.ui.fadeOut(220, () => {
-      go();
-      this.ui.fadeIn(420);
-      this.travelling = false;
+    this.ui.fadeOut(220, async () => {
+      try {
+        await go(); // (a level that builds itself the first time: the white holds until it is ready)
+      } finally {
+        this.ui.fadeIn(420);
+        this.travelling = false;
+      }
     }, '#fff');
+  }
+
+  // --- the Fire level's hooks (main.js calls these in Part 2) ------------------------------------
+
+  /** Died (and a respawn was used): back at the last checkpoint on the ride, or revived inside the plaza. */
+  respawn() {
+    if (this.at === 'fire') this.fire.respawn();
+    else if (this.at === 'fireBoss') this.fire.reviveInArena();
+    else if (this.at === 'ride') this.horse.respawnAtCheckpoint(this.hero);
+  }
+
+  /** Game Over → Retry: the Fire level again from its start (anywhere else: the courtyard). */
+  retry() {
+    this.cinematic.stop?.();
+    this.lives?.reset?.();
+    if (this.at === 'fire' || this.at === 'fireBoss' || this.at === 'fireElement') return this.enterFire();
+    return this.toCourtyard();
+  }
+
+  /** An Element recovered: the HUD row; the courtyard's next objective is the next element. */
+  addElement(id) {
+    if (!this.elements.includes(id)) this.elements.push(id);
+    this.ui.setElements?.(this.elements, true, id);
+  }
+
+  /** The Fire level is done: on to the next Element's door (its stub for now). */
+  afterFire() {
+    const next = P2.levels.order[P2.levels.order.indexOf('fire') + 1];
+    this.objective = next;
+    this.travel(() => this.enterLevel(next));
   }
 
   /** The gear sky, cogs, the clock's hands, steam, the open door's shimmer, the lamps. */
@@ -891,7 +995,7 @@ class Part2 {
   }
 
   /** Runs `step(t, dt)` every frame until it returns true; resolves then. */
-  #tween(step) {
+  tween(step) {
     return new Promise((resolve) => this.tweens.push({ t: 0, step, resolve }));
   }
 }

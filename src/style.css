@@ -207,6 +207,13 @@ html, body {
 .ability-btn.blocked { filter: grayscale(0.9); opacity: 0.55; }
 .ability-btn .uses { position: absolute; top: 4px; left: 50%; transform: translateX(-50%); min-width: 17px; height: 17px; padding: 0 3px; box-sizing: border-box; border-radius: 9px; font: 700 11px/17px system-ui, sans-serif; color: #1a1430; background: var(--gem); box-shadow: 0 0 0 2px rgba(20, 16, 50, 0.85); z-index: 3; pointer-events: none; }
 .ability-btn.locked .uses { display: none; }
+/* Fire Blast: no count, a cooldown ring in the fire colour instead */
+.ability-btn.fire { background: rgba(110, 28, 10, 0.78); border-color: var(--gem); }
+.ability-btn.fire .cooldown {
+  background: conic-gradient(var(--gem) calc(var(--cd, 0) * 360deg), transparent 0);
+  -webkit-mask: radial-gradient(circle, transparent 58%, #000 60%); mask: radial-gradient(circle, transparent 58%, #000 60%);
+}
+.ability-btn.fire.cooling { filter: saturate(0.5); }
 .ability-btn.shake { animation: ability-shake 0.35s ease-in-out 1; }
 @keyframes ability-shake { 20% { transform: translateX(-6px); } 40% { transform: translateX(6px); } 60% { transform: translateX(-4px); } 80% { transform: translateX(3px); } }
 .ability-btn.reloading .energy i { background: #c58aff; }
@@ -323,6 +330,28 @@ html, body {
 .gear-bar .mark { position: absolute; top: -2px; bottom: -2px; width: 2px; margin-left: -1px; border-radius: 1px; background: rgba(255, 243, 196, 0.55); }
 .gear-bar .mark.reached { background: #fff8e0; box-shadow: 0 0 4px #ffd36a; }
 .gear-pill.pulse { animation: gem-pulse 0.7s ease-out 1; }
+/* Part 2: the cog-key counter under the gear counter, the Elements row under it */
+.key-pill {
+  position: absolute;
+  top: calc(max(10px, env(safe-area-inset-top)) + clamp(40px, 11vh, 52px));
+  right: calc(max(12px, env(safe-area-inset-right)) + 38px);
+  display: flex; align-items: center; gap: 6px;
+  padding: 3px 12px; border-radius: 12px;
+  background: rgba(40, 26, 10, 0.6); color: #ffe08a;
+  font-weight: bold; font-size: clamp(11px, 3vh, 15px);
+}
+.key-pill b { font-size: 1.2em; line-height: 1; }
+.key-pill.pulse { animation: gem-pulse 0.7s ease-out 1; }
+.elements-row {
+  position: absolute;
+  top: calc(max(10px, env(safe-area-inset-top)) + clamp(40px, 11vh, 52px) + clamp(26px, 7.5vh, 34px));
+  right: calc(max(12px, env(safe-area-inset-right)) + 38px);
+  display: flex; gap: 3px;
+}
+.element-slot { display: block; width: clamp(18px, 5.2vh, 25px); height: clamp(18px, 5.2vh, 25px); color: #6c7380; opacity: 0.7; }
+.element-slot.on { color: var(--el); opacity: 1; filter: drop-shadow(0 0 4px var(--el)); }
+.element-slot.pulse { animation: gem-pulse 0.9s ease-out 2; }
+
 
 /* Rotate */
 .rotate { background: #1b1638; z-index: 100; }

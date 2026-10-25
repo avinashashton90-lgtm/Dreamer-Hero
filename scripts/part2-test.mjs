@@ -232,25 +232,29 @@ const scale0 = horse.model.scale.x;
     check(mid.steam > 0.05 && mid.steam < SN.ambience.courtyard.steam_hiss && mid.hum > 0.05 && mid.hum < SN.ambience.ride.factory_hum && !lv.steam_hiss && Math.abs(lv.factory_hum - SN.ambience.ride.factory_hum) < 1e-6,
       `the ambience fades between sections (a third of a second in: the courtyard's steam ${mid.steam.toFixed(2)}, the ride's factory hum ${mid.hum.toFixed(2)}; then gone / full)`);
   }
-  // (its end: the Fire Element's door → the stub)
+  // (its end: the door → the Fire Element's level, the furnace city: test:fire plays it)
   p2.ride.onFinish();
+  for (let i = 0; i < 400 && p2.at !== 'fire'; i++) { await frame(); await new Promise((r) => setTimeout(r, 25)); } // (the level builds itself the first time: real file reads)
   await frame(); await frame();
-  check(p2.at === 'fire' && ui.quest === D2.comingSoon(D2.levelNames.fire) && ui.toasts.at(-1) === D2.comingSoon(D2.levelNames.fire) && Math.abs(hero.position.x - p2.stubs.fire.x) < P2.levels.stub.radius && hero.world === p2.world && !hero.riding,
-    `at the ride's end, the Fire Element's door: "${ui.quest}" on its own platform, AJ on foot`);
-  hero.puppet(p2.stubs.fire.door.clone(), 0, 0);
+  check(p2.at === 'fire' && ui.quest === D2.fire.quest && horse.mode === 'riding' && hero.world === p2.fire.world && p2.fire.stage === 'ride',
+    `at the ride's end the Fire Element's level begins (the furnace city, on the horse): "${ui.quest}"`);
+  // (a level's stub: its door back leads to the courtyard)
+  await levels.load('part2', { start: 'lightning' });
+  await frame();
+  hero.puppet(p2.stubs.lightning.door.clone(), 0, 0);
   await frame(); await frame();
-  check(p2.at === 'courtyard' && Math.hypot(hero.position.x, hero.position.z) < P2.gearhaven.floor.radius, 'its door back leads to the courtyard');
+  check(p2.at === 'courtyard' && Math.hypot(hero.position.x, hero.position.z) < P2.gearhaven.floor.radius, 'a stub level\'s door back leads to the courtyard');
 }
 
 // 3) Every level's stub, Amy's final fight and the Part 2 ending (the test menu's jumps).
 {
   const got = [];
-  for (const id of [...P2.levels.order, 'final']) {
+  for (const id of [...P2.levels.order.filter((l) => l !== 'fire'), 'final']) {
     await levels.load('part2', { start: id });
     await frame();
     got.push(levels.current.at === id && ui.quest === D2.comingSoon(D2.levelNames[id]) && state.is(STATES.PLAY));
   }
-  check(got.every(Boolean), `each level (Fire, Lightning, Steam, Magnet, Time) and Amy's final fight load as a "coming soon" stub (${got.filter(Boolean).length}/${got.length})`);
+  check(got.every(Boolean), `each other level (Lightning, Steam, Magnet, Time) and Amy's final fight load as a "coming soon" stub (${got.filter(Boolean).length}/${got.length})`);
   check(soundscape.musicPhase === 'stub' && CONFIG.audio.music.phases.stub === 'gearhaven', 'a stub reuses the Gearhaven theme until its level exists');
   await levels.load('part2', { start: 'ending' });
   await frame();
@@ -357,7 +361,7 @@ const scale0 = horse.model.scale.x;
   for (let i = 0; i < 30; i++) await frame();
   const S = levels.current.props;
   const names = S.items.map((it) => it.name);
-  const want = ['gear_01', 'cluster', 'Cog', 'Collectible', 'Saw', 'Conveyor', 'Pipe', 'Catwalk', 'Rail', 'Clock tower', 'Castle gate'];
+  const want = ['gear_01', 'cluster', 'Cog', 'Collectible', 'Saw', 'Conveyor', 'Pipe', 'Catwalk', 'Rail', 'Clock tower', 'Castle gate', 'Item: cog key', 'Item: healing elixir', 'Item: energy elixir', 'Item: gem', 'Item: heart container', 'Item: gear bundle', 'Item: rune stone', 'Item: wand piece', 'Item: chest (small)', 'Item: chest (big)'];
   const xs = S.items.map((it) => it.x);
   const sawX = S.group.getObjectByName('saw').userData.blade.position.x;
   for (let i = 0; i < 40; i++) await frame();

@@ -260,7 +260,7 @@ async function boot() {
   };
   const levels = new LevelManager({
     part1: async () => part1,
-    part2: async () => (await import('./part2/index.js')).createPart2({ state, STATES, ui, input, cam, cinematic, sound, soundscape, hero, horse, abilities, lives, assets: {} }),
+    part2: async () => (await import('./part2/index.js')).createPart2({ state, STATES, ui, input, cam, cinematic, sound, soundscape, hero, horse, abilities, lives, assets: {}, damageHero: (...a) => damageHero(...a) }),
   });
   levels.chapters.set('part1', part1);
   levels.current = part1;
@@ -326,9 +326,12 @@ async function boot() {
           // (the sealed boss fight: revived inside the arena — full hearts, abilities refilled,
           // a few seconds' protection — not outside)
           const inArena = arena.sealed;
-          if (inArena) arena.reviveHero();
-          else horse.respawnAtCheckpoint(hero);
-          lifeEvents.onRespawn?.({ inArena });
+          if (levels.id === 'part2') levels.current.respawn?.(); // (Gearhaven's own: the checkpoint on its ride, or inside the Furnace Guardian's plaza)
+          else {
+            if (inArena) arena.reviveHero();
+            else horse.respawnAtCheckpoint(hero);
+            lifeEvents.onRespawn?.({ inArena });
+          }
           ui.setGems(gems.counts);
           ui.fadeIn(CONFIG.lives.deathFadeMs);
           if (state.is(STATES.PLAY)) input.setEnabled(true);
@@ -356,6 +359,10 @@ async function boot() {
       rescue.reset();
       minions.clear();
       ui.setGems(gems.counts);
+    } else if (prev === STATES.GAMEOVER && levels.id === 'part2') {
+      // Retry in Gearhaven: the level again from its start (Part 1's ride is not touched).
+      levels.current.retry?.();
+      ui.fadeIn(CONFIG.lives.deathFadeMs);
     } else if (prev === STATES.GAMEOVER) {
       // Retry: full hearts and respawns, back on the horse at the start of the ride, with the
       // gems afresh (0 of each, every trail gem back, unlocks cleared). Quest progress is kept.
@@ -550,6 +557,8 @@ async function boot() {
       arrival: () => goToPart2('arrival', { white: false }),
       ride: () => goToPart2('ride', { white: false }), // (the first playable section: rails, steam, hazards, gears → the Fire door)
       ...Object.fromEntries(CONFIG.part2.levels.order.map((id) => [id, () => goToPart2(id, { white: false })])),
+      fireBoss: () => goToPart2('fireBoss', { white: false }),     // (the Furnace Guardian's sealed plaza)
+      firePlaza: () => goToPart2('firePlaza', { white: false }),   // (the chest plaza, with 2 cog keys)
       final: () => goToPart2('final', { white: false }),
       part2Ending: () => goToPart2('ending', { white: false }),
       robots: () => goToPart2('robots', { white: false }), // (Tick and the four mech robots in a row, each playing its clips)
@@ -594,6 +603,18 @@ async function boot() {
             kit();
           }
           levels.current.giveGears?.(TM.giveGears);
+        },
+      },
+      // Cog keys for the chests: `giveKeys` at once (onto the Fire level first if not on it).
+      {
+        label: DIALOGUE.testMenu.giveKeys(TM.giveKeys),
+        run: async () => {
+          if (levels.id !== 'part2' || !['fire', 'fireBoss'].includes(levels.current.at)) {
+            await freshPlay();
+            await part2Jumps.firePlaza();
+            kit();
+          }
+          levels.current.giveKeys?.(TM.giveKeys);
         },
       },
       { label: DIALOGUE.testMenu.audio, run: () => audioTest.open() }, // (every sound, the music sections)

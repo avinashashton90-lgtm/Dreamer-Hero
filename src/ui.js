@@ -1,4 +1,5 @@
 import { CONFIG, DIALOGUE } from './config.js';
+import { elementIconSvg } from './part2/elementIcons.js';
 
 /** DOM overlays: HUD, rotate-phone message, gameover & ending screens. */
 export class UI {
@@ -46,6 +47,28 @@ export class UI {
     this.gearsEl.style.display = 'none';
     this.gearsEl.innerHTML = `<b>${DIALOGUE.part2.ride.gears}</b><span></span><span class="gear-bar"><i class="fill"></i></span>`;
     this.hud.appendChild(this.gearsEl);
+
+    // Part 2: the cog-key counter just under the gear counter, and the Elements row (five diamond
+    // slots: the unlocked ones glow in their colour, the others are grey outlines).
+    this.keysEl = this.#el('div', 'key-pill');
+    this.keysEl.style.display = 'none';
+    this.keysEl.title = DIALOGUE.part2.fire.keysLabel;
+    this.keysEl.innerHTML = `<b>${DIALOGUE.part2.fire.keyIcon}</b><span></span>`;
+    this.hud.appendChild(this.keysEl);
+    this.elementsEl = this.#el('div', 'elements-row');
+    this.elementsEl.style.display = 'none';
+    this.elementsEl.title = DIALOGUE.part2.elements.label;
+    this.elementSlots = {};
+    for (const id of CONFIG.part2.levels.order) {
+      const slot = document.createElement('i');
+      slot.className = 'element-slot';
+      slot.title = DIALOGUE.part2.elements[id];
+      slot.style.setProperty('--el', `#${CONFIG.part2.levels[id].accent[0].toString(16).padStart(6, '0')}`);
+      slot.innerHTML = elementIconSvg(id);
+      this.elementsEl.appendChild(slot);
+      this.elementSlots[id] = slot;
+    }
+    this.hud.appendChild(this.elementsEl);
 
     // Exhaustion: a faint red vignette that breathes (strength set by setExhaustion).
     this.vignette = this.#el('div', 'vignette');
@@ -238,6 +261,34 @@ export class UI {
       el.classList.remove('pulse');
       void el.offsetWidth;
       el.classList.add('pulse');
+    }
+  }
+
+  /** The cog-key counter (Part 2's chests); `show` false hides it. */
+  setCogKeys(count, show = true, pulse = false) {
+    const el = this.keysEl;
+    const display = show ? '' : 'none';
+    if (el.style.display !== display) el.style.display = display;
+    const span = el.children[1];
+    if (span.textContent !== String(count)) span.textContent = String(count);
+    if (pulse) {
+      el.classList.remove('pulse');
+      void el.offsetWidth;
+      el.classList.add('pulse');
+    }
+  }
+
+  /** The Elements row: `unlocked` = the element ids recovered so far; `show` false hides the row; `pulse` an id that was just gained. */
+  setElements(unlocked, show = true, pulse = null) {
+    const display = show ? '' : 'none';
+    if (this.elementsEl.style.display !== display) this.elementsEl.style.display = display;
+    for (const [id, slot] of Object.entries(this.elementSlots)) {
+      slot.classList.toggle('on', unlocked.includes(id));
+      if (id === pulse) {
+        slot.classList.remove('pulse');
+        void slot.offsetWidth;
+        slot.classList.add('pulse');
+      }
     }
   }
 

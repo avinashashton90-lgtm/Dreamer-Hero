@@ -325,14 +325,16 @@ export class Input {
 
     // Abilities: small buttons in the arc (greyed out while locked).
     this.abilityBtns = {};
-    ['batarang', 'smokeBomb', 'flashMode'].forEach((name) => {
+    ['batarang', 'smokeBomb', 'flashMode', 'fireBlast'].forEach((name) => {
       const b = button('ability-btn locked', DIALOGUE.abilityShort[name]);
       b.title = DIALOGUE.abilityNames[name];
       b.insertAdjacentHTML('beforeend', '<i class="cooldown"></i>' + (name === 'flashMode' ? '<span class="energy"><i></i></span>' : ''));
       // Uses-left badge, in the colour it spends (updated live in setCombatButtons).
       const color = Object.keys(CONFIG.gems.abilities).find((c) => CONFIG.gems.abilities[c] === name);
       b.insertAdjacentHTML('beforeend', '<b class="uses" style="display:none"></b>');
-      b.style.setProperty('--gem', `#${CONFIG.gems.colors[color].toString(16).padStart(6, '0')}`);
+      const hex = color ? CONFIG.gems.colors[color] : CONFIG.part2.fire.accent; // (Fire Blast: the Fire Element's red-orange; its cooldown ring, no uses badge)
+      b.style.setProperty('--gem', `#${hex.toString(16).padStart(6, '0')}`);
+      if (name === 'fireBlast') b.classList.add('fire');
       this.abilityBtns[name] = b;
     });
 
@@ -451,6 +453,7 @@ export class Input {
         if (e.code === 'Digit1') this.abilityQueued = 'batarang';
         if (e.code === 'Digit2') this.abilityQueued = 'smokeBomb';
         if (e.code === 'Digit3') this.abilityQueued = 'flashMode';
+        if (e.code === 'Digit4') this.abilityQueued = 'fireBlast';
         if (e.code === I.debugKeys.grantGems) this.debugQueued.grantGems = true;
         if (e.code === I.debugKeys.damageHero) this.debugQueued.damageHero = true;
         if (e.code === I.debugKeys.teleportArena) this.debugQueued.teleportArena = true;
@@ -500,12 +503,13 @@ export class Input {
       if (el.style.display !== d) el.style.display = d;
     };
     // On foot / riding: each its own corner layout (buttons not in it are hidden).
-    this.#applyLayout(mounted ? 'ride' : 'foot');
+    // (Part 2's fighting levels pass their own set — `ab.layout` '2': the Batarang and Fire Blast only)
+    this.#applyLayout((mounted ? 'ride' : 'foot') + (ab.layout ?? ''));
     const L = I.layout[this.layoutMode];
     show(this.attackBtn, !!L.attack && !exhausted);
     show(this.dodgeBtn, !!L.dodge && !exhausted);
     for (const [name, b] of Object.entries(this.abilityBtns)) {
-      show(b, !!L[name] && !exhausted);
+      show(b, !!L[name] && !exhausted && (ab.visible ? ab.visible(name) : name !== 'fireBlast'));
       const unlocked = ab.has(name);
       b.classList.toggle('locked', !unlocked);
       // Uses left (live after every use and pickup), capped on screen; no badge at 0 or locked.
@@ -521,7 +525,7 @@ export class Input {
       b.classList.toggle('cooling', cd > 0);
       // Greyed: can't pay (no uses left, or Flash's hearts) — and Flash while its bar reloads.
       const why = name === 'flashMode' ? ab.flashBlockReason() : null;
-      b.classList.toggle('blocked', !ab.canAfford(name) || uses === 0 || why === 'reload' || why === 'health');
+      b.classList.toggle('blocked', !ab.canAfford(name) || uses === 0 || why === 'reload' || why === 'health'); // (uses null — Fire Blast — has no count: only its cooldown)
       if (name === 'flashMode') {
         b.querySelector('.energy i').style.transform = `scaleX(${ab.energy.toFixed(3)})`;
         b.classList.toggle('ready', !why);

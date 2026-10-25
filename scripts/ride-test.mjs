@@ -396,7 +396,7 @@ const place = (s, lat = 0, { speed = CONFIG.horse.maxSpeed, y = 0, vy = 0 } = {}
   // the first vent (→ the deck), the middle rail, the vent under the upper rail, the last vent,
   // a rail of the last pair; on a rail it leaves the stick alone.
   const line = (s) => (s > 30 && s < 58 ? R.vents[0].lat : s > 560 && s < 584 ? R.vents[2].lat : s > 610 && s < 650 ? R.rails.find((r) => r.group === 'b' && r.lat > 0).lat : 0);
-  for (; t < 150 && p2.at === 'ride'; t += dt) {
+  for (; t < 150 && p2.at === 'ride' && !ride.finished; t += dt) {
     const n = near();
     let steer = 0;
     if (n && !ride.grinding) {
@@ -415,7 +415,7 @@ const place = (s, lat = 0, { speed = CONFIG.horse.maxSpeed, y = 0, vy = 0 } = {}
     if (horse.speed < 1 && !ride.grinding && p2.at === 'ride') stuck += dt; else stuck = 0;
     if (stuck > 3) break;
   }
-  check(p2.at === R.quest && t < 120 && stuck <= 3, `a bot rides the whole level in ${t.toFixed(1)} s and reaches the Fire Element's door (never stuck)`);
+  check(ride.finished && t < 120 && stuck <= 3, `a bot rides the whole level in ${t.toFixed(1)} s and reaches the Fire Element's door (never stuck)`);
   check(reached.size === R.checkpoints.length - 1 && p2.rideParts.flags.every((f) => f.userData.flag.material.color.getHex() === CONFIG.checkpoints.reachedColor) && ui.toasts.filter((x) => x === DIALOGUE.checkpoint).length >= R.checkpoints.length - 1,
     `every checkpoint reached (${reached.size}), its flag green, a toast`);
   check(ride.count > 5 && sparkleMax >= R.gears.sparkle.count && (sound.counts.gear_collect ?? 0) - pick0 === ride.count && ride.stats.grinds > reachedGrinds && lives.hearts >= h0 && maxLat <= R.wall.offset,
@@ -431,8 +431,11 @@ const place = (s, lat = 0, { speed = CONFIG.horse.maxSpeed, y = 0, vy = 0 } = {}
     check(['rail_grind', 'saw_spin', 'conveyor_belt', 'factory_hum', 'gear_turn', 'clock_tick', 'tick_hover'].every((n) => loopsSeen.has(n)) && grindFrames > 0 && grindChase === grindFrames && phases.has('gearhaven') && phases.has('gearhavenChase') && ambRide > 100,
       `its loops: the rail grind, the nearest saw and conveyor, the ride's ambience (factory hum, gears, a soft tick-tock), Tick's hover; the music Gearhaven's theme, the faster one while grinding (${grindChase}/${grindFrames} frames)`);
   }
-  check(p2.at === 'fire' && ui.toasts.includes(D2.comingSoon(D2.levelNames.fire)) && !p2.rideParts.root.visible && p2.gearhaven.visible && horse.world === p2.world && hero.world === p2.world && !hero.riding && !ui.gears.show,
-    `the Fire Element's door → its stub ("${D2.comingSoon(D2.levelNames.fire)}"): the ride put away, AJ on foot, the courtyard's world back`);
+  // (the door leads on into the Fire Element's level — the furnace city, which builds itself the first time: real file reads)
+  for (let i = 0; i < 400 && p2.at === 'ride'; i++) { await frame(); await new Promise((r) => setTimeout(r, 25)); }
+  await frame();
+  check(p2.at === 'fire' && p2.fire.stage === 'ride' && !p2.rides.ride.parts.root.visible && p2.fire.parts.root.visible && horse.mode === 'riding' && hero.world === p2.fire.world && ui.quest === D2.fire.quest,
+    `the Fire door → the Fire Element's level ("${D2.fire.quest}"): the first ride put away, AJ on the horse in the furnace city (test:fire plays it)`);
 }
 
 // 7) Gear rewards: a third of the ride's gears → +1 max heart and a full heal; two thirds → the
@@ -495,7 +498,7 @@ const place = (s, lat = 0, { speed = CONFIG.horse.maxSpeed, y = 0, vy = 0 } = {}
   p2.toCourtyard();
   await frame();
   const court = lives.maxHearts === CONFIG.lives.hearts + GRW.heart && plates.every((p) => p.visible) && glow.visible;
-  p2.enterLevel('fire');
+  await p2.enterLevel('lightning');
   await frame();
   const fire = lives.maxHearts === CONFIG.lives.hearts + GRW.heart && glow.visible && horse.stumbleScale === GRW.armourStumble;
   p2.enterRide();
@@ -508,7 +511,7 @@ const place = (s, lat = 0, { speed = CONFIG.horse.maxSpeed, y = 0, vy = 0 } = {}
   await levels.load('part2', { start: 'courtyard' });
   const back = lives.maxHearts === CONFIG.lives.hearts + GRW.heart && plates.every((p) => p.visible) && glow.visible;
   check(court && fire && again && part1 && back,
-    'the rewards are kept between sections — the courtyard, the Fire stub, the ride again (no second banner) — and back in Part 1 the hearts and the horse are as they were; into Part 2 again, the rewards return');
+    'the rewards are kept between sections — the courtyard, a stub, the ride again (no second banner) — and back in Part 1 the hearts and the horse are as they were; into Part 2 again, the rewards return');
   p2.newGame();
   check(lives.maxHearts === CONFIG.lives.hearts && plates.every((p) => !p.visible) && !glow.visible && p2.rewards.unlocked.size === 0, 'a new game: no rewards');
   check(DIALOGUE.testMenu.giveGears(CONFIG.testMenu.giveGears) === 'Give 14 gears' && CONFIG.testMenu.giveGears === tiers[0].count, '?debug menu: "Give 14 gears" (the first tier)');

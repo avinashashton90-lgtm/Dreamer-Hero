@@ -25,7 +25,12 @@ export { spinInstances };
 // and stretch of trail; everything moving is instanced; no shadows. Every colour comes from the
 // Gearhaven look (looks.js) by role; the city floor is the silver engraved floor (floor.js).
 
-const R = CONFIG.part2.ride;
+let R = CONFIG.part2.ride;
+
+/** Makes `cfg` the ride these loaders build (see ride.js setRideConfig). */
+export function setRideModelConfig(cfg) {
+  R = cfg;
+}
 const TAU = Math.PI * 2;
 const lerp = (a, b, t) => a + (b - a) * t;
 const lambert = (color, extra = {}) => new THREE.MeshLambertMaterial({ color, ...extra });

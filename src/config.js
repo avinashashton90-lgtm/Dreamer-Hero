@@ -889,6 +889,7 @@ export const CONFIG = {
     propsTest: {
       z: 90, gap: 2.4, floor: { depth: 14 }, // (on its own strip of silver floor, away from the courtyard)
       gears: [['Gear (gear_01)', 'gear01', 1.2, 'brass'], ['Gear cluster', 'cluster', 1.4, 'copper'], ['Cog (Factory Kit)', 'cogA', 1, 'brass'], ['Collectible gear', 'collectible', 0.6, 'gold']],
+      items: { scale: 1.8, width: 2.4, chestScale: 1.2 }, // the item system's types, one slot each (chests open and shut)
       spin: 0.8, sawScale: 0.8, kitScale: 1.6, railGap: 2.2, slats: 10, puffs: 8, towerScale: 0.3, castleScale: 0.25, gatePeriod: 6,
       camera: { dist: 12, height: 3.6, look: 1.8, speed: 3, ahead: 2, swipe: 40 },
     },
@@ -911,6 +912,7 @@ export const CONFIG = {
         courtyard: { clock_tick: 0.6, gear_turn: 0.5, steam_hiss: 0.3 },
         ride: { factory_hum: 0.5, gear_turn: 0.35, clock_tick: 0.25 },
         stub: { clock_tick: 0.4, gear_turn: 0.3 },
+        fire: { factory_hum: 0.5, burn_loop: 0.3, gear_turn: 0.3 },
       },
       ambienceVolume: 0.35, ambienceFade: 1.5,
       chaseLinger: 3,
@@ -979,6 +981,139 @@ export const CONFIG = {
       time: { accent: [0xf0c048, 0x14204a], angle: 0.7 },
       final: { accent: [0x9a6bff, 0xe0d4ff] },
       stub: { radius: 9, gap: 120, crystal: 0.8, back: 6.5 }, // a platform per level this far apart; a crystal; the door back
+    },
+    // The reusable items (part2/items.js; every type a swappable loadItemModel(name) with a code-built
+    // placeholder in brass / copper / glow colours): floating pickups (they bob, spin and glow),
+    // chests (small: 1 cog key, big: 2) and what is inside them. Used by the Fire level; later
+    // levels reuse them (rune stones and wand pieces are for later: three wand pieces form Amy's wand).
+    items: {
+      bob: 0.16, bobRate: 2.4, spin: 1.5, halo: { size: 1.7, opacity: 0.32 },
+      colors: { brass: 0xd8a640, copper: 0xb8683a, gold: 0xf0c048, dark: 0x3a2a1c, stone: 0x7c7468, violet: 0x9a6bff },
+      // A pickup: `size` its radius, `reach` the pickup distance from the rider's collect point, `height` it floats at.
+      types: {
+        cogKey: { size: 0.8, height: 1.5, reach: 2.6, color: 0xf0c048, glow: 0xffd870, spin: 1.1, sound: 'cog_key_collect', label: 'cog key' },
+        elixirHeal: { size: 0.46, height: 1.3, reach: 2.2, color: 0x44d86a, glow: 0x9dffb4, heal: 2, sound: 'elixir_drink', label: 'healing elixir' },
+        elixirEnergy: { size: 0.46, height: 1.3, reach: 2.2, color: 0x3f9bff, glow: 0x9ccfff, energy: 1, sound: 'elixir_drink', label: 'energy elixir' },
+        gem: { size: 0.4, height: 1.2, reach: 2.2, color: 0x4aa8ff, color2: 0xffd23f, glow: 0xbfe0ff, ammo: 1, sound: 'gem_collect', label: 'gem' }, // a blue-yellow crystal: 1 gem = 1 Batarang throw
+        heartContainer: { size: 0.5, height: 1.4, reach: 2.4, color: 0xff3a52, glow: 0xff9aa8, sound: 'element_collect', label: 'heart container' },
+        gearBundle: { size: 0.55, height: 1.4, reach: 2.4, color: 0xe2b23c, glow: 0xffe8a0, gears: 5, sound: 'gear_collect', label: 'gear bundle' },
+        runeStone: { size: 0.7, height: 1.2, reach: 2.4, color: 0x7c7468, glow: 0xff7a2a, sound: 'element_collect', label: 'rune stone' }, // (for later levels)
+        wandPiece: { size: 0.6, height: 1.4, reach: 2.4, color: 0x9a6bff, glow: 0xd8c4ff, sound: 'element_collect', label: 'wand piece' }, // (three form Amy's wand)
+      },
+      // Chests: `size` [w, h, d]; `cost` cog keys; they open on their own when the rider has the keys.
+      chests: {
+        small: { size: [1.4, 0.85, 1.0], cost: 1 },
+        big: { size: [2.3, 1.2, 1.5], cost: 2 },
+      },
+      chest: {
+        reach: 3.4,            // the rider within this opens it (or is told what it needs)
+        openTime: 0.9, lidAngle: 1.85, beam: { height: 5, opacity: 0.4, color: 0xfff0b0 },
+        riseHeight: 2.6, riseTime: 1.0, hold: 0.35, // the item floats up, then is collected
+        redTime: 0.9, redColor: 0xff2a1c, hintGap: 2.0, // too few keys: it glows red this long; the hint repeats at most this often
+      },
+    },
+    // The Fire Element's level (part2/fire.js): the furnace city ride (the Gearhaven ride's own
+    // machinery on a new layout: conveyors, steam vents, rails, gears), scout robots, a chest plaza,
+    // sword robots and the Furnace Guardian in a sealed circular plaza; then the Fire Element.
+    fire: {
+      accent: 0xff4a1c, accent2: 0xffa040, ember: 0x4a1608, // red-orange; the fog warms toward `ember` (`fogMix`)
+      fogMix: 0.38, lightColor: 0xff7a2a,
+      startAmmo: 8,           // Batarang gems when the level starts (1 gem = 1 throw)
+      checkpointSave: true,   // opened chests, keys, taken pickups are saved at each checkpoint
+      // Overrides of CONFIG.part2.ride for this layout (merged in fire.js). The first 780 of the trail is
+      // the first ride's shape (only one of them is ever drawn), then it carries on east and turns south
+      // — all inside the map's bounds (the horse is clamped to CONFIG.world) — so section 1 reuses its
+      // rails, vents and deck. Plaza on the straight (s 700–860), sword robots on the last leg.
+      ride: {
+        points: [[260, 110], [260, 300], [360, 380], [360, 540], [500, 600], [660, 600], [800, 600], [800, 140]],
+        checkpoints: [0, 205, 335, 495, 625, 700, 960, 1130],
+        ground: { size: [1400, 1200] },
+        clock: { at: [790, 70, -260], radius: 46, slow: 0.015 },
+        vents: [{ s: 50, lat: 0 }, { s: 350, lat: 0 }, { s: 580, lat: -3 }],
+        hammers: [{ s: 225, phase: 0 }, { s: 250, phase: 1.6 }],
+        cogPlatforms: [{ s: 388, lat: -3, dir: 1 }],
+        conveyors: [{ s: [265, 281], dir: 1 }],
+        saws: [{ s: 304, phase: 0 }, { s: 318, phase: Math.PI }],
+        rails: [
+          { group: 'a', s: [148, 204], lat: -4, h: 1.1 }, { group: 'a', s: [148, 204], lat: 0, h: 1.1 }, { group: 'a', s: [148, 204], lat: 4, h: 1.1 },
+          { group: 'u', s: [362, 436], lat: 0, h: 4.2, upper: true },
+        ],
+        gears: {
+          rows: [[28, 44, 0, 4], [660, 676, 0, 3], [740, 850, 0, 6], [1000, 1060, 0, 5], [1140, 1200, 0, 5]],
+          railRows: [['a', 0, 156, 170, 3], ['a', 1, 172, 184, 3], ['a', 2, 186, 200, 3], ['u', 0, 372, 428, 6]],
+        },
+        door: { s: 1318, scale: 2.4, reach: 4.5 },
+        quest: 'fire',
+      },
+      // Cog keys (5 in the level: 2 beside the road in section 1, one by each plaza chest) and plaza
+      // contents. [s, lat, height above the street]. Chests and keys sit off the centre line.
+      keys: [[212, 5.6, 0], [412, -5.8, 0], [730, -6.0, 0], [775, 6.0, 0], [835, -6.0, 0]],
+      chests: [
+        { size: 'small', s: 735, lat: -5.2, contents: { type: 'elixirHeal', n: 1 } },
+        { size: 'small', s: 780, lat: 5.2, contents: { type: 'gem', n: 6 } },
+        { size: 'big', s: 830, lat: -4.8, contents: { type: 'heartContainer', n: 1 } },
+      ],
+      elixirs: [{ type: 'elixirHeal', s: 712, lat: 0 }, { type: 'elixirEnergy', s: 852, lat: 0 }],
+      plaza: { from: 700, to: 860, braziers: 5 },
+      // Section 2: scout robots (Leela) in groups of 2 run at the horse from the front and wide.
+      scouts: {
+        triggers: [452, 508, 562, 616],  // s at which a group is called
+        ahead: [42, 54], lat: 6.0,       // they start this far along the trail ahead, wide (±lat)
+        speed: 14.5, hp: 2, radius: 0.5, height: 1.55, reach: 2.4, lunge: 0.35, damage: 0.25, // 2 Batarang hits
+        rise: 0.9, fall: 14, despawnBehind: 26, gemChance: 0.35, grace: 1.0,
+      },
+      // Section 4: sword robots (Mike and Stan) patrol; at the horse they alert, sidestep, charge, wind up (a red ring) and swing.
+      swords: {
+        spots: [{ kind: 'swordA', s: 1000, lat: -3 }, { kind: 'swordB', s: 1060, lat: 3 }, { kind: 'swordA', s: 1135, lat: -2 }, { kind: 'swordB', s: 1200, lat: 2.5 }],
+        hp: 4, radius: 0.8, height: 2.7, patrol: { range: 4.5, along: 7, speed: 1.6 },
+        aggro: 24, alert: 0.55, sidestep: 0.45, sidestepDist: 3.2, chargeSpeed: 11, chargeMax: 3.2, swingRange: 3.8, windup: 0.6, recover: 1.3,
+        damage: 0.5, gemChance: 0.5, ringColor: 0xff3a1c, fade: 0.9, despawnBehind: 40,
+      },
+      hit: { pad: 0.5 },      // slack on a foe's hit body for the Batarang / fire ball
+      // The Batarang in Part 2: 1 gem a throw, auto-aimed (the nearest foe, preferring ones ahead), out and back.
+      batarang: { damage: 1, cooldown: 0.8, speed: 38, returnSpeed: 40, range: 30, forward: 16, release: 0.24, turn: 600, color: 0xffd23f, size: 0.4, prefer: 1.6 },
+      // Fire Blast (the Fire Element's ability): a ball of fire in an arc, 3× the Batarang, burns for 3 s.
+      fireBlast: {
+        damage: 3, burn: { time: 3, dps: 1 }, cooldown: 8, speed: 24, arc: 2.6, range: 28, forward: 14, release: 0.24, size: 0.55,
+        color: 0xff6a1c, core: 0xffe08a, splash: 2.2, trail: 14, hint: true,
+      },
+      // The Furnace Guardian (George, the big armoured mech): HP in Batarang hits, three attacks, a sealed plaza.
+      arena: {
+        at: [300, 0, -60], radius: 24, wall: 23, pillars: { count: 4, ring: 13, radius: 1.3, height: 7 },
+        spawn: [0, 17], horse: [0, 21], boss: [0, -7],   // [x, z] from the centre: AJ's entrance, the horse's place, the Guardian's
+        gate: { width: 9, close: 1.4, steam: 40 },       // the steam barrier at the entrance (z+): closes when the Guardian notices AJ
+        notice: 22,                                      // the Guardian notices AJ within this
+        gems: { marks: [0.8, 0.6, 0.4, 0.2], count: 8, ring: 19 }, // rings of gems at these shares of its HP
+        protection: 3, reviveRecover: 0.5, reviveAmmo: 8, retreat: { speed: 7, far: 0.8 },
+        openTime: 1.6, pedestalTime: 2.2,
+      },
+      boss: {
+        hp: 30, radius: 2.6, height: 6.5, walk: 3.4, walkEnraged: 4.6, enrageAt: 0.5, turn: 2.2,
+        glow: { color: 0xff5a1c, tint: 0.5, furnace: { size: 0.9, up: 0.64, out: 0.7 } },
+        recover: 1.4, recoverEnraged: 0.8,
+        // Stomp: rears up, slams; a shockwave ring spreads — AJ must be off the ground when it passes (jump).
+        stomp: { range: 15, windup: 1.0, speed: 10, width: 1.5, maxRadius: 18, damage: 1, jumpClear: 0.55, shake: 0.35 },
+        // Steam Burst: a cone of steam from the furnace (telegraphed on the floor), half a heart (once per burst).
+        steam: { min: 3, max: 13, windup: 1.1, duration: 1.4, length: 12, angle: 0.8, damage: 0.5, cooldown: 4 },
+        // Furnace Charge: head down, a pause, a straight rush; into a pillar it stuns itself (taking extra damage).
+        charge: { min: 6, windup: 1.2, speed: 17, max: 30, stun: 3, stunDamage: 1.5, hitRadius: 2.6, damage: 1, knock: 6, cooldown: 5 },
+        hurtFlash: 0.12, deathTime: 2.4,
+      },
+      // Tick calls out each attack's windup with small chirps.
+      tickCalls: { stomp: 'stomp', steam: 'steam', charge: 'charge' },
+      // The Fire Element: a swirling orb of flame on a pedestal that rises when the Guardian falls.
+      element: {
+        orb: { radius: 0.85, particles: 36, swirl: 1.8, height: 1.7, glow: 3.2 },
+        pedestal: { radius: 1.5, height: 1.0, rise: 2.0 },
+        scene: { pull: 1.6, flash: 0.5, eyes: 0.9, tower: { at: [-26, 14, -30], scale: 2.4, vanish: 0.9 } }, // the hooded figure on a distant tower
+        shots: {
+          orb: { dist: 5.2, up: 1.6, look: 1.2, duration: 1.4 },
+          circle: { dist: 4.6, up: 1.5, look: 1.3, turns: 0.55, duration: 3.0 },
+          tower: { dist: 9, up: 2.4, duration: 1.4 },
+        },
+        bannerMs: 2800,
+      },
+      debug: { plazaKeys: 2, plazaCheckpoint: 5, bossAmmo: 20 }, // (?debug) "Fire plaza chests": at the plaza with this many keys; "Fire boss": this many gems
     },
     music: 'gearhaven',
     // The gear props (part2/props.js): each a regular shape (centred, axle along +Z, radius 1)
@@ -1560,6 +1695,10 @@ export const CONFIG = {
         smokeBomb: [140, 160, 58],
         flashMode: [60, 170, 58],
       },
+      // Part 2's fighting levels (the Fire level): only the buttons they have — Jump / Gallop, the
+      // Batarang and Fire Blast (in the spots Smoke Bomb and Flash have in Part 1).
+      foot2: { jump: [166, 60, 62], batarang: [230, 104, 58], fireBlast: [204, 190, 58] },
+      ride2: { gallop: [66, 66, 80], jump: [166, 60, 62], batarang: [222, 130, 58], fireBlast: [140, 160, 58] },
       minGap: 12,                // px of clear space kept between the corner buttons
     },
     // Ability buttons: a badge with the uses left (gems on hand ÷ cost, rounded down), capped
@@ -1588,6 +1727,7 @@ export const CONFIG = {
     abilityUses: 5,
     caveApproach: 45,        // "Cave entrance": on the horse this far from the arena centre (it auto-dismounts at boss.dismountRange)
     hurdleApproach: 30,      // "Forest hurdles": on the horse this far before the first hurdle (it's right there, in view)
+    giveKeys: 3,             // "Give 3 cog keys": the Fire level's chests
     giveGears: 14,           // "Give 14 gears": collects this many of the Gearhaven ride's gears (the first reward tier of 42)
   },
 
@@ -1667,7 +1807,7 @@ export const CONFIG = {
         // Amy in Part 2: softer and cooler than in Part 1 — lower, slower, longer, hushed (a breathy low-pass)
         amy2: { freq: 330, jitter: 0.05, type: 'sine', volume: 0.13, length: 0.11, formant: 1300, charsPerBlip: 3 },
       },
-      speakers: { hero: 'aj', aj: 'aj', girl: 'amy', boss: 'boss', tick: 'tick' }, // cinematic speaker key → character
+      speakers: { hero: 'aj', aj: 'aj', girl: 'amy', boss: 'boss', tick: 'tick', hooded: 'amy' }, // cinematic speaker key → character
     },
     gemPitch: { yellow: 1, blue: 1.26, pink: 1.5 },
     bossStepShake: 0.05,     // the camera shake linked to each heavy boss step (units)
@@ -2101,7 +2241,7 @@ export const DIALOGUE = {
     pit: 'Lazarus Pit scene', chase: 'Desert chase', storm: 'Sandstorm', gate: 'Castle gate cinematic',
     audio: 'Audio test',
     part1: 'Part 1', part2: 'Part 2',
-    portal: 'Portal scene', arrival: 'Gearhaven arrival', fire: 'Fire level', lightning: 'Lightning level', steam: 'Steam level',
+    portal: 'Portal scene', arrival: 'Gearhaven arrival', fire: 'Fire level (start)', fireBoss: 'Fire boss', firePlaza: 'Fire plaza chests', giveKeys: (n) => `Give ${n} cog keys`, lightning: 'Lightning level', steam: 'Steam level',
     magnet: 'Magnet level', time: 'Time level', final: "Amy's final fight", part2Ending: 'Part 2 ending', robots: 'Robots test', ride: 'Gearhaven ride', props: 'Props test', look: (name) => `Look: ${name}`, giveGears: (n) => `Give ${n} gears`,
     on: 'Test menu on', off: 'Test menu off',
   },
@@ -2142,6 +2282,28 @@ export const DIALOGUE = {
       banner: (what) => `Gear reward unlocked: ${what}!`,
       heart: '+1 heart', armour: 'horse armour', charge: 'bonus ability charge',
     },
+    // The Fire Element's level (part2/fire.js, items.js).
+    fire: {
+      quest: 'Ride to the furnace gate', start: 'Furnace city! Keep to the road.', gears: '⚙',
+      questBoss: 'Defeat the Furnace Guardian', questElement: 'Take the Fire Element', bossName: 'Furnace Guardian',
+      needs: (n) => `Needs ${n} cog key${n > 1 ? 's' : ''}`,
+      got: { cogKey: 'Cog key!', elixirHeal: 'Healing elixir: +2 hearts', elixirEnergy: 'Energy elixir: the horse is rested', gem: (n) => `+${n} gem${n > 1 ? 's' : ''}`, heartContainer: 'Heart container: +1 max heart!', gearBundle: (n) => `+${n} gears`, runeStone: 'Rune stone', wandPiece: 'Wand piece' },
+      keysLabel: 'Cog keys', keyIcon: '🗝',
+      blastUnlocked: 'Fire Blast unlocked!', blastHint: 'Tap Fire to throw a fireball — it burns!',
+      ammoOut: 'Out of gems!',
+      gateSealed: 'The furnace gate is sealed!', gateOpen: 'The way out is open.',
+      banner: 'Fire Element recovered',
+      tick: { stomp: 'Stomp coming!', steam: 'Steam! Get clear!', charge: 'It is charging!' },
+      scene: {
+        one: 'That is one of five.',            // (Tick)
+        others: 'Where are the others?',         // (AJ)
+        witch: 'Wherever the witch has not taken them yet.', // (Tick)
+        watching: 'Someone is watching us.',     // (Tick, noticing the hooded figure on the distant tower)
+        amy: 'Amy?',                             // (AJ)
+        cannot: 'I cannot say.',                 // (Tick)
+      },
+    },
+    elements: { fire: 'Fire', lightning: 'Lightning', steam: 'Steam', magnet: 'Magnet', time: 'Time', label: 'Elements' },
     toBeContinued: 'To be continued... Part 3',
     summaryTitle: 'Part 2 complete',
     nextPart: 'Part 3 (Coming soon)',
@@ -2162,7 +2324,7 @@ export const DIALOGUE = {
   dismount: 'Dismount',
   checkpoint: 'Checkpoint!',
   gemNames: { yellow: 'Yellow', blue: 'Blue', pink: 'Pink' },
-  abilityNames: { batarang: 'Batarang', smokeBomb: 'Smoke Bomb', flashMode: 'Flash Mode' },
+  abilityNames: { batarang: 'Batarang', smokeBomb: 'Smoke Bomb', flashMode: 'Flash Mode', fireBlast: 'Fire Blast' },
   unlocked: (ability) => `${ability} Unlocked!`,
   smokeResisted: 'It shrugs off the smoke!',
   arenaGems: 'Gems at the arena edge!',
@@ -2185,12 +2347,12 @@ export const DIALOGUE = {
   attack: 'Attack',
   dodge: 'Dodge',
   jump: 'Jump',
-  abilityShort: { batarang: '★', smokeBomb: '☁', flashMode: '⚡' },
+  abilityShort: { batarang: '★', smokeBomb: '☁', flashMode: '⚡', fireBlast: '🔥' },
   gameOverTitle: 'Game Over',
   retryRide: 'Retry',
   bossName: 'Cave Monster',
   // The girl's scene at the cave mouth (she is secretly a witch — only hinted).
-  speakers: { hero: 'Hero', aj: 'AJ', girl: 'Girl', tick: 'Tick' }, // (Part 2's lines name AJ: speaker `aj`)
+  speakers: { hero: 'Hero', aj: 'AJ', girl: 'Girl', tick: 'Tick', hooded: 'Hooded figure' }, // (Part 2's lines name AJ: speaker `aj`)
   girlScene: {
     safe: "You're safe now. The monster is gone.",
     thanks: 'My saviour, you have come at last! I am so thankful to you. My life is yours. Take me.',

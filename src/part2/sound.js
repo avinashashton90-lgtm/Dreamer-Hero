@@ -31,6 +31,7 @@ export class Part2Sound {
   get section() {
     const at = this.p.at;
     if (at === 'ride') return 'ride';
+    if (at === 'fire' || at === 'fireBoss' || at === 'fireElement') return 'fire';
     if (this.p.stubs?.[at]) return 'stub';
     if (at === 'arrival' || at === 'courtyard' || at === 'robots' || at === 'props') return 'courtyard';
     return null;
@@ -45,6 +46,10 @@ export class Part2Sound {
     if (p.at === 'ending') phase = 'part2End';
     else if (p.at === 'ride' && this.chaseT > 0) phase = 'gearhavenChase';
     else if (p.stubs?.[p.at]) phase = 'stub';
+    else if (p.at === 'fire' || p.at === 'fireBoss' || p.at === 'fireElement') phase = 'elementFire';
+    // the Fire theme builds once the Furnace Guardian has noticed AJ (its boss layer)
+    const g = p.fire?.guardian;
+    this.audio?.setMusicLayer?.('boss', p.at === 'fireBoss' && !!g && g.alive && g.state !== 'idle');
     if (p.soundscape) p.soundscape.musicPhase = phase;
     return phase;
   }
