@@ -70,6 +70,19 @@ export class Part2Sound {
       if (this.levels[name] > 0.004) this.#loop(`amb:${name}`, name, { volume: this.levels[name] * SND.ambienceVolume });
       else delete this.levels[name];
     }
+    // The Furnace Guardian's plaza: a steam loop at half level that ducks while any effect plays (hits, impacts, the
+    // Batarang and Fire Blast are never masked by it) and eases back up.
+    const PS = SND.plazaSteam;
+    const counts = p.sound?.counts ?? {};
+    let played = 0;
+    for (const k in counts) if (k !== 'steam_hiss') played += counts[k];
+    if (played !== this.playedBefore) this.duckT = PS.duckTime;
+    this.playedBefore = played;
+    this.duckT = Math.max(0, (this.duckT ?? 0) - dt);
+    const goal = this.duckT > 0 ? PS.duck : 1;
+    this.steamK = (this.steamK ?? 1) + (goal - (this.steamK ?? 1)) * Math.min(1, dt * PS.ease);
+    this.steamVolume = p.at === 'fireBoss' ? PS.volume * PS.scale * this.steamK : 0;
+    if (this.steamVolume > 0) this.#loop('plazaSteam', 'steam_hiss', { volume: this.steamVolume });
     // Tick's little propeller, from where he floats.
     const tick = p.tick;
     if (tick?.model.visible && tick.model.parent) this.#loop('tickHover', 'tick_hover', { volume: SND.tickHover, position: tick.position });

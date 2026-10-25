@@ -228,7 +228,7 @@ class Part2 {
     const total = ride.total;
     const now = this.rewards.progress(this.rideKey, ride.count, total, 'fire');
     const tiers = gearTiers(total).map((t) => ({ at: t.at, reached: ride.count >= t.count }));
-    this.ui.setGears?.(ride.count, total, true, pulse, tiers);
+    this.ui.setGears?.(ride.count, total, true, pulse, tiers, this.rideKey !== 'fire'); // (the Fire level shows only the count)
     for (const r of now) {
       this.banners.push(D2.gearReward.banner(D2.gearReward[r]));
       if (r === 'heart') {

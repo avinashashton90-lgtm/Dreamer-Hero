@@ -915,6 +915,8 @@ export const CONFIG = {
         fire: { factory_hum: 0.5, burn_loop: 0.3, gear_turn: 0.3 },
       },
       ambienceVolume: 0.35, ambienceFade: 1.5,
+      // The Furnace Guardian's plaza: a steam loop at half its old level (`volume` × `scale`), ducked to `duck` for `duckTime` s after any effect so hits, impacts and shots are never masked.
+      plazaSteam: { volume: 0.3, scale: 0.5, duck: 0.35, duckTime: 0.7, ease: 8 },
       chaseLinger: 3,
       grind: { volume: [0.32, 0.55], pitch: [0.85, 1.2] }, // the rail grind: from grind.speed to its maxSpeed
       sawRange: 40, sawVolume: 0.5, conveyorRange: 35, conveyorVolume: 0.6, hammerRange: 45, ventIdleVolume: 0.35, // (3D: quieter with distance)
@@ -992,9 +994,9 @@ export const CONFIG = {
       // A pickup: `size` its radius, `reach` the pickup distance from the rider's collect point, `height` it floats at.
       types: {
         cogKey: { size: 0.8, height: 1.5, reach: 2.6, color: 0xf0c048, glow: 0xffd870, spin: 1.1, sound: 'cog_key_collect', label: 'cog key' },
-        elixirHeal: { size: 0.46, height: 1.3, reach: 2.2, color: 0x44d86a, glow: 0x9dffb4, heal: 2, sound: 'elixir_drink', label: 'healing elixir' },
-        elixirEnergy: { size: 0.46, height: 1.3, reach: 2.2, color: 0x3f9bff, glow: 0x9ccfff, energy: 1, sound: 'elixir_drink', label: 'energy elixir' },
-        gem: { size: 0.4, height: 1.2, reach: 2.2, color: 0x4aa8ff, color2: 0xffd23f, glow: 0xbfe0ff, ammo: 1, sound: 'gem_collect', label: 'gem' }, // a blue-yellow crystal: 1 gem = 1 Batarang throw
+        elixirHeal: { size: 0.46, height: 1.3, reach: 2.2, color: 0x44d86a, glow: 0x9dffb4, cork: 0x2e9c48, sound: 'elixir_drink', label: 'green potion' }, // GREEN potion: a round flask with a green cork; heals AJ (`fire.greenPotionHearts`)
+        elixirEnergy: { size: 0.46, height: 1.3, reach: 2.2, color: 0x3f9bff, glow: 0x9ccfff, crystal: 0x7fd0ff, sound: 'elixir_drink', label: 'blue potion' }, // BLUE potion: a tall flask with a blue crystal stopper; rests the horse (`fire.bluePotionEnergy`)
+        gem: { size: 0.4, height: 1.2, reach: 2.2, color: 0x2f86ff, color2: 0x9fd4ff, glow: 0xbfe0ff, ammo: 5, sound: 'gem_collect', label: 'gem' }, // a blue diamond (two blues): 1 gem = 5 Batarang throws
         heartContainer: { size: 0.5, height: 1.4, reach: 2.4, color: 0xff3a52, glow: 0xff9aa8, sound: 'element_collect', label: 'heart container' },
         gearBundle: { size: 0.55, height: 1.4, reach: 2.4, color: 0xe2b23c, glow: 0xffe8a0, gears: 10, sound: 'gear_collect', label: 'gear bundle' },
         runeStone: { size: 0.7, height: 1.2, reach: 2.4, color: 0x7c7468, glow: 0xff7a2a, sound: 'element_collect', label: 'rune stone' }, // (for later levels)
@@ -1018,7 +1020,8 @@ export const CONFIG = {
     fire: {
       accent: 0xff4a1c, accent2: 0xffa040, ember: 0x4a1608, // red-orange; the fog warms toward `ember` (`fogMix`)
       fogMix: 0.38, lightColor: 0xff7a2a,
-      startAmmo: 8,           // Batarang gems when the level starts (1 gem = 1 throw)
+      startAmmo: 8,           // Batarang ammo when the level starts (1 throw each; a blue gem gives 5)
+      fireBossHealth: 45,     // the Furnace Guardian's HP (was 30: +50%)
       checkpointSave: true,   // opened chests, keys, taken pickups are saved at each checkpoint
       // Overrides of CONFIG.part2.ride for this layout (merged in fire.js). The first 780 of the trail is
       // the first ride's shape (only one of them is ever drawn), then it carries on east and turns south
@@ -1039,8 +1042,11 @@ export const CONFIG = {
           { group: 'u', s: [362, 436], lat: 0, h: 4.2, upper: true },
         ],
         gears: {
-          rows: [[28, 44, 0, 4], [660, 676, 0, 3], [740, 850, 0, 6], [1000, 1060, 0, 5], [1140, 1200, 0, 5]],
-          railRows: [['a', 0, 156, 170, 3], ['a', 1, 172, 184, 3], ['a', 2, 186, 200, 3], ['u', 0, 372, 428, 6]],
+          // (scarce on purpose: a Gear Wheel costs 6, so about every 6th gear collected is one shot — about 33 gears in all)
+          rows: [[28, 44, 0, 3], [660, 676, 0, 2], [740, 850, 0, 4], [1000, 1060, 0, 3], [1140, 1200, 0, 3]],
+          railRows: [['a', 0, 156, 170, 2], ['a', 1, 172, 184, 2], ['a', 2, 186, 200, 2], ['u', 0, 372, 428, 4]],
+          deckRows: [[0, 72, 120, 2]],
+          ventArc: [3, 8],
         },
         door: { s: 1318, scale: 2.4, reach: 4.5 },
         quest: 'fire',
@@ -1057,7 +1063,11 @@ export const CONFIG = {
       ],
       // Gems for the Batarang along the whole ride: `fireGemCount` in all, spread evenly along the path (about 1 every
       // 40), on the safe line, plus on the steam-jump landings and extra in the plaza.
-      fireGemCount: 32,
+      // Potions: green heals AJ (+greenPotionHearts hearts, a chime and a green sparkle on him), blue rests the horse
+      // (+bluePotionEnergy of its energy — out of 100 —, heals its health if it has been hurt, a splash and a blue sparkle on it).
+      greenPotionHearts: 1, bluePotionEnergy: 40,
+      sparkle: { count: 18, speed: 3.2, life: 0.8, size: 0.14 },
+      fireGemCount: 32,          // (blue diamond gems, 5 Batarang ammo each — `items.types.gem.ammo`)
       gemLandings: [[84, 0, 4.0], [366, 1.5, 4.2], [610, -2, 0]], // [s, lat, height]: the belt deck, the upper rail, the street after the last vent
       plazaGems: [[704, 2.5], [722, -2.5], [752, 2.5], [768, -2.5], [800, 2.5], [815, -2.5], [845, 2.5], [858, -2.5]],
       // The cog gate across the road at the end of section 1: opens with 2 cog keys (a solid barrier till then).
@@ -1066,9 +1076,14 @@ export const CONFIG = {
       // the ground, 3 damage, spends 10 brass gears): the level's two extra weapons; Fire Blast is his from the start of the level.
       weapons: {
         cogShot: { damage: 2, cooldown: 1.2, speed: 26, arc: 3, range: 26, forward: 14, size: 0.5, keys: 1, color: 0xf0c048 },
-        gearWheel: { damage: 3, cooldown: 2.0, speed: 30, range: 34, radius: 0.9, height: 0.9, gears: 10, color: 0xd8a640, spin: 18 },
+        gearWheel: { damage: 3, cooldown: 2.0, speed: 30, range: 34, radius: 0.9, height: 0.9, gears: 6, color: 0xd8a640, hop: 0.35, hopTime: 0.35, wallKeep: 0.85, maxBounces: 4, reboundKeep: 0.9, roll: 'gear_roll' }, // (spins with its rolling: speed ÷ radius; bounces a little off walls, rebounds off the first robot it hits)
       },
-      elixirs: [{ type: 'elixirHeal', s: 712, lat: 0 }, { type: 'elixirEnergy', s: 852, lat: 0 }],
+      // Potions along the road: 3 green and 3 blue on the ride, 2 green in the plaza. [s, lat] — off the gem line (±1.6).
+      elixirs: [
+        { type: 'elixirHeal', s: 95, lat: 3.2 }, { type: 'elixirHeal', s: 520, lat: -3.2 }, { type: 'elixirHeal', s: 1090, lat: 3.2 },
+        { type: 'elixirEnergy', s: 175, lat: -3.2 }, { type: 'elixirEnergy', s: 640, lat: 3.2 }, { type: 'elixirEnergy', s: 1170, lat: -3.2 },
+        { type: 'elixirHeal', s: 712, lat: 0 }, { type: 'elixirHeal', s: 852, lat: 0 },
+      ],
       plaza: { from: 700, to: 860, braziers: 5 },
       // Section 2: scout robots (Leela) in groups of 2 run at the horse from the front and wide.
       scouts: {
@@ -1089,21 +1104,22 @@ export const CONFIG = {
       batarang: { damage: 1, cooldown: 0.8, speed: 38, returnSpeed: 40, range: 30, forward: 16, release: 0.24, turn: 600, color: 0xffd23f, size: 0.4, prefer: 1.6 },
       // Fire Blast (the Fire Element's ability): a ball of fire in an arc, 3× the Batarang, burns for 3 s.
       fireBlast: {
-        damage: 3, burn: { time: 3, dps: 1 }, cooldown: 8, speed: 24, arc: 2.6, range: 28, forward: 14, release: 0.24, size: 0.55,
+        damage: 3, burn: { time: 3, dps: 1 }, cooldown: 10, speed: 24, arc: 2.6, range: 28, forward: 14, release: 0.24, size: 0.55,
         color: 0xff6a1c, core: 0xffe08a, splash: 2.2, trail: 14, hint: true,
       },
       // The Furnace Guardian (George, the big armoured mech): HP in Batarang hits, three attacks, a sealed plaza.
       arena: {
         at: [300, 0, -60], radius: 24, wall: 23, pillars: { count: 4, ring: 13, radius: 1.3, height: 7 },
         spawn: [0, 17], horse: [0, 21], boss: [0, -7],   // [x, z] from the centre: AJ's entrance, the horse's place, the Guardian's
+        stayIn: 1.4,                                     // while the Guardian stands nobody leaves: AJ is kept this far inside the wall
         gate: { width: 9, close: 1.4, steam: 40 },       // the steam barrier at the entrance (z+): closes when the Guardian notices AJ
         notice: 22,                                      // the Guardian notices AJ within this
-        gems: { marks: [0.8, 0.6, 0.4, 0.2], count: 8, ring: 19 }, // rings of gems at these shares of its HP
+        gems: { marks: [0.8, 0.6, 0.4, 0.2], count: 4, ring: 19 }, // rings of gems (5 Batarang ammo each) at these shares of its HP
         protection: 3, reviveRecover: 0.5, reviveAmmo: 8, retreat: { speed: 7, far: 0.8 },
         openTime: 1.6, pedestalTime: 2.2,
       },
       boss: {
-        hp: 30, radius: 2.6, height: 6.5, walk: 3.4, walkEnraged: 4.6, enrageAt: 0.5, turn: 2.2,
+        radius: 2.6, height: 6.5, walk: 3.4, walkEnraged: 4.6, enrageAt: 0.5, turn: 2.2,
         glow: { color: 0xff5a1c, tint: 0.5, furnace: { size: 0.9, up: 0.64, out: 0.7 } },
         recover: 1.4, recoverEnraged: 0.8,
         // Stomp: rears up, slams; a shockwave ring spreads — AJ must be off the ground when it passes (jump).
@@ -2305,7 +2321,7 @@ export const DIALOGUE = {
       quest: 'Ride to the furnace gate', start: 'Furnace city! Keep to the road.', gears: '⚙',
       questBoss: 'Defeat the Furnace Guardian', questElement: 'Take the Fire Element', bossName: 'Furnace Guardian',
       needs: (n) => `Needs ${n} cog key${n > 1 ? 's' : ''}`,
-      got: { cogKey: 'Cog key!', elixirHeal: 'Healing elixir: +2 hearts', elixirEnergy: 'Energy elixir: the horse is rested', gem: (n) => `+${n} gem${n > 1 ? 's' : ''}`, heartContainer: 'Heart container: +1 max heart!', gearBundle: (n) => `+${n} gears`, runeStone: 'Rune stone', wandPiece: 'Wand piece' },
+      got: { cogKey: 'Cog key!', elixirHeal: (n) => `Green potion: +${n} heart${n > 1 ? 's' : ''}`, elixirEnergy: 'Blue potion: the horse is rested', gem: (n) => `+${n} gem${n > 1 ? 's' : ''}`, heartContainer: 'Heart container: +1 max heart!', gearBundle: (n) => `+${n} gears`, runeStone: 'Rune stone', wandPiece: 'Wand piece' },
       keysLabel: 'Cog keys', keyIcon: '🗝',
       blastUnlocked: 'Fire Blast unlocked!', blastHint: 'Tap Fire to throw a fireball — it burns!',
       ammoOut: 'Out of gems!',
@@ -2313,8 +2329,8 @@ export const DIALOGUE = {
       banner: 'Fire Element recovered',
       tick: { stomp: 'Stomp coming!', steam: 'Steam! Get clear!', charge: 'It is charging!', fireball: 'Fire ball!' },
       gate: { locked: (n) => `The cog gate needs ${n} cog keys`, open: 'The cog gate opens!' },
-      chest: { elixirs: 'Chest: 2 elixirs! (+2 hearts, the horse rested)', gems: (n) => `Chest: ${n} gems!`, heart: 'Chest: +1 max heart!', gears: (n) => `Chest: a gear bundle, ${n} gears!` },
-      weapons: { hint: 'Cog Shot spends a cog key; Gear Wheel spends 10 gears', needGears: 'Needs 10 gears', needKey: 'Needs 1 cog key' },
+      chest: { elixirs: 'Chest: 2 potions! (a green one and a blue one)', gems: (n) => `Chest: ${n} gems!`, heart: 'Chest: +1 max heart!', gears: (n) => `Chest: a gear bundle, ${n} gears!` },
+      weapons: { hint: (n) => `Cog Shot spends a cog key; Gear Wheel spends ${n} gears`, needGears: (n) => `Needs ${n} gears`, needKey: 'Needs 1 cog key' },
       scene: {
         one: 'That is one of five.',            // (Tick)
         others: 'Where are the others?',         // (AJ)

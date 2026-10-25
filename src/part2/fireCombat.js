@@ -434,28 +434,62 @@ export class Arsenal {
     }
   }
 
-  /** Gear Wheel: a fast spinning wheel rolls along the ground (toward the nearest foe, else ahead): 3 damage to everything it touches (once each). */
+  /**
+   * Gear Wheel: a fast spinning wheel rolls along the ground (toward the nearest foe, else ahead). It spins as it rolls
+   * (speed ÷ radius), hops a little and bounces off walls (`GW.wallKeep` of its speed kept, `GW.maxBounces` at most),
+   * and rebounds off the first robot it hits (damage as usual, then back the way it came). Everything it touches takes
+   * `GW.damage` once; the `gear_roll` loop plays while it rolls.
+   */
   #rollWheel(target) {
     const t = target?.alive ? target : this.pick(GW.range);
     const { fwd } = this.#origin();
     const h = this.hero.position;
-    let dir = fwd.clone();
+    let dir = fwd.clone().setY(0).normalize();
     if (t) dir = new THREE.Vector3(t.position.x - h.x, 0, t.position.z - h.z).normalize();
     const ground = this.horse.mounted ? this.horse.position.y : h.y;
-    this.wheel = { pos: new THREE.Vector3(h.x + dir.x * 1.2, ground + GW.height * 0.5 + 0.1, h.z + dir.z * 1.2), dir, travelled: 0, hit: new Set(), ground };
+    this.wheel = {
+      pos: new THREE.Vector3(h.x + dir.x * 1.2, ground + GW.height * 0.5 + 0.1, h.z + dir.z * 1.2),
+      dir, travelled: 0, hit: new Set(), ground, k: 1, bounces: 0, rebounded: false, hopT: 0,
+    };
     this.wheelMesh.visible = true;
     this.wheelMesh.position.copy(this.wheel.pos);
-    this.wheelMesh.rotation.y = Math.atan2(dir.x, dir.z) + Math.PI / 2; // (its axle across its way)
+    this.wheelMesh.rotation.y = -Math.atan2(dir.z, dir.x); // (its axle across its way)
     this.stats.wheels = (this.stats.wheels ?? 0) + 1;
   }
 
   #rollOn(dt) {
     const w = this.wheel;
     const rider = this.horse.mounted ? Math.abs(this.horse.speed) : 0;
-    const step = (GW.speed + rider * 0.5) * dt;
+    const speed = (GW.speed + rider * 0.5) * w.k;
+    const step = speed * dt;
     const n = Math.max(1, Math.ceil(step / 0.6));
+    const world = this.horse.world;
+    const tmp = new THREE.Vector3();
+    const vel = new THREE.Vector3();
     for (let i = 0; i < n; i++) {
       w.pos.addScaledVector(w.dir, step / n);
+      // a wall (the plaza's wall, a pillar, the road's side walls and fences): bounce off it, a little slower
+      if (world?.collide && w.bounces < GW.maxBounces) {
+        tmp.set(w.pos.x, w.ground + GW.height * 0.5, w.pos.z);
+        vel.copy(w.dir).multiplyScalar(speed);
+        world.collide(tmp, vel, GW.radius * 0.6);
+        const dx = tmp.x - w.pos.x;
+        const dz = tmp.z - w.pos.z;
+        const d = Math.hypot(dx, dz);
+        if (d > 0.01) {
+          const nx = dx / d;
+          const nz = dz / d;
+          const into = w.dir.x * nx + w.dir.z * nz;
+          if (into < 0) w.dir.set(w.dir.x - 2 * into * nx, 0, w.dir.z - 2 * into * nz).normalize();
+          w.pos.x = tmp.x;
+          w.pos.z = tmp.z;
+          w.bounces++;
+          w.k *= GW.wallKeep;
+          w.hopT = GW.hopTime;
+          this.sound?.play('batarang_hit', { position: w.pos, pitch: 0.5, volume: 0.6 });
+          this.fx.burst(w.pos, 6, { speed: 3, life: 0.3, size: 0.1, color: GW.color, up: 1 });
+        }
+      }
       const t = this.#foeAt(new THREE.Vector3(w.pos.x, w.ground + 0.3, w.pos.z), w.hit, GW.radius * 0.6);
       if (t) {
         w.hit.add(t);
@@ -463,11 +497,31 @@ export class Arsenal {
         this.stats.hits++;
         this.fx.burst(w.pos, 10, { speed: 4, life: 0.4, size: 0.14, color: GW.color, up: 1.5 });
         this.sound?.play('batarang_hit', { position: w.pos, pitch: 0.6 });
+        if (!w.rebounded) {
+          // it reflects off the first robot it hits: back off the robot's side, with room to roll home
+          let nx = w.pos.x - t.position.x;
+          let nz = w.pos.z - t.position.z;
+          const d = Math.hypot(nx, nz) || 1;
+          nx /= d;
+          nz /= d;
+          const into = w.dir.x * nx + w.dir.z * nz;
+          w.dir.set(w.dir.x - 2 * into * nx, 0, w.dir.z - 2 * into * nz).normalize();
+          w.rebounded = true;
+          w.k *= GW.reboundKeep;
+          w.hopT = GW.hopTime;
+          w.travelled = Math.min(w.travelled, GW.range * 0.4);
+          this.stats.rebounds = (this.stats.rebounds ?? 0) + 1;
+        }
       }
     }
     w.travelled += step;
+    if (w.hopT > 0) w.hopT = Math.max(0, w.hopT - dt);
+    const hop = w.hopT > 0 ? Math.sin(Math.PI * (1 - w.hopT / GW.hopTime)) * GW.hop : 0;
+    w.pos.y = w.ground + GW.height * 0.5 + 0.1 + hop;
     this.wheelMesh.position.copy(w.pos);
-    this.wheelGear.rotation.z -= GW.spin * dt;
+    this.wheelMesh.rotation.y = -Math.atan2(w.dir.z, w.dir.x);
+    this.wheelGear.rotation.z -= (speed / GW.radius) * dt; // (rolling: the rim keeps pace with the ground)
+    this.sound?.manager?.setLoop('gearRoll', GW.roll, { volume: 0.5, rate: 0.8 + 0.4 * w.k, position: w.pos });
     if (Math.random() < dt * 30) this.fx.emit(w.pos.clone().setY(w.ground + 0.1), new THREE.Vector3((Math.random() - 0.5) * 2, 1.5, (Math.random() - 0.5) * 2), { life: 0.3, size: 0.09, color: F.accent2, g: 6 });
     if (w.travelled >= GW.range) {
       this.wheel = null;

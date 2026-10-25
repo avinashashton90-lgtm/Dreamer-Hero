@@ -83,7 +83,7 @@ export class Guardian {
     this.heading = 0;
     this.radius = B.radius * 0.8; // (the Batarang's hit body; the collision radius is B.radius)
     this.height = B.height;
-    this.hp = this.maxHp = B.hp;
+    this.hp = this.maxHp = F.fireBossHealth;
     this.alive = false;
     this.active = false;
     this.isBoss = true;
@@ -158,7 +158,7 @@ export class Guardian {
 
   /** A fresh fight: full health, waiting for AJ. */
   reset() {
-    this.hp = this.maxHp = B.hp;
+    this.hp = this.maxHp = F.fireBossHealth;
     this.alive = this.active = true;
     this.state = 'idle';
     this.t = 0;

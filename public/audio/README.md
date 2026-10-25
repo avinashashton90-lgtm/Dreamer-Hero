@@ -111,6 +111,7 @@ Layer files only play over a music file of their track (they start together, so 
 | portal_whoosh | portal_whoosh.ogg | Gearhaven: the quick white flash between places (a soft whoosh) |
 | clock_tick ↻ | clock_tick.ogg | Gearhaven ambience: a slow, soft two-note tick-tock (loop; never a drum) |
 | gear_turn ↻ | gear_turn.ogg | Gearhaven ambience: big gears turning — a low gentle grind (loop) |
+| gear_roll ↻ | gear_roll.ogg | Fire level: the Gear Wheel rolling along the ground — a rumbling, ticking whir (loop, 3D, follows the wheel) |
 | steam_hiss ↻ | steam_hiss.ogg | Gearhaven: steam hissing (a quiet ambience loop; also one soft hiss per courtyard vent puff) |
 | factory_hum ↻ | factory_hum.ogg | Gearhaven ambience: the brass city’s machines — a soft low hum (loop, the ride) |
 | clock_chime | clock_chime.ogg | The Dream Clock’s big, deep bell (far away in the arrival; when the clock restarts) |

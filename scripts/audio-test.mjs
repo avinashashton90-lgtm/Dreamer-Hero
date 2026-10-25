@@ -127,12 +127,12 @@ const PART2_SOUNDS = ['portal_open', 'portal_pull', 'gear_whoosh', 'clock_tick',
   'tick_beep', 'tick_hover', 'robot_walk', 'robot_swing', 'robot_hit', 'robot_die', 'robot_alert', 'boss_mech_step', 'boss_mech_roar', 'boss_mech_death',
   'element_collect', 'element_power_up', 'amy_magic_cast', 'amy_hit_reflect', 'amy_eyes_glow', 'amy_gasp', 'clock_chime', 'clock_stop_warning',
   'chest_open', 'chest_locked', 'cog_key_collect', 'elixir_drink', 'fire_blast_cast', 'fire_blast_hit', 'burn_loop', 'furnace_guardian_stomp',
-  'furnace_guardian_steam_burst', 'furnace_guardian_charge', 'furnace_guardian_roar', 'stomp_warning', 'steam_barrier_close', 'steam_barrier_open', 'element_orb_hum'];
+  'furnace_guardian_steam_burst', 'furnace_guardian_charge', 'furnace_guardian_roar', 'stomp_warning', 'gear_roll', 'steam_barrier_close', 'steam_barrier_open', 'element_orb_hum'];
 const PART2_MUSIC = ['part2_portal', 'gearhaven', 'gearhaven_chase', 'element_fire', 'element_lightning', 'element_steam', 'element_magnet', 'element_time', 'amy_theme', 'final_fight', 'part2_end'];
 {
   const missing = PART2_SOUNDS.filter((n) => !SOUNDS[n] || !RECIPES[n]);
   check(!missing.length, `all ${PART2_SOUNDS.length} Part 2 sound names in the catalog with a fallback${missing.length ? ` (missing ${missing})` : ''}`);
-  const loops = ['clock_tick', 'gear_turn', 'steam_hiss', 'factory_hum', 'rail_grind', 'saw_spin', 'conveyor_belt', 'horse_clank', 'tick_hover', 'burn_loop', 'element_orb_hum'];
+  const loops = ['gear_roll', 'clock_tick', 'gear_turn', 'steam_hiss', 'factory_hum', 'rail_grind', 'saw_spin', 'conveyor_belt', 'horse_clank', 'tick_hover', 'burn_loop', 'element_orb_hum'];
   check(loops.every((n) => SOUNDS[n].loop && (AU.loops[n] || DRONES[n])), `Part 2's loops (${loops.length}) are pulse loops or drones`);
   const ctx = new MockCtx();
   const kit = new SynthKit(ctx);
@@ -151,7 +151,7 @@ const PART2_MUSIC = ['part2_portal', 'gearhaven', 'gearhaven_chase', 'element_fi
   const g = DRONES.rail_grind(kit, out, 1);
   const pitched = typeof g.pitch === 'function' && (g.pitch(1.2, 0), true);
   g.stop(0);
-  check(pitched && ['gear_turn', 'factory_hum', 'saw_spin', 'conveyor_belt', 'tick_hover', 'element_orb_hum'].every((n) => typeof DRONES[n](kit, out, 1).pitch === 'function'),
+  check(pitched && ['gear_roll', 'gear_turn', 'factory_hum', 'saw_spin', 'conveyor_belt', 'tick_hover', 'element_orb_hum'].every((n) => typeof DRONES[n](kit, out, 1).pitch === 'function'),
     'the rail grind (and the hums) can follow the horse\'s speed in pitch');
   const kitDrums = PART2_MUSIC.filter((t) => [TRACKS[t], ...Object.values(TRACKS[t]?.layers ?? {})].some((pt) => pt?.drums && ['kick', 'snare', 'hat', 'tom'].some((d) => pt.drums[d])));
   const tracks = Object.values(MUSIC).map((m) => m.track);

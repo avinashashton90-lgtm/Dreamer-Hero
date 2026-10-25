@@ -237,11 +237,13 @@ export class UI {
    * it a thin progress bar with a small tick mark at each reward tier (`tiers`: [{ at (0..1),
    * reached }], part2/gearRewards.js).
    */
-  setGears(count, total, show = true, pulse = false, tiers = []) {
+  setGears(count, total, show = true, pulse = false, tiers = [], showTotal = true) {
     const el = this.gearsEl;
     const display = show ? '' : 'none';
     if (el.style.display !== display) el.style.display = display;
-    const text = `${count} / ${total}`;
+    // (`showTotal` false — the Fire level: just the count; the bar and its tier marks scale to the total, and the count never passes it)
+    const shown = total ? Math.min(count, total) : count;
+    const text = showTotal ? `${count} / ${total}` : `${shown}`;
     const span = el.children[1];
     if (span.textContent !== text) span.textContent = text;
     const bar = el.children[2];

@@ -151,7 +151,7 @@ export class FireLevel {
       onEvent: (name, d) => {
         if (name === 'blocked' && d.why === 'gems') p.ui.toast(FD.ammoOut);
         if (name === 'blocked' && d.why === 'keys') p.ui.toast(FD.weapons.needKey);
-        if (name === 'blocked' && d.why === 'gears') p.ui.toast(FD.weapons.needGears);
+        if (name === 'blocked' && d.why === 'gears') p.ui.toast(FD.weapons.needGears(CONFIG.part2.fire.weapons.gearWheel.gears));
       },
     });
     await this.arsenal.ready;
@@ -352,10 +352,21 @@ export class FireLevel {
       this.stats.keysFound++;
       p.ui.setCogKeys?.(this.items.keys, true, true);
     } else if (type === 'elixirHeal') {
-      p.lives?.setHearts?.(Math.min(p.lives.maxHearts, p.lives.hearts + T.heal));
+      // the GREEN potion: +greenPotionHearts hearts, a chime and a green sparkle on AJ
+      p.lives?.setHearts?.(Math.min(p.lives.maxHearts, p.lives.hearts + F.greenPotionHearts));
+      msg = got(F.greenPotionHearts);
+      this.#sparkle(p.hero.position, 0x6dff8a, 1.0);
+      p.sound?.play('gear_reward', { position: p.hero.position, volume: 0.5, pitch: 1.3 });
+      this.stats.greenPotions = (this.stats.greenPotions ?? 0) + 1;
     } else if (type === 'elixirEnergy') {
-      p.horse.restoreEnergy?.();
-      p.horse.stamina = 1;
+      // the BLUE potion: +bluePotionEnergy of the horse's energy (and its health, if it has one and was hurt), a splash and a blue sparkle on it
+      const horse = p.horse;
+      const max = CONFIG.energy.horseEnergyMax;
+      horse.energy = Math.min(max, (horse.energy ?? max) + F.bluePotionEnergy);
+      if (horse.health != null && horse.maxHealth != null) horse.health = horse.maxHealth;
+      this.#sparkle(horse.position, 0x6ec6ff, 1.0);
+      p.sound?.play('river_splash', { position: horse.position, volume: 0.7 });
+      this.stats.bluePotions = (this.stats.bluePotions ?? 0) + 1;
     } else if (type === 'gem') {
       this.arsenal.ammo += n * T.ammo;
       this.stats.gemsFound += n;
@@ -368,6 +379,12 @@ export class FireLevel {
     }
     if (entry?.chest) this.stats.chests++;
     if (msg) p.ui.toast(msg);
+  }
+
+  /** A small coloured sparkle on a body (AJ or the horse): motes rising round it. */
+  #sparkle(at, color, up) {
+    const S = F.sparkle;
+    this.fx.burst(new THREE.Vector3(at.x, at.y + up, at.z), S.count, { speed: S.speed, life: S.life, size: S.size, color, up: 2.2 });
   }
 
   /** A gear bundle: gears at once on the level's counter (capped at its total) and in the Gear Wheel's stock. */
@@ -587,6 +604,12 @@ export class FireLevel {
     if (!debug) this.ride.stop();
     this.stage = 'boss';
     this.arsenal.levelOn = true; // (also when "Fire boss" jumps straight in)
+    // a fresh fight: the Guardian is up, so no pedestal and no Fire Element scene until he falls
+    this.bossDown = false;
+    this.pedestal = null;
+    this.sceneStarted = false;
+    this.orb.taken = false;
+    this.orb.group.visible = false;
     p.leaveRide({ keepFire: true });
     this.parts.root.visible = false;
     this.foes.clear();
@@ -629,6 +652,7 @@ export class FireLevel {
   }
 
   #defeated() {
+    this.bossDown = true;
     this.barrier = { state: 'opening', k: 0 };
     this.p.ui.toast(FD.gateOpen);
     this.p.sound?.play('steam_barrier_open');
@@ -711,7 +735,7 @@ export class FireLevel {
 
   /** The Fire Element is ready to be taken: the pedestal is up and AJ is within reach of it. */
   get elementReady() {
-    return !!this.pedestal?.done && !this.orb.taken;
+    return this.bossDown && !!this.pedestal?.done && !this.orb.taken;
   }
 
   elementReach() {
@@ -798,6 +822,15 @@ export class FireLevel {
         if (b.k >= 1) b.state = 'open';
       }
     }
+    // The plaza is the way on: nobody leaves it (or reaches the pedestal) past the Guardian while he stands.
+    if (!this.bossDown && playing) {
+      const C = this.centre;
+      const dx = p.hero.position.x - C.x;
+      const dz = p.hero.position.z - C.z;
+      const d = Math.hypot(dx, dz);
+      const max = A.wall - A.stayIn;
+      if (d > max) (p.hero.position.x = C.x + (dx / d) * max), (p.hero.position.z = C.z + (dz / d) * max);
+    }
     // Tick keeps to the arena edge and watches.
     if (playing && p.tick.target) p.tick.lookAt = p.hero.position.clone();
     // the Fire Element: reach it → the scene
@@ -809,7 +842,7 @@ export class FireLevel {
 
   /** AJ takes the Fire Element (also the "Fire boss" debug's shortcut once the Guardian is down). */
   async startElementScene() {
-    if (this.sceneStarted) return;
+    if (this.sceneStarted || !this.bossDown) return; // (never before the Furnace Guardian is defeated)
     this.sceneStarted = true;
     const p = this.p;
     const { hero, cinematic, state, STATES } = p;

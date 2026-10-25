@@ -56,14 +56,31 @@ function halo(color, size, opacity = IT.halo.opacity) {
   return m;
 }
 
-function bottle(T) {
+/** The GREEN potion: a round flask (a ball of green glass on a short neck) with a green cork. */
+function greenPotion(T) {
   const g = new THREE.Group();
   const r = T.size;
-  const profile = [[0, 0], [r * 0.7, 0], [r * 0.95, r * 0.35], [r * 0.95, r * 0.9], [r * 0.55, r * 1.3], [r * 0.3, r * 1.45], [r * 0.3, r * 1.9], [0, r * 1.9]].map(([x, y]) => new THREE.Vector2(x, y));
-  const glass = new THREE.Mesh(new THREE.LatheGeometry(profile, 12), lambert(T.color, 0.5, { transparent: true, opacity: 0.85 }));
-  glass.position.y = -r * 0.95;
-  const fit = merged([[new THREE.CylinderGeometry(r * 0.34, r * 0.3, r * 0.4, 8).translate(0, r * 1.2, 0), IT.colors.copper], [new THREE.TorusGeometry(r * 0.32, r * 0.05, 6, 12).rotateX(Math.PI / 2).translate(0, r * 0.95, 0), IT.colors.brass]]);
-  g.add(glass, fit);
+  const glass = new THREE.Mesh(new THREE.SphereGeometry(r * 0.95, 14, 10), lambert(T.color, 0.55, { transparent: true, opacity: 0.85 }));
+  glass.position.y = -r * 0.2;
+  const neck = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.3, r * 0.38, r * 0.6, 10), lambert(T.color, 0.5, { transparent: true, opacity: 0.85 }));
+  neck.position.y = r * 0.85;
+  const cork = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.34, r * 0.28, r * 0.4, 10), lambert(T.cork, 0.15));
+  cork.position.y = r * 1.3;
+  g.add(glass, neck, cork);
+  return g;
+}
+
+/** The BLUE potion: a tall slender flask with a blue crystal stopper. */
+function bluePotion(T) {
+  const g = new THREE.Group();
+  const r = T.size * 0.7;
+  const profile = [[0, 0], [r * 0.85, 0], [r * 0.9, r * 0.4], [r * 0.7, r * 2.6], [r * 0.4, r * 3.1], [r * 0.38, r * 3.5], [0, r * 3.5]].map(([x, y]) => new THREE.Vector2(x, y));
+  const glass = new THREE.Mesh(new THREE.LatheGeometry(profile, 12), lambert(T.color, 0.55, { transparent: true, opacity: 0.85 }));
+  glass.position.y = -r * 1.75;
+  const stopper = new THREE.Mesh(new THREE.OctahedronGeometry(r * 0.55, 0), lambert(T.crystal, 0.7, { flatShading: true }));
+  stopper.scale.set(0.8, 1.3, 0.8);
+  stopper.position.y = r * 2.05;
+  g.add(glass, stopper);
   return g;
 }
 
@@ -121,8 +138,8 @@ function wand(T) {
 
 const BUILDERS = {
   cogKey: (T) => cog(T),
-  elixirHeal: bottle,
-  elixirEnergy: bottle,
+  elixirHeal: greenPotion,
+  elixirEnergy: bluePotion,
   gem: crystal,
   heartContainer: heart,
   gearBundle: (T) => {

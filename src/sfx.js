@@ -430,6 +430,7 @@ export const RECIPES = {
     return 0.6;
   },
   gear_turn: (k, o, t, p) => k.noise(o, t, { filter: 'lowpass', f: 220 * p, q: 2, a: 0.3, d: 1.2, v: 0.1 }) - t,
+  gear_roll: (k, o, t, p) => k.noise(o, t, { filter: 'lowpass', f: 700 * p, a: 0.02, d: 0.35, v: 0.07 }) - t, // (a drone when looped)
   steam_hiss: (k, o, t, p) => k.noise(o, t, { filter: 'highpass', f: 2600 * p, a: 0.06, d: 0.7, v: 0.1 }) - t,
   factory_hum: (k, o, t, p) => k.tone(o, t, { type: 'triangle', f: 55 * p, a: 0.4, d: 1.4, v: 0.06 }) - t,
   clock_chime: (k, o, t, p) => {
@@ -752,6 +753,7 @@ export const DRONES = {
   conveyor_belt: (k, out, p) => windDrone(k, out, p, { f: 260, q: 1.2, lfo: 3, depth: 60, gain: 0.6 }),
   tick_hover: (k, out, p) => humDrone(k, out, p, { f: 150, partials: [1, 2], type: 'sawtooth', wobble: 18, cutoff: 700, gain: 0.05 }),
   // The Fire level.
+  gear_roll: (k, out, p) => windDrone(k, out, p, { f: 520, q: 1.8, lfo: 11, depth: 160, gain: 0.5, crackle: { rate: 23, depth: 0.3 } }), // (the Gear Wheel rolling: a rumbling, ticking whir)
   burn_loop: (k, out, p) => windDrone(k, out, p, { f: 900, q: 0.8, lfo: 0.5, depth: 300, gain: 0.5, crackle: { rate: 19, depth: 0.5 } }),
   element_orb_hum: (k, out, p) => humDrone(k, out, p, { f: 220, partials: [1, 1.5, 2], wobble: 0.3, cutoff: 1500, gain: 0.25, rise: 6 }),
   boss_fire_breath: (k, out, p) => {

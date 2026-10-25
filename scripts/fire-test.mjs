@@ -35,7 +35,7 @@ const ui = {
   quest: null, dist: null, toasts: [], banners: [], keys: null, elements: [], boss: null, flashes: 0,
   banner(t) { this.banners.push(t); },
   toast(t) { this.toasts.push(t); }, setQuest(t, d) { this.quest = t; this.dist = d; }, fadeOut(ms, then) { return then(); }, fadeIn() {},
-  showGems() {}, setHorseEnergy() {}, setGears() {}, screenFlash() { this.flashes++; },
+  showGems() {}, setHorseEnergy() {}, setGears(count, total, show, pulse, tiers, showTotal) { this.gears = { count, total, show, tiers, showTotal }; }, screenFlash() { this.flashes++; },
   setBossBar(on, frac, name, regen) { this.boss = { on, frac, name, regen }; },
   setCogKeys(n, show) { this.keys = { n, show }; },
   setElements(list, show) { this.elements = [...list]; this.elementsShown = show; },
@@ -102,8 +102,11 @@ check(p2.at === 'fire' && fire.built && fire.stage === 'ride' && state.is(STATES
   const pk = keys.filter((k) => { const s0 = track.nearest(k.pos.x, k.pos.z, 30).s; return s0 >= plaza.from && s0 <= plaza.to; });
   const nearChest = (k) => chests.some((c) => c.pos.distanceTo(k.pos) < 6.5);
   check(pk.length === 3 && pk.every(nearChest) && chests.every((c) => { const s0 = track.nearest(c.pos.x, c.pos.z, 30).s; return s0 >= plaza.from && s0 <= plaza.to; }), 'the plaza: the 3 chests, with a cog key hidden near each');
-  const elix = fire.items.entries.filter((e) => e.type.startsWith('elixir'));
-  check(elix.length === 2 && elix.some((e) => e.type === 'elixirHeal') && elix.some((e) => e.type === 'elixirEnergy'), 'two elixirs in the plaza (healing and energy)');
+  const green = fire.items.entries.filter((e) => e.type === 'elixirHeal' && !e.chest), blue = fire.items.entries.filter((e) => e.type === 'elixirEnergy' && !e.chest);
+  const inPlaza = (e) => { const s0 = track.nearest(e.pos.x, e.pos.z, 30).s; return s0 >= F.plaza.from && s0 <= F.plaza.to; };
+  check(green.length === 5 && green.filter(inPlaza).length === 2 && blue.length === 3 && !blue.some(inPlaza), `potions: ${green.length} green (2 in the plaza) and ${blue.length} blue (all on the ride)`);
+  const gemItems = fire.items.entries.filter((e) => e.type === 'gem' && !e.temp);
+  check(CONFIG.part2.items.types.gem.ammo === 5 && gemItems.length >= F.fireGemCount, `blue diamond gems: ${gemItems.length} along the path, 5 Batarang ammo each`);
   await run(0.2);
   check(input.combat?.ab === fire.arsenal && !input.combat.hidden && input.combat.ab.has('batarang') && input.combat.ab.has('fireBlast') && input.combat.ab.has('cogShot') && input.combat.ab.has('gearWheel') && input.combat.ab.usesLeft('batarang') === F.fireGemCount * 0 + F.startAmmo && input.combat.ab.layout === '2',
     `the buttons: the Batarang with its gems (${input.combat.ab.usesLeft('batarang')}) — Fire Blast, Cog Shot and Gear Wheel are his for the level`);
@@ -192,8 +195,8 @@ const count = (name) => played.filter((x) => x.name === name).length;
   await run(1.0);
   check(small.state === 'opening' || small.state === 'rising' || small.state === 'open', 'with a key the chest opens by itself as the horse comes up');
   await run(2.6);
-  check(small.state === 'open' && items.keys === 0 && count('chest_open') === c1 + 1 && lives.hearts === 5 && ui.toasts.includes(FD.got.elixirHeal) && small.model.userData.lid.rotation.x < -1.5,
-    'the lid lifts, light pours out, the elixir floats up and is drunk: +2 hearts (3 → 5), the key spent');
+  check(small.state === 'open' && items.keys === 0 && count('chest_open') === c1 + 1 && lives.hearts === 4 && fire.stats.chestPopups?.includes(FD.chest.elixirs) && small.model.userData.lid.rotation.x < -1.5,
+    'the lid lifts, light pours out, the potions float up and are drunk: a green one +1 heart (3 → 4), a blue one for the horse, the key spent');
   // the big chest needs 2
   const bp = track.nearest(big.pos.x, big.pos.z, 30);
   items.addKeys(1);
@@ -212,7 +215,7 @@ const count = (name) => played.filter((x) => x.name === name).length;
   const ammo0 = fire.arsenal.ammo;
   place(gp.s, 2.2);
   await run(4);
-  check(small2.state === 'open' && fire.arsenal.ammo === ammo0 + 3 && fire.stats.chestPopups?.includes(FD.chest.gems(3)), `the other small chest: 3 gems and the popup "${FD.chest.gems(3)}" (Batarang ammo ${ammo0} → ${fire.arsenal.ammo})`);
+  check(small2.state === 'open' && fire.arsenal.ammo === ammo0 + 3 * CONFIG.part2.items.types.gem.ammo && fire.stats.chestPopups?.includes(FD.chest.gems(3)), `the other small chest: 3 gems and the popup "${FD.chest.gems(3)}" (Batarang ammo ${ammo0} → ${fire.arsenal.ammo})`);
   // elixirs
   const eh = items.entries.find((e) => e.type === 'elixirHeal' && !e.chest), ee = items.entries.find((e) => e.type === 'elixirEnergy');
   lives.setHearts(2);
@@ -220,10 +223,12 @@ const count = (name) => played.filter((x) => x.name === name).length;
   await run(0.3);
   const eblue = ee;
   horse.energy = 10;
-  horse.stamina = 0.2;
+  const sp0 = fire.fx.list.length;
   horse.position.copy(eblue.pos.clone().setY(0));
   await run(0.3);
-  check(eh.taken && lives.hearts === 4 && ee.taken && horse.stamina === 1 && horse.energy === CONFIG.energy.horseEnergyMax, 'the green elixir heals 2 hearts (2 → 4); the blue one refills the horse');
+  check(eh.taken && lives.hearts === 2 + F.greenPotionHearts && ee.taken && Math.abs(horse.energy - (10 + F.bluePotionEnergy)) < 6 && fire.stats.greenPotions >= 1 && fire.stats.bluePotions >= 1 && count('river_splash') >= 1,
+    `the green potion heals ${F.greenPotionHearts} heart (2 → ${lives.hearts}) with a sparkle on AJ; the blue one gives the horse ${F.bluePotionEnergy}% (10 → ${horse.energy.toFixed(0)}) with a splash`);
+  void sp0;
   // the checkpoint saves opened chests; a death puts things back to that save
   items.restore(null);
   place(sp.s, -2.2);
@@ -374,6 +379,60 @@ const items0 = () => { fire.items.restore(null); fire.arsenal.clear(); fire.arse
   items.restore(null);
 }
 
+// 3c) The Gear Wheel's animation (spin, wall bounce, rebound off the first robot), the gear counter, the balance numbers.
+{
+  fresh();
+  const ar = fire.arsenal, f = fire.foes, GW = F.weapons.gearWheel;
+  const loops = [];
+  p2.sound.manager = { setLoop: (key, name, o) => loops.push({ key, name, ...o }), playSound() {} };
+  check(GW.gears === 6 && F.weapons.cogShot.keys === 1 && F.fireBlast.cooldown === 10 && F.fireBossHealth === 45, `the numbers: Gear Wheel ${GW.gears} gears, Cog Shot 1 key, Fire Blast ${F.fireBlast.cooldown} s, the Guardian ${F.fireBossHealth} HP`);
+  // the gear counter: only the count, no fraction; ticks as marks on a bar
+  await run(0.3);
+  check(ui.gears && ui.gears.showTotal === false && ui.gears.total === ride.total && ui.gears.tiers.length === 3 && ride.total >= 24 && ride.total <= 40, `the gear counter shows only the count (${ui.gears?.count}); the bar scales to the level's ${ride.total} gears with ${ui.gears?.tiers.length} reward marks`);
+  // a wall: aimed at the road's side wall the wheel bounces off it
+  f.reset(0); f.clear();
+  place(300, 0, { speed: 0 });
+  horse.heading += Math.PI / 2;
+  ar.gearStock = GW.gears * 3;
+  ar.cooldowns.gearWheel = 0;
+  const dir0 = new THREE.Vector3(Math.sin(horse.heading), 0, Math.cos(horse.heading));
+  ar.use('gearWheel');
+  let maxBounce = 0, spin0 = null, spun = 0, lastRot = 0, dirEnd = null, y0 = Infinity, y1 = -Infinity;
+  await seconds(3, () => {
+    const w = ar.wheel;
+    if (!w) return maxBounce > 0;
+    maxBounce = Math.max(maxBounce, w.bounces);
+    spun += Math.abs(ar.wheelGear.rotation.z - lastRot);
+    lastRot = ar.wheelGear.rotation.z;
+    y0 = Math.min(y0, w.pos.y); y1 = Math.max(y1, w.pos.y);
+    dirEnd = w.dir.clone();
+    return false;
+  });
+  check(maxBounce >= 1 && dirEnd && dirEnd.dot(dir0) < 0.5 && y1 - y0 > 0.1 && spun > 10 && loops.some((l) => l.name === GW.roll), `the wheel spins as it rolls (${spun.toFixed(0)} rad), hops and bounces off the wall (${maxBounce} bounce, new heading dot ${dirEnd?.dot(dir0).toFixed(2)}), the gear_roll loop plays`);
+  // a robot: the first one it hits is hit and the wheel rebounds
+  f.reset(0);
+  place(430, 0, { speed: CONFIG.horse.maxSpeed });
+  held.moveY = 1;
+  await seconds(4, () => alive(f.scouts).length >= 1);
+  held.moveY = 0;
+  place(near().s, 0, { speed: 0 });
+  await seconds(3, () => { const t = ar.pick(); return t && Math.hypot(t.position.x - horse.position.x, t.position.z - horse.position.z) < 12; });
+  ar.cooldowns.gearWheel = 0;
+  const target = ar.pick();
+  const hp0 = target.hp;
+  const flashes0 = ui.flashes, nums0 = ar.stats.hits;
+  ar.use('gearWheel');
+  let wdir0 = null, back = false, sawReb = false;
+  await seconds(3, () => {
+    const w = ar.wheel;
+    if (w && !wdir0) wdir0 = w.dir.clone();
+    if (w?.rebounded) { sawReb = true; if (wdir0 && w.dir.dot(wdir0) < 0) back = true; }
+    return sawReb && !ar.wheel;
+  });
+  check(sawReb && back && (!target.alive || target.hp < hp0) && ar.stats.hits > nums0 && ar.stats.rebounds >= 1, `the wheel hits the first robot (${hp0} → ${target.alive ? target.hp : 0} HP, ${GW.damage} damage) and rebounds back the way it came`);
+  p2.sound.manager = null;
+}
+
 // 4) Section 4: sword robots patrol, alert, sidestep, charge, wind up (a red ring), swing for half a heart; 4 HP; Fire Blast burns.
 {
   fresh();
@@ -457,7 +516,7 @@ const rel = (v) => new THREE.Vector3(C.x + v[0], 0, C.z + v[1]);
   await run(1);
   check(p2.at === 'fireBoss' && fire.stage === 'boss' && !hero.riding && horse.mode === 'idle' && hero.world === p2.world && fire.arena.visible && !fire.parts.root.visible && state.is(STATES.PLAY) && ui.quest === FD.questBoss,
     `the furnace gate leads into the plaza: AJ on foot, the horse waiting, "${ui.quest}"`);
-  check(Math.abs(hero.position.x - C.x - A.spawn[0]) < 1 && Math.abs(hero.position.z - C.z - A.spawn[1]) < 1 && G.alive && G.state === 'idle' && G.hp === B.hp && B.hp === 30, `AJ enters at the plaza's edge; the Guardian waits in the middle with ${G.hp} HP (about 30 Batarang hits)`);
+  check(Math.abs(hero.position.x - C.x - A.spawn[0]) < 1 && Math.abs(hero.position.z - C.z - A.spawn[1]) < 1 && G.alive && G.state === 'idle' && G.hp === F.fireBossHealth && F.fireBossHealth === 45, `AJ enters at the plaza's edge; the Guardian waits in the middle with ${G.hp} HP (fireBossHealth, +50% of the old 30)`);
   const gm = G.model;
   const box = new THREE.Box3().setFromObject(gm, true);
   check(Math.abs(box.max.y - box.min.y - B.height) < B.height * 0.1 && G.mats.length > 0 && G.mats.every((m) => m.emissive && m.emissive.r > m.emissive.g && m.emissive.g > m.emissive.b && m.emissiveIntensity > 0) && !!G.furnace.parent, `the Guardian: George, ${(box.max.y - box.min.y).toFixed(1)} tall, tinted hot red-orange (${G.mats.length} materials of his own) with a glowing chest furnace`);
@@ -475,6 +534,39 @@ const rel = (v) => new THREE.Vector3(C.x + v[0], 0, C.z + v[1]);
   hero.puppet(rel([0, A.wall + 3]), Math.PI, 0);
   await run(0.2);
   check(hero.position.z - C.z <= A.wall - 1.3, 'AJ cannot go out through it');
+  // The plaza's steam loop: half of its old level, ducked while an effect plays so nothing is masked
+  {
+    const PS = CONFIG.part2.sound.plazaSteam;
+    const SS = p2.sounds;
+    const logs = [];
+    const mgr = { setLoop: (key, name, o) => logs.push({ key, name, ...o }), playSound() {}, setMusicLayer() {} };
+    const m0 = p2.sound.manager;
+    p2.sound.manager = mgr;
+    await run(1.5);
+    const quiet = logs.filter((l) => l.key === 'plazaSteam').at(-1);
+    logs.length = 0;
+    p2.sound.play('batarang_hit');
+    await run(0.3);
+    const ducked = logs.filter((l) => l.key === 'plazaSteam').at(-1);
+    await run(2);
+    const back = logs.filter((l) => l.key === 'plazaSteam').at(-1);
+    check(quiet && Math.abs(quiet.volume - PS.volume * PS.scale) < 0.02 && PS.scale === 0.5 && ducked && ducked.volume < quiet.volume * 0.7 && back.volume < quiet.volume,
+      `the plaza's steam loop plays at half level (${quiet?.volume.toFixed(3)} = ${PS.volume} × ${PS.scale}), ducks to ${ducked?.volume.toFixed(3)} when an effect plays and never rises above it while effects keep playing (${back?.volume.toFixed(3)})`);
+    p2.sound.manager = m0 ?? null;
+    void SS;
+  }
+  // The Fire Element must wait for the Guardian: no scene, no way past him
+  hero.puppet(rel([A.wall + 3, 0]), Math.PI, 0);
+  await run(0.3);
+  check(Math.hypot(hero.position.x - C.x, hero.position.z - C.z) <= A.wall - A.stayIn + 0.2, 'the plaza holds AJ in on every side while the Guardian stands');
+  await fire.startElementScene();
+  fire.pedestal = { t: 99, done: true }; // (even a pedestal that were up)
+  fire.orb.group.visible = true;
+  hero.puppet(rel([0, 0]), Math.PI, 0);
+  await run(0.6);
+  check(!fire.sceneStarted && !fire.elementReady && p2.at === 'fireBoss' && !fire.elementDone && view.lines.length === 0, 'the Fire Element scene does not start before the Furnace Guardian is defeated (even standing on the pedestal)');
+  fire.pedestal = null;
+  fire.orb.group.visible = false;
   // Batarang on foot: auto-aims at the Guardian, 1 gem, 1 HP (x1)
   hero.puppet(rel([0, 6]), Math.PI, 0);
   G.position.copy(rel([0, -4]));
@@ -495,13 +587,13 @@ const rel = (v) => new THREE.Vector3(C.x + v[0], 0, C.z + v[1]);
   const hearts0 = () => lives.hearts;
   // Stomp: a red circle (the windup, Tick calls it), the slam, a ring spreads — standing on the ground costs a heart
   prep(); guardAt([0, -7]); heroAt([0, 3]);
-  const tc0 = ui.toasts.length, beep0 = count('tick_beep');
+  const tc0 = ui.toasts.length, beep0 = count('tick_beep'), stomps0 = G.stats.stomps;
   G.startAttack('stomp');
   await run(0.5);
   check(G.state === 'stompWind' && G.tgStomp.visible && toastsSince(tc0).includes(FD.tick.stomp) && count('tick_beep') >= beep0 + 3, `Stomp: the floor is marked red while he rears up, and Tick calls "${FD.tick.stomp}" with chirps`);
   const hStomp = lives.hearts;
   await seconds(3, () => G.state === 'recover');
-  check(G.stats.stomps === 1 && hurts.some((h) => h.source === 'stomp' && h.n === B.stomp.damage) && lives.hearts === hStomp - B.stomp.damage && count('furnace_guardian_stomp') >= 1, `the shockwave ring catches AJ on the ground: ${B.stomp.damage} heart`);
+  check(G.stats.stomps === stomps0 + 1 && hurts.some((h) => h.source === 'stomp' && h.n === B.stomp.damage) && lives.hearts === hStomp - B.stomp.damage && count('furnace_guardian_stomp') >= 1, `the shockwave ring catches AJ on the ground: ${B.stomp.damage} heart`);
   // jump over the ring
   prep(); guardAt([0, -7]); heroAt([0, 3]);
   G.startAttack('stomp');
@@ -589,7 +681,7 @@ const rel = (v) => new THREE.Vector3(C.x + v[0], 0, C.z + v[1]);
   const am1 = fire.arsenal.ammo;
   hero.puppet(ringGem.pos.clone(), 0, 0);
   await run(0.3);
-  check(ringGem.taken && fire.arsenal.ammo === am1 + 1, 'walking over a gem collects it (+1 Batarang)');
+  check(ringGem.taken && fire.arsenal.ammo === am1 + CONFIG.part2.items.types.gem.ammo, 'walking over a gem collects it (+5 Batarang)');
 }
 
 // 7) Died in the plaza: revived inside with full hearts, 3 s of protection; he keeps half of the damage and backs off. Then his defeat.
