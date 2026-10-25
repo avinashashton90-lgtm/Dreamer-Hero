@@ -252,6 +252,22 @@ export const RECIPES = {
     k.tone(o, t, { f: 160 * p, f2: 70, d: 0.09, v: 0.4 });
     return 0.12;
   },
+  shield_up: (k, o, t, p) => {
+    k.noise(o, t, { filter: 'bandpass', f: 900 * p, f2: 2400 * p, q: 1.8, a: 0.015, d: 0.2, v: 0.2 });
+    k.tone(o, t, { type: 'triangle', f: 520 * p, f2: 860 * p, a: 0.01, d: 0.18, v: 0.11 });
+    return 0.22;
+  },
+  shield_block: (k, o, t, p) => {
+    k.tone(o, t, { type: 'triangle', f: 420 * p, f2: 260 * p, a: 0.002, d: 0.22, v: 0.3 });
+    k.noise(o, t, { filter: 'highpass', f: 1800 * p, f2: 700, q: 2, d: 0.11, v: 0.2 });
+    return 0.24;
+  },
+  shield_perfect: (k, o, t, p) => {
+    k.tone(o, t, { type: 'sine', f: 1250 * p, f2: 680 * p, a: 0.002, d: 0.42, v: 0.28 });
+    k.tone(o, t + 0.025, { type: 'triangle', f: 1900 * p, f2: 1200 * p, a: 0.002, d: 0.25, v: 0.15 });
+    k.noise(o, t, { filter: 'highpass', f: 2500 * p, f2: 1200 * p, q: 2, a: 0.002, d: 0.15, v: 0.2 });
+    return 0.45;
+  },
   // --- Gems and items ---
   gem_collect: (k, o, t, p) => {
     k.tone(o, t, { type: 'triangle', f: 988 * p, d: 0.12, v: 0.22 });

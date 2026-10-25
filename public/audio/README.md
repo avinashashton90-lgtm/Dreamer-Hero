@@ -73,6 +73,9 @@ Layer files only play over a music file of their track (they start together, so 
 | flash_release | flash_release.ogg | The Flash lightning bolt strikes (crackle) |
 | melee_swing | melee_swing.ogg | A punch / kick swing (whoosh) |
 | melee_hit | melee_hit.ogg | A punch / kick lands |
+| shield_up | shield_up.ogg | AJ raises the Shield |
+| shield_block | shield_block.ogg | The Shield blocks an incoming attack |
+| shield_perfect | shield_perfect.ogg | A perfectly timed Shield block staggers the attacker |
 | gem_collect | gem_collect.ogg | A gem picked up (higher for blue, highest for pink) |
 | potion_pickup | potion_pickup.ogg | An energy potion picked up |
 | ability_ready | ability_ready.ogg | An ability unlocked / the Flash bar full again |

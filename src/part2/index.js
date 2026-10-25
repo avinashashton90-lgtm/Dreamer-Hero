@@ -45,6 +45,7 @@ export async function createPart2(shared) {
 class Part2 {
   constructor(shared) {
     Object.assign(this, shared);
+    this.part1CombatTargets = [...(this.combat?.targets ?? [])];
     this.id = 'part2';
     this.at = null; // 'arrival' | 'courtyard' | a level id | 'final' | 'ending'
     this.tweens = [];
@@ -148,6 +149,8 @@ class Part2 {
     if (hero.world !== this.world) this.saved = { heroWorld: hero.world, horseWorld: horse.world, camWorld: cam.world, bodies: this.cinematic.bodies };
     hero.world = horse.world = cam.world = this.world;
     for (const o of [hero.model, hero.shadow, horse.model, horse.shadow]) this.scene.add(o);
+    if (this.combat?.ring) this.scene.add(this.combat.ring);
+    this.combat?.reset();
     horse.setPassenger(null);
     horse.scripted = false;
     horse.hold = false;
@@ -186,6 +189,11 @@ class Part2 {
     const { hero, horse, cam } = this;
     this.#clearDown();
     this.leaveRide();
+    if (this.combat) {
+      this.combat.reset();
+      this.combat.targets = this.part1CombatTargets;
+      if (this.combat.ring) this.combat.scene.add(this.combat.ring);
+    }
     this.ui.setElements?.([], false);
     this.ui.setCogKeys?.(0, false);
     if (this.saved) {
@@ -219,6 +227,7 @@ class Part2 {
     this.gears = 0;
     this.elements = [];
     this.extraHearts = 0;
+    this.shieldUnlocked = false;
     this.fire?.newGame();
     this.banners.length = 0;
     if (this.saved) this.applyRewards();
@@ -839,7 +848,8 @@ class Part2 {
     if (live) hero.watchdog(realDt); // (no protection flag outlives `down.invincibleMax`)
     const alive = hero.life === 'alive';
     const fire = this.fire;
-    const fight = !!fire?.stage && (this.at === 'fire' || this.at === 'fireBoss'); // (the Fire level's fighting: the Batarang and Fire Blast)
+    const fight = !!fire?.stage && (this.at === 'fire' || this.at === 'fireBoss' || this.at === 'firePractice');
+    const melee = this.at === 'fireBoss' && fight;
     // After the Fire Element, Fire Blast is his everywhere (the Arsenal outside the level too).
     const armed = !fight && !!fire?.built && this.elements.includes('fire') && !fire.stage;
     if (playing) {
@@ -852,7 +862,14 @@ class Part2 {
       }
       if (this.at === 'robots' || this.at === 'props') inp.moveX = inp.moveY = 0; // (AJ stands for scale; a swipe turns the view)
       else cam.rotate(inp.lookDX, inp.lookDY, inp.lookSensitivity);
-      inp.attackPressed = inp.dodgePressed = false; // (no melee here: the elements bring the abilities)
+      if (!melee) inp.attackPressed = false;
+      inp.dodgePressed = false;
+      if (this.combat) {
+        this.combat.targets = melee ? [fire.meleeTarget] : [];
+        fire.arsenal.melee = melee;
+        fire.arsenal.layout = melee ? '2Boss' : '2';
+        this.combat.update(dt, inp, { mounted: mounted || !melee });
+      }
       const ability = inp.ability;
       inp.ability = null;
       if (ability && (fight || armed)) fire.useAbility(ability);
@@ -883,6 +900,13 @@ class Part2 {
       const bossOn = this.at === 'fireBoss' && !!g?.model?.visible && g.state !== 'idle' && g.state !== 'dead';
       ui.setBossBar(bossOn, bossOn ? g.hp / g.maxHp : 1, D2.fire.bossName, bossOn && g.regenerating);
       ui.setElements?.(this.elements, true);
+      ui.setFireDebug?.({
+        shield: fire?.arsenal?.shieldUnlocked ? (fire.arsenal.shieldRemaining > 0 ? 'raised' : 'ready') : 'locked',
+        cooldown: (fire?.arsenal?.shieldCooldown ?? 0).toFixed(1),
+        heroState: this.getHeroState?.() ?? (hero.grounded ? 'alive' : 'airborne'),
+        invulnerable: !!hero.invincible,
+        visible: this.debugEnabled?.() === true && this.at === 'fireBoss',
+      });
       this.#checkDoors();
       const goal = this.at === 'courtyard' ? this.gearhaven.userData.doors[this.objective]?.at : null;
       const dist = riding ? Math.max(0, Math.round(this.rc.door.s - this.ride.s)) : goal ? Math.round(Math.hypot(goal.x - hero.position.x, goal.z - hero.position.z)) : null;
@@ -1033,6 +1057,25 @@ class Part2 {
   addElement(id) {
     if (!this.elements.includes(id)) this.elements.push(id);
     this.ui.setElements?.(this.elements, true, id);
+  }
+
+  giveShield() {
+    this.shieldUnlocked = !this.shieldUnlocked;
+    if (this.fire?.built) this.fire.setShieldUnlocked(this.shieldUnlocked);
+    this.ui.toast(this.shieldUnlocked ? D2.fire.got.shield : D2.fire.shieldCooldown);
+  }
+
+  giveAllElements() {
+    const all = P2.levels.order.every((id) => this.elements.includes(id));
+    this.elements = all ? [] : [...P2.levels.order];
+    this.ui.setElements?.(this.elements, true);
+    if (this.fire?.built) this.fire.setFireUnlocked(this.elements.includes('fire'));
+  }
+
+  giveFireOnly() {
+    this.elements = this.elements.length === 1 && this.elements[0] === 'fire' ? [] : ['fire'];
+    this.ui.setElements?.(this.elements, true);
+    if (this.fire?.built) this.fire.setFireUnlocked(this.elements.includes('fire'));
   }
 
   /** The Fire level is done: on to the next Element's door (its stub for now). */

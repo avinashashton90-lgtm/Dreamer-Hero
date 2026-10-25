@@ -260,7 +260,12 @@ async function boot() {
   };
   const levels = new LevelManager({
     part1: async () => part1,
-    part2: async () => (await import('./part2/index.js')).createPart2({ state, STATES, ui, input, cam, cinematic, sound, soundscape, hero, horse, abilities, lives, assets: {}, damageHero: (...a) => damageHero(...a) }),
+    part2: async () => (await import('./part2/index.js')).createPart2({
+      state, STATES, ui, input, cam, cinematic, sound, soundscape, hero, horse, abilities, lives, combat, assets: {},
+      damageHero: (...a) => damageHero(...a),
+      getHeroState: () => dying ? (lives.hearts <= 0 ? 'downed' : 'respawning') : 'alive',
+      debugEnabled: () => !!testMenu?.enabled || testMenuWanted(),
+    }),
   });
   levels.chapters.set('part1', part1);
   levels.current = part1;
@@ -625,6 +630,21 @@ async function boot() {
           levels.current.giveKeys?.(TM.giveKeys);
         },
       },
+      ...[
+        ['giveShield', 'giveShield'],
+        ['giveAllElements', 'giveAllElements'],
+        ['giveFireOnly', 'giveFireOnly'],
+      ].map(([label, method]) => ({
+        label: DIALOGUE.testMenu[label],
+        keepOpen: true,
+        run: async () => {
+          if (levels.id !== 'part2') {
+            await freshPlay();
+            await goToPart2('courtyard', { white: false });
+          }
+          levels.current[method]?.();
+        },
+      })),
       { label: DIALOGUE.testMenu.audio, run: () => audioTest.open() }, // (every sound, the music sections)
     ]);
   }

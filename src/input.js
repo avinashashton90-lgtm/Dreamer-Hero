@@ -217,7 +217,7 @@ export class Input {
     this.mouseDismount = false; // (the mouse holding the Dismount button)
     this.attackQueued = false;
     this.dodgeQueued = false;
-    this.abilityQueued = null; // 'batarang' | 'smokeBomb' | 'flashMode'
+    this.abilityQueued = null; // ability id, including Part 2's Shield
     this.debugQueued = { grantGems: false, damageHero: false, teleportArena: false, killBoss: false, spawnBat: false, cutscene: false, desert: false, ending: false, pit: false, skeletons: false, storm: false, gate: false };
 
     this.#buildDom(overlayRoot);
@@ -325,14 +325,14 @@ export class Input {
 
     // Abilities: small buttons in the arc (greyed out while locked).
     this.abilityBtns = {};
-    ['batarang', 'smokeBomb', 'flashMode', 'fireBlast', 'cogShot', 'gearWheel'].forEach((name) => {
+    ['batarang', 'smokeBomb', 'flashMode', 'shield', 'fireBlast', 'cogShot', 'gearWheel'].forEach((name) => {
       const b = button('ability-btn locked', DIALOGUE.abilityShort[name]);
       b.title = DIALOGUE.abilityNames[name];
       b.insertAdjacentHTML('beforeend', '<i class="cooldown"></i>' + (name === 'flashMode' ? '<span class="energy"><i></i></span>' : ''));
       // Uses-left badge, in the colour it spends (updated live in setCombatButtons).
       const color = Object.keys(CONFIG.gems.abilities).find((c) => CONFIG.gems.abilities[c] === name);
       b.insertAdjacentHTML('beforeend', '<b class="uses" style="display:none"></b>');
-      const hex = color ? CONFIG.gems.colors[color] : { cogShot: CONFIG.part2.fire.weapons.cogShot.color, gearWheel: CONFIG.part2.fire.weapons.gearWheel.color }[name] ?? CONFIG.part2.fire.accent; // (Fire Blast: the Fire Element's red-orange; its cooldown ring, no uses badge)
+      const hex = color ? CONFIG.gems.colors[color] : { shield: CONFIG.part2.fire.shield.color, cogShot: CONFIG.part2.fire.weapons.cogShot.color, gearWheel: CONFIG.part2.fire.weapons.gearWheel.color }[name] ?? CONFIG.part2.fire.accent;
       b.style.setProperty('--gem', `#${hex.toString(16).padStart(6, '0')}`);
       if (name === 'fireBlast') b.classList.add('fire');
       this.abilityBtns[name] = b;
@@ -456,6 +456,7 @@ export class Input {
         if (e.code === 'Digit4') this.abilityQueued = 'fireBlast';
         if (e.code === 'Digit5') this.abilityQueued = 'cogShot';
         if (e.code === 'Digit6') this.abilityQueued = 'gearWheel';
+        if (e.code === 'Digit7') this.abilityQueued = 'shield';
         if (e.code === I.debugKeys.grantGems) this.debugQueued.grantGems = true;
         if (e.code === I.debugKeys.damageHero) this.debugQueued.damageHero = true;
         if (e.code === I.debugKeys.teleportArena) this.debugQueued.teleportArena = true;
@@ -505,10 +506,10 @@ export class Input {
       if (el.style.display !== d) el.style.display = d;
     };
     // On foot / riding: each its own corner layout (buttons not in it are hidden).
-    // (Part 2's fighting levels pass their own set — `ab.layout` '2': the Batarang and Fire Blast only)
+    // (Part 2's fighting levels pass their own set — `ab.layout` '2': the Batarang and unlocked items)
     this.#applyLayout((mounted ? 'ride' : 'foot') + (ab.layout ?? ''));
     const L = I.layout[this.layoutMode];
-    show(this.attackBtn, !!L.attack && !exhausted);
+    show(this.attackBtn, (!!L.attack || ab.melee === true) && !exhausted);
     show(this.dodgeBtn, !!L.dodge && !exhausted);
     for (const [name, b] of Object.entries(this.abilityBtns)) {
       show(b, !!L[name] && !exhausted && (ab.visible ? ab.visible(name) : !['fireBlast', 'cogShot', 'gearWheel'].includes(name)));
@@ -527,7 +528,7 @@ export class Input {
       b.classList.toggle('cooling', cd > 0);
       // Greyed: can't pay (no uses left, or Flash's hearts) — and Flash while its bar reloads.
       const why = name === 'flashMode' ? ab.flashBlockReason() : null;
-      b.classList.toggle('blocked', !ab.canAfford(name) || uses === 0 || why === 'reload' || why === 'health'); // (uses null — Fire Blast — has no count: only its cooldown)
+      b.classList.toggle('blocked', !ab.canAfford(name) || uses === 0 || why === 'reload' || why === 'health' || ab.blockReason?.(name) === 'cooldown');
       if (name === 'flashMode') {
         b.querySelector('.energy i').style.transform = `scaleX(${ab.energy.toFixed(3)})`;
         b.classList.toggle('ready', !why);

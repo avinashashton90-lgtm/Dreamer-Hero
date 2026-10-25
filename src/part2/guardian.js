@@ -199,11 +199,12 @@ export class Guardian {
     for (const m of [this.tgStomp, this.tgStompFill, this.wave, this.cone, this.lane]) if (m) m.visible = false;
   }
 
-  /** Hits: the Batarang (1), a fire ball (3), a burn (1 a second). Stunned, he takes extra. */
+  /** Hits: weapons and melee. Charge-stunned and parried states take their configured bonus damage. */
   takeHit(damage, source = 'batarang', impact = null) {
     if (!this.alive || this.state === 'dying') return false;
     if (this.state === 'idle') this.#notice();
-    const dmg = damage * (this.state === 'stunned' ? B.charge.stunDamage : 1);
+    const multiplier = this.state === 'staggered' && source === 'melee' ? B.staggerDamage : this.state === 'stunned' ? B.charge.stunDamage : 1;
+    const dmg = (source === 'melee' ? B.meleeDamage : damage) * multiplier;
     this.hp = Math.max(0, this.hp - dmg);
     this.sinceHit = 0;
     this.regenerating = false;
@@ -226,6 +227,18 @@ export class Guardian {
       }
     }
     if (this.hp <= 0) this.#die();
+    return dmg;
+  }
+
+  stagger(duration = B.staggerDuration) {
+    if (!this.alive || this.state === 'dying' || this.state === 'dead') return false;
+    this.state = 'staggered';
+    this.staggerDuration = duration;
+    this.t = 0;
+    this.#hideTelegraphs();
+    this.lane.visible = false;
+    this.anim?.play('hit', { once: true, restart: true });
+    this.stats.parries = (this.stats.parries ?? 0) + 1;
     return true;
   }
 
@@ -454,6 +467,9 @@ export class Guardian {
         if (this.t >= B.charge.stun) this.#toRecover();
         break;
       }
+      case 'staggered':
+        if (this.t >= this.staggerDuration) this.#toRecover();
+        break;
       case 'retreat': {
         // backs away to the far side of the plaza, facing AJ, while he is protected
         const far = new THREE.Vector3(this.centre.x - (to.x - this.centre.x), 0, this.centre.z - (to.z - this.centre.z));

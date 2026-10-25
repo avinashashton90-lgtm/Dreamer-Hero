@@ -363,7 +363,7 @@ export class Foes {
     };
     this.ctx = ctx;
     const opts = this.assets ?? {};
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < F.ride.counts.smallRobots; i++) {
       const m = await loadRobotModel('scout', opts);
       this.group.add(m);
       this.scouts.push(new Foe('scout', m, ctx));
@@ -422,7 +422,7 @@ export class Foes {
       if (s > trig + 40) continue; // (skipped over: not called)
       this.stats.scoutGroups++;
       const free = this.scouts.filter((f) => !f.active);
-      for (let i = 0; i < 2 && free[i]; i++) {
+      for (let i = 0; i < SC.groupSize && free[i]; i++) {
         const ahead = SC.ahead[0] + Math.random() * (SC.ahead[1] - SC.ahead[0]);
         const lat = (i === 0 ? -1 : 1) * SC.lat;
         const p = trackPoint(this.track, s + ahead, lat);
