@@ -3,6 +3,7 @@ import { CONFIG, DIALOGUE } from '../config.js';
 import { RideWorld, Ride, loadRide, setRideConfig } from './ride.js';
 import { setRideModelConfig, trackPoint } from './rideModel.js';
 import { Items } from './items.js';
+import { gearGeometry } from '../portal.js';
 import { Foes } from './foes.js';
 import { Arsenal, FireFx } from './fireCombat.js';
 import { Guardian, buildArena } from './guardian.js';
@@ -83,22 +84,37 @@ export class FireLevel {
       onCollect: (type, e, n) => this.#gain(type, n, e),
       onNeedKeys: (cost) => p.ui.toast(FD.needs(cost)),
       onKeys: () => this.#hud(true),
+      onChest: (e) => this.#chestPopup(e),
     });
     let n = 0;
     for (const [s, lat, y] of F.keys) await this.items.add('cogKey', trackPoint(track, s, lat, y).pos, { id: `key${n++}` });
     n = 0;
     for (const c of F.chests) {
       const tp = trackPoint(track, c.s, c.lat);
-      const e = await this.items.add(c.size === 'big' ? 'chestBig' : 'chest', tp.pos, { id: `chest${n++}`, contents: c.contents });
+      const e = await this.items.add(c.size === 'big' ? 'chestBig' : 'chest', tp.pos, { id: `chest${n++}`, contents: c.contents, popup: c.popup });
       this.items.face(e, tp.heading + (c.lat < 0 ? -Math.PI / 2 : Math.PI / 2)); // (its front toward the road)
     }
     n = 0;
     for (const x of F.elixirs) await this.items.add(x.type, trackPoint(track, x.s, x.lat).pos, { id: `elixir${n++}` });
+    // Gems for the Batarang: `fireGemCount` spread along the whole road (about 1 every 40, on the safe line), on the
+    // steam-jump landings (the belt deck, the upper rail) and in the plaza — so it never runs dry.
+    n = 0;
+    const g0 = 30;
+    const g1 = this.cfg.door.s - 40;
+    for (let i = 0; i < F.fireGemCount; i++) {
+      const s0 = g0 + ((g1 - g0) * i) / (F.fireGemCount - 1);
+      if (Math.abs(s0 - F.gate.s) < 6) continue;
+      await this.items.add('gem', trackPoint(track, s0, i % 2 ? 1.6 : -1.6).pos, { id: `gem${n++}` });
+    }
+    for (const [s0, lat, y] of F.gemLandings) await this.items.add('gem', trackPoint(track, s0, lat, y).pos, { id: `gem${n++}` });
+    for (const [s0, lat] of F.plazaGems) await this.items.add('gem', trackPoint(track, s0, lat).pos, { id: `gem${n++}` });
+    this.#gate(root, track);
     // The robots.
     this.foes = new Foes({
       scene: root, world: this.world, horse: p.horse, hero: p.hero, fx: this.fx, sound: p.sound, track, scrap: this.scrap, assets,
       hitHero: (dmg, from, source) => p.damageHero?.(dmg, from.x, from.z, { source, knockback: false }),
       onDrop: (pos) => this.#drop(pos),
+      targetPos: () => this.#targetPos(),
     });
     await this.foes.build();
     // The plaza of the Furnace Guardian (far from the road), its guardian and the Fire Element.
@@ -134,12 +150,20 @@ export class FireLevel {
       targets: () => this.targets(),
       onEvent: (name, d) => {
         if (name === 'blocked' && d.why === 'gems') p.ui.toast(FD.ammoOut);
+        if (name === 'blocked' && d.why === 'keys') p.ui.toast(FD.weapons.needKey);
+        if (name === 'blocked' && d.why === 'gears') p.ui.toast(FD.weapons.needGears);
       },
     });
     await this.arsenal.ready;
     this.arsenal.fireUnlocked = p.elements.includes('fire');
+    this.arsenal.keys = () => this.items.keys;
+    this.arsenal.spendKey = (k) => {
+      this.items.keys = Math.max(0, this.items.keys - k);
+      this.#hud(true);
+    };
     this.ride.onGear = () => {
       p.gears = (p.gears ?? 0) + 1;
+      this.arsenal.gearStock++; // (each brass gear also feeds the Gear Wheel)
       p.gearProgress(true);
     };
     this.ride.onFinish = () => p.travel(() => this.enterBoss());
@@ -257,17 +281,24 @@ export class FireLevel {
     this.guardian.group.visible = false;
     this.guardian.hide();
     this.cinematicDone = false;
+    this.arsenal.levelOn = true; // (Fire Blast, Cog Shot and Gear Wheel are his for the level)
     if (fresh) {
       this.items.restore(null);
       this.items.keys = 0;
       this.arsenal.ammo = Math.max(this.arsenal.ammo, F.startAmmo);
+      this.arsenal.gearStock = 0;
+      this.#setGate(false, true);
       this.foes.reset(0);
-      this.save = { items: this.items.snapshot(), s: 0 };
+      this.save = { items: this.items.snapshot(), s: 0, gate: false };
     }
     this.arsenal.clear();
     this.#tint(true);
     p.ui.setCogKeys?.(this.items.keys, true);
     p.ui.toast(FD.start);
+    if (!this.hinted) {
+      this.hinted = true;
+      setTimeout?.(() => p.ui.toast(FD.blastHint), 2200);
+    }
   }
 
   /** The fog and the lamps warm toward the furnace's red-orange. */
@@ -285,6 +316,7 @@ export class FireLevel {
   leave() {
     if (!this.built) return;
     this.stage = null;
+    this.arsenal.levelOn = false;
     this.ride.stop();
     this.parts.root.visible = false;
     this.arena.visible = false;
@@ -332,10 +364,121 @@ export class FireLevel {
       p.applyRewards();
       p.lives?.setHearts?.(p.lives.maxHearts);
     } else if (type === 'gearBundle') {
-      for (let i = 0; i < T.gears; i++) this.ride.onGear?.();
+      this.#addGears(T.gears);
     }
     if (entry?.chest) this.stats.chests++;
     if (msg) p.ui.toast(msg);
+  }
+
+  /** A gear bundle: gears at once on the level's counter (capped at its total) and in the Gear Wheel's stock. */
+  #addGears(n) {
+    const p = this.p;
+    const r = this.ride;
+    const add = Math.min(n, Math.max(0, r.total - r.count));
+    r.count += add;
+    p.gears = (p.gears ?? 0) + add;
+    this.arsenal.gearStock += n;
+    p.gearProgress(true);
+  }
+
+  /** The reward's text, as a popup (a small banner) when a chest has opened. */
+  #chestPopup(e) {
+    const T = FD.chest;
+    const c = (e.contents instanceof Array ? e.contents : [e.contents])[0];
+    const text = e.popup === 'elixirs' ? T.elixirs : e.popup === 'gems' ? T.gems(c.n) : e.popup === 'heart' ? T.heart : T.gears(CONFIG.part2.items.types.gearBundle.gears);
+    this.p.ui.banner?.(text, 2600, { small: true });
+    this.stats.chestPopups = [...(this.stats.chestPopups ?? []), text];
+  }
+
+  /** Where the rider is (the horse, or AJ on foot): what the robots go for and the pickups are measured from. */
+  #targetPos() {
+    const p = this.p;
+    return p.horse.mounted ? p.horse.position : p.hero.position;
+  }
+
+  #riderPoint() {
+    const p = this.p;
+    return p.horse.mounted ? p.horse.collectPoint : p.hero.position.clone().setY(p.hero.position.y + 0.9);
+  }
+
+  // --- the cog gate (the end of section 1: 2 cog keys) ------------------------------------------------
+
+  #gate(root, track) {
+    const G = F.gate;
+    const group = new THREE.Group();
+    group.name = 'cogGate';
+    const tp = trackPoint(track, G.s, 0);
+    group.position.copy(tp.pos);
+    group.rotation.y = tp.heading;
+    const brass = new THREE.MeshLambertMaterial({ color: G.color, emissive: 0x2a1204 });
+    const barMat = new THREE.MeshLambertMaterial({ color: G.color, emissive: 0x2a1204 });
+    for (const sx of [-1, 1]) {
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.9, G.height + 1, 10), brass);
+      post.position.set(sx * (G.width / 2), (G.height + 1) / 2, 0);
+      group.add(post);
+    }
+    const bars = new THREE.Group();
+    const count = 11;
+    for (let i = 0; i < count; i++) {
+      const bar = new THREE.Mesh(new THREE.BoxGeometry(0.35, G.height, 0.35), barMat);
+      bar.position.set(-G.width / 2 + 0.8 + ((G.width - 1.6) * i) / (count - 1), G.height / 2, 0);
+      bars.add(bar);
+    }
+    const beam = new THREE.Mesh(new THREE.BoxGeometry(G.width, 0.5, 0.5), brass);
+    beam.position.y = G.height * 0.55;
+    bars.add(beam);
+    group.add(bars);
+    const cog = new THREE.Mesh(gearGeometry(2.4, 12, 0.5), new THREE.MeshLambertMaterial({ color: 0xf0c048, emissive: 0x6a4a10 }));
+    cog.position.y = G.height + 2.6;
+    group.add(cog);
+    root.add(group);
+    this.world.gates = [{ s: G.s, open: false }];
+    this.gate = { group, bars, cog, barMat, k: 0, goal: 0, red: 0, hintAt: -Infinity };
+  }
+
+  /** Open or shut the cog gate (instantly, or sliding its bars into the ground). */
+  #setGate(open, instant = false) {
+    const g = this.gate;
+    if (!g) return;
+    this.world.gates[0].open = open;
+    g.goal = open ? 1 : 0;
+    if (instant) g.k = g.goal;
+    this.gateOpen = open;
+  }
+
+  #updateGate(dt) {
+    const g = this.gate;
+    const G = F.gate;
+    if (!g) return;
+    g.k += Math.sign(g.goal - g.k) * Math.min(Math.abs(g.goal - g.k), dt / G.openTime);
+    g.bars.position.y = -(G.height + 0.6) * g.k;
+    g.cog.rotation.z += (g.goal ? 3 : 0.4) * dt;
+    g.red = Math.max(0, g.red - dt);
+    g.barMat.emissive.setHex(g.red > 0 ? G.red : 0x2a1204).multiplyScalar(g.red > 0 ? Math.min(1, g.red) : 1);
+  }
+
+  /** The rider at the gate: with the keys it opens (and takes them); without, it says what it needs. */
+  #gateReach(dt) {
+    const G = F.gate;
+    const g = this.gate;
+    if (!g || this.gateOpen) return;
+    const pt = this.#targetPos();
+    const n = this.world.track.nearest(pt.x, pt.z, 20);
+    if (!n || Math.abs(n.s - G.s) > G.reach || n.s > G.s + 1) return;
+    const p = this.p;
+    if (this.items.keys >= G.keys) {
+      this.items.keys -= G.keys;
+      this.#setGate(true);
+      this.#hud(true);
+      p.ui.toast(FD.gate.open);
+      p.sound?.play('gate_open', { position: g.group.position });
+    } else if (this.time - g.hintAt > 2) {
+      g.hintAt = this.time;
+      g.red = 1;
+      p.ui.toast(FD.gate.locked(G.keys));
+      p.sound?.play('chest_locked', { position: g.group.position });
+    }
+    void dt;
   }
 
   #hud(pulse = false) {
@@ -377,7 +520,9 @@ export class FireLevel {
     p.horse.respawnAtCheckpoint(p.hero);
     this.foes.reset(this.cfg.checkpoints[D.plazaCheckpoint]);
     this.items.keys = D.plazaKeys;
-    this.save = { items: this.items.snapshot(), s: this.cfg.checkpoints[D.plazaCheckpoint] };
+    this.#setGate(true, true);
+    this.#debugKit();
+    this.save = { items: this.items.snapshot(), s: this.cfg.checkpoints[D.plazaCheckpoint], gate: true };
     p.behind(p.horse.heading);
     p.ui.setCogKeys?.(this.items.keys, true);
   }
@@ -385,14 +530,32 @@ export class FireLevel {
   /** "Fire boss": straight into the plaza with gems for the Batarang. */
   debugBoss() {
     this.enterBoss({ debug: true });
-    this.arsenal.ammo = Math.max(this.arsenal.ammo, F.debug.bossAmmo);
+    this.#debugKit();
+  }
+
+  /** The ?debug kits: gems for the Batarang and brass gears for the Gear Wheel (counted on the level's counter too). */
+  #debugKit() {
+    const D = F.debug;
+    this.arsenal.ammo = Math.max(this.arsenal.ammo, D.bossAmmo);
+    this.arsenal.gearStock = Math.max(this.arsenal.gearStock, D.startGears);
+  }
+
+  /** "Fire level (start)": the start with 3 cog keys, 20 gems and 30 brass gears. */
+  debugStart() {
+    const D = F.debug;
+    this.items.keys = D.startKeys;
+    this.arsenal.ammo = Math.max(this.arsenal.ammo, D.startGems);
+    const stock = this.arsenal.gearStock;
+    this.#addGears(D.startGears);
+    this.arsenal.gearStock = stock + D.startGears;
+    this.#hud(true);
   }
 
   // --- the checkpoint and the respawn ------------------------------------------------------
 
   /** A checkpoint reached: the opened chests, keys and taken pickups are saved with it. */
   checkpoint(i) {
-    this.save = { items: this.items.snapshot(), s: this.cfg.checkpoints[i] ?? 0 };
+    this.save = { items: this.items.snapshot(), s: this.cfg.checkpoints[i] ?? 0, gate: !!this.gateOpen };
   }
 
   /** Died in the ride: back at the last checkpoint with what it had saved (chests closed again, keys refunded). */
@@ -401,6 +564,7 @@ export class FireLevel {
     this.stats.respawns++;
     p.horse.respawnAtCheckpoint(p.hero);
     this.items.restore(this.save?.items ?? null);
+    this.#setGate(!!this.save?.gate, true);
     this.foes.reset(this.save?.s ?? 0);
     this.arsenal.clear();
     this.arsenal.ammo = Math.max(this.arsenal.ammo, F.startAmmo);
@@ -422,6 +586,7 @@ export class FireLevel {
     const { hero, horse } = p;
     if (!debug) this.ride.stop();
     this.stage = 'boss';
+    this.arsenal.levelOn = true; // (also when "Fire boss" jumps straight in)
     p.leaveRide({ keepFire: true });
     this.parts.root.visible = false;
     this.foes.clear();
@@ -584,8 +749,18 @@ export class FireLevel {
     this.#animateOrb(live ? dt : 0);
     if (this.stage === 'ride') {
       this.#animateDecor(live ? dt : 0);
-      this.items.update(live && playing ? dt : 0, playing ? { pos: p.horse.collectPoint } : null);
+      this.items.update(live && playing ? dt : 0, playing ? { pos: this.#riderPoint() } : null);
       this.foes.update(live ? dt : 0, { playing });
+      this.#updateGate(live ? dt : 0);
+      if (playing && live) {
+        this.#gateReach(dt);
+        // (on foot at the furnace gate: it opens just the same)
+        const door = this.cfg.door;
+        if (!p.horse.mounted && !this.ride.finished && this.ride.s >= door.s - door.reach) {
+          this.ride.finished = true;
+          this.ride.onFinish?.();
+        }
+      }
     } else if (this.stage === 'boss') {
       this.#boss(dt, playing);
     }

@@ -89,7 +89,8 @@ export class Guardian {
     this.isBoss = true;
     this.state = 'idle';
     this.t = 0;
-    this.cool = { stomp: 0, steam: 0, charge: 0 };
+    this.cool = { stomp: 0, steam: 0, charge: 0, fireball: 0 };
+    this.balls = []; // fire balls in flight { mesh, pos, vel, age }
     this.sinceHit = 0;
     this.regenerating = false;
     this.burn = null;
@@ -161,7 +162,9 @@ export class Guardian {
     this.alive = this.active = true;
     this.state = 'idle';
     this.t = 0;
-    this.cool = { stomp: 0, steam: 0, charge: 1 };
+    this.cool = { stomp: 0, steam: 0, charge: 1, fireball: 2 };
+    for (const b of this.balls ?? []) b.mesh.visible = false;
+    this.balls = [];
     this.sinceHit = 0;
     this.regenerating = false;
     this.burn = null;
@@ -175,6 +178,8 @@ export class Guardian {
 
   hide() {
     this.alive = this.active = false;
+    for (const b of this.balls ?? []) b.mesh.visible = false;
+    this.balls = [];
     if (this.model) this.model.visible = false;
     this.#hideTelegraphs();
   }
@@ -262,6 +267,7 @@ export class Guardian {
       this.regenerating = this.sinceHit >= AR.bossRegenDelay && this.hp < this.maxHp;
       if (this.regenerating) this.hp = Math.min(this.maxHp, this.hp + this.maxHp * RG * dt);
     }
+    this.#updateBalls(dt);
     const to = hero.position;
     const dx = to.x - this.position.x;
     const dz = to.z - this.position.z;
@@ -287,13 +293,30 @@ export class Guardian {
         }
         break;
       case 'stompWind': {
-        const k = Math.min(1, this.t / (B.stomp.windup * rate));
+        // A clear 1.5 s telegraph (not shortened when enraged): the whole danger ring marked on the floor at
+        // once (its outline pulsing) and a red fill spreading to it — a rising warning sound; he crouches
+        // (the Jump clip timed to land exactly on the slam).
+        const W = B.stomp.windup;
+        const k = Math.min(1, this.t / W);
         this.#face(dx, dz, dt * 0.3);
         this.tgStomp.visible = this.tgStompFill.visible = true;
-        const r = 5 + 2 * Math.sin(this.t * 14);
-        this.tgStomp.scale.setScalar(r);
-        this.tgStompFill.scale.setScalar(r * k);
+        this.tgStomp.scale.setScalar(B.stomp.maxRadius);
+        this.tgStomp.material.opacity = 0.5 + 0.4 * Math.sin(this.t * 12);
+        this.tgStompFill.scale.setScalar(Math.max(0.5, B.stomp.maxRadius * k));
+        if (!this.stompClip && this.t >= W - this.#clipLength('Jump', 1.0)) {
+          this.stompClip = true;
+          this.anim?.play('Jump', { once: true, restart: true });
+        }
         if (k >= 1) this.#stompSlam();
+        break;
+      }
+      case 'fireWind': {
+        // He turns to AJ and, arms forward (the Shoot clip), fires a ball of fire from the furnace.
+        this.#face(dx, dz, dt);
+        if (this.t >= B.fireball.windup) {
+          this.#fireBall();
+          this.#toRecover();
+        }
         break;
       }
       case 'stompRing': {
@@ -319,6 +342,10 @@ export class Guardian {
         this.cone.rotation.y = this.heading;
         this.cone.scale.setScalar(S.length);
         this.cone.material.opacity = 0.12 + 0.3 * Math.min(1, this.t / (S.windup * rate));
+        if (!this.shootClip) {
+          this.shootClip = true;
+          this.anim?.play('Shoot', { once: true, restart: true }); // (arms forward: the steam comes from his chest)
+        }
         if (this.t >= S.windup * rate) {
           this.state = 'steam';
           this.t = 0;
@@ -475,24 +502,34 @@ export class Guardian {
     if (this.cool.charge <= 0 && dist > B.charge.min) opts.push('charge');
     if (this.cool.steam <= 0 && dist > B.steam.min && dist < B.steam.max) opts.push('steam');
     if (this.cool.stomp <= 0 && dist < B.stomp.range) opts.push('stomp');
+    if (this.cool.fireball <= 0 && dist > B.fireball.min && dist < B.fireball.max) opts.push('fireball');
     if (!opts.length) return;
     this.startAttack(opts[Math.floor(Math.random() * opts.length)]);
   }
 
-  /** Begin an attack ('stomp' | 'steam' | 'charge'): its windup, the floor marking, Tick's call. */
+  /** Begin an attack ('stomp' | 'steam' | 'charge' | 'fireball'): its windup, the floor marking, Tick's call. */
   startAttack(pick) {
     this.t = 0;
     this.#hideTelegraphs();
     if (pick === 'stomp') {
       this.state = 'stompWind';
-      this.anim?.play('attack', { restart: true });
+      this.stompClip = false;
+      this.anim?.play('idle', { restart: true });
       this.stats.stomps++;
+      this.sound?.play('stomp_warning', { position: this.position });
       this.call?.('stomp');
     } else if (pick === 'steam') {
       this.state = 'steamWind';
-      this.anim?.play('attack', { restart: true });
+      this.shootClip = false;
+      this.anim?.play('idle', { restart: true });
       this.stats.steams++;
       this.call?.('steam');
+    } else if (pick === 'fireball') {
+      this.state = 'fireWind';
+      this.anim?.play('Shoot', { once: true, restart: true });
+      this.stats.fireballs = (this.stats.fireballs ?? 0) + 1;
+      this.cool.fireball = B.fireball.cooldown;
+      this.call?.('fireball');
     } else {
       this.state = 'chargeWind';
       this.laneDir = null;
@@ -501,6 +538,62 @@ export class Guardian {
       this.call?.('charge');
     }
     this.sound?.play('furnace_guardian_roar', { position: this.position });
+  }
+
+  /** A clip's length in seconds (by name), or `fallback`. */
+  #clipLength(name, fallback) {
+    const c = this.anim?.clips?.find((x) => x.name.endsWith(name));
+    return c ? Math.min(c.duration, B.stomp.windup) : fallback;
+  }
+
+  /** Fire the ball: from the furnace, at where AJ stands now (low enough that a jump clears it). */
+  #fireBall() {
+    const F2 = B.fireball;
+    if (!this.ballMesh) {
+      this.ballMesh = [];
+      for (let i = 0; i < 3; i++) {
+        const g = new THREE.Group();
+        g.add(new THREE.Mesh(new THREE.SphereGeometry(F2.size * 0.5, 10, 8), new THREE.MeshBasicMaterial({ color: 0xffe08a })), new THREE.Mesh(new THREE.SphereGeometry(F2.size, 10, 8), new THREE.MeshBasicMaterial({ color: F.accent, transparent: true, opacity: 0.55, blending: THREE.AdditiveBlending, depthWrite: false })));
+        g.visible = false;
+        this.group.add(g);
+        this.ballMesh.push(g);
+      }
+    }
+    const mesh = this.ballMesh.find((m) => !m.visible);
+    if (!mesh) return;
+    const from = new THREE.Vector3(this.position.x + Math.sin(this.heading) * 1.6, B.height * B.glow.furnace.up, this.position.z + Math.cos(this.heading) * 1.6);
+    const to = this.hero.position.clone().setY(this.hero.position.y + 0.9);
+    const vel = to.sub(from).normalize().multiplyScalar(F2.speed);
+    mesh.visible = true;
+    mesh.position.copy(from);
+    this.balls.push({ mesh, pos: from, vel, age: 0 });
+    this.sound?.play('fire_blast_cast', { position: from });
+  }
+
+  /** The fire balls in flight: they hit AJ on the ground-level (a jump clears them), or burst on the floor / wall. */
+  #updateBalls(dt) {
+    const F2 = B.fireball;
+    const hero = this.hero;
+    for (let i = this.balls.length - 1; i >= 0; i--) {
+      const b = this.balls[i];
+      b.age += dt;
+      b.pos.addScaledVector(b.vel, dt);
+      b.mesh.position.copy(b.pos);
+      this.fx.flame(b.pos, 0.5);
+      const chest = hero.position.y + 0.9;
+      const near = Math.hypot(b.pos.x - hero.position.x, b.pos.z - hero.position.z) < F2.radius;
+      const hit = near && Math.abs(b.pos.y - chest) < F2.clearHeight && hero.position.y < F2.clearHeight + 0.2;
+      const out = b.age > F2.life || b.pos.y < 0.05 || Math.hypot(b.pos.x - this.centre.x, b.pos.z - this.centre.z) > A.wall;
+      if (hit) {
+        this.hitHero?.(F2.damage, b.pos, { source: 'fireball' });
+        this.sound?.play('fire_blast_hit', { position: b.pos });
+      }
+      if (hit || out) {
+        this.fx.burst(b.pos, 14, { speed: 4, life: 0.5, size: 0.16, up: 1.5 });
+        b.mesh.visible = false;
+        this.balls.splice(i, 1);
+      }
+    }
   }
 
   #stompSlam() {

@@ -52,6 +52,7 @@ export class RideWorld {
     this.layout = { townEndX: -1e9, hazardEndX: -1e9 }; // (no tree-leaping zone here)
     this.decks = R.decks;
     this.fences = R.rails.filter((r) => !r.upper);
+    this.gates = []; // closed gates across the street ({ s, open }): solid until opened (the Fire level's cog gate)
     this.wallHit = null;
     this.coyote = null; // { deck, t }: just ridden off a deck's edge — it holds a moment (Ride sets it)
   }
@@ -138,6 +139,16 @@ export class RideWorld {
       pos.z += p.tz * back * (0.5 - along);
       const into = (vel.x * p.tx + vel.z * p.tz) * back;
       if (into < 0) (vel.x -= p.tx * back * into), (vel.z -= p.tz * back * into);
+    }
+    for (const g of this.gates) {
+      if (g.open || Math.abs(n.s - g.s) > 6) continue;
+      const p = this.track.at(g.s);
+      const ahead = (pos.x - p.x) * p.tx + (pos.z - p.z) * p.tz; // (past the gate: positive)
+      if (ahead <= -0.8) continue; // (still on this side)
+      pos.x -= p.tx * (ahead + 0.8);
+      pos.z -= p.tz * (ahead + 0.8);
+      const into = vel.x * p.tx + vel.z * p.tz;
+      if (into > 0) (vel.x -= p.tx * into), (vel.z -= p.tz * into);
     }
     if (pos.y > this.heightAt() + R.wall.height) return;
     const lat = n.lateral;

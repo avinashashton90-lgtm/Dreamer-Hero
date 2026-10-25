@@ -650,6 +650,12 @@ export const RECIPES = {
     k.noise(o, t, { filter: 'lowpass', f: 900 * p, a: 0.2, d: 1, v: 0.14 }); // (the furnace's breath)
     return 1.3;
   },
+  stomp_warning: (k, o, t, p) => {
+    // (a low tone rising over 1.4 s with four quickening ticks: the shockwave is coming — soft, not a drum)
+    k.tone(o, t, { type: 'sine', f: 70 * p, f2: 260 * p, a: 1.2, d: 0.3, v: 0.16 });
+    [0.35, 0.7, 1.0, 1.25].forEach((dt) => k.tone(o, t + dt, { type: 'triangle', f: 880 * p, d: 0.06, v: 0.07 }));
+    return 1.6;
+  },
   steam_barrier_close: (k, o, t, p) => {
     k.noise(o, t, { filter: 'highpass', f: 1200 * p, f2: 3500 * p, a: 0.3, d: 0.4, v: 0.16 });
     k.tone(o, t + 0.65, { f: 90 * p, f2: 70, d: 0.2, v: 0.15 }); // (the seal)

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { CONFIG } from '../config.js';
 import { loadBatarangModel } from '../abilities.js';
+import { gearGeometry } from '../portal.js';
 
 // Part 2's fighting (the Fire level): the cheap particle pool the fire is made of (`FireFx`: one
 // additive InstancedMesh of embers, flames and sparks) and the hero's `Arsenal` — the Batarang
@@ -15,6 +16,8 @@ import { loadBatarangModel } from '../abilities.js';
 const F = CONFIG.part2.fire;
 const BT = F.batarang;
 const FB = F.fireBlast;
+const CS = F.weapons.cogShot;
+const GW = F.weapons.gearWheel;
 const TH = CONFIG.abilities.throw;
 const MAX_FX = 220;
 
@@ -89,8 +92,14 @@ export class Arsenal {
     Object.assign(this, { scene, hero, horse, fx, sound, targets, onEvent });
     this.layout = '2'; // (the HUD's button set for the fighting levels: input.js layout foot2 / ride2)
     this.ammo = F.startAmmo;
-    this.fireUnlocked = false;
-    this.cooldowns = { batarang: 0, fireBlast: 0 };
+    this.fireUnlocked = false; // (the Fire Element recovered: Fire Blast for the rest of Part 2)
+    this.levelOn = false; // (in the Fire level: Fire Blast, Cog Shot and Gear Wheel are all his)
+    this.keys = () => 0; // (the cog keys on hand: set by the level)
+    this.spendKey = () => {};
+    this.gearStock = 0; // (brass gears on hand for Gear Wheel shots; the level's gear counter, for the rewards, is separate)
+    this.cooldowns = { batarang: 0, fireBlast: 0, cogShot: 0, gearWheel: 0 };
+    this.cog = null; // the Cog Shot in flight
+    this.wheel = null; // the Gear Wheel rolling
     this.pending = null; // { name, t, target } — the throw pose running; it leaves the hand at TH.release
     this.proj = null; // the Batarang in flight
     this.ball = null; // the fire ball in flight
@@ -111,6 +120,14 @@ export class Arsenal {
       );
       this.ballMesh.visible = false;
       scene.add(this.ballMesh);
+      this.cogMesh = new THREE.Mesh(gearGeometry(CS.size, 8, 0.25), new THREE.MeshLambertMaterial({ color: CS.color, emissive: 0x6a4a10 }));
+      this.cogMesh.visible = false;
+      scene.add(this.cogMesh);
+      this.wheelMesh = new THREE.Group();
+      this.wheelGear = new THREE.Mesh(gearGeometry(GW.radius, 12, 0.35), new THREE.MeshLambertMaterial({ color: GW.color, emissive: 0x4a3008 }));
+      this.wheelMesh.add(this.wheelGear);
+      this.wheelMesh.visible = false;
+      scene.add(this.wheelMesh);
       this.ring = new THREE.Mesh(new THREE.RingGeometry(0.7, 0.9, 20).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: FB.color, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false }));
       scene.add(this.ring);
     })();
@@ -119,7 +136,9 @@ export class Arsenal {
   // --- the HUD buttons' interface ------------------------------------------------
 
   has(name) {
-    return name === 'batarang' || (name === 'fireBlast' && this.fireUnlocked);
+    if (name === 'batarang') return true;
+    if (name === 'fireBlast') return this.fireUnlocked || this.levelOn;
+    return (name === 'cogShot' || name === 'gearWheel') && this.levelOn;
   }
 
   /** Which buttons show: the Batarang always, Fire Blast once the Fire Element is recovered. */
@@ -129,17 +148,24 @@ export class Arsenal {
 
   /** Batarang: the gems on hand (1 gem = 1 throw). Fire Blast has no count (null: only its cooldown ring). */
   usesLeft(name) {
-    return name === 'batarang' ? this.ammo : null;
+    if (name === 'batarang') return this.ammo;
+    if (name === 'cogShot') return Math.floor(this.keys() / CS.keys);
+    if (name === 'gearWheel') return Math.floor(this.gearStock / GW.gears);
+    return null;
   }
 
   cooldownFraction(name) {
     if (name === 'batarang') return this.proj ? 1 : this.cooldowns.batarang / BT.cooldown;
     if (name === 'fireBlast') return this.cooldowns.fireBlast / FB.cooldown;
+    if (name === 'cogShot') return this.cog ? 1 : this.cooldowns.cogShot / CS.cooldown;
+    if (name === 'gearWheel') return this.wheel ? 1 : this.cooldowns.gearWheel / GW.cooldown;
     return 0;
   }
 
   canAfford(name) {
-    return name === 'batarang' ? this.ammo > 0 : this.has(name);
+    if (name === 'batarang') return this.ammo > 0;
+    if (name === 'cogShot' || name === 'gearWheel') return this.usesLeft(name) > 0;
+    return this.has(name);
   }
 
   flashBlockReason() {
@@ -156,6 +182,8 @@ export class Arsenal {
     if (this.pending || (name === 'batarang' && this.proj)) return 'busy';
     if (this.cooldowns[name] > 0) return 'cooldown';
     if (name === 'batarang' && this.ammo <= 0) return 'gems';
+    if (name === 'cogShot' && this.usesLeft(name) <= 0) return 'keys';
+    if (name === 'gearWheel' && this.usesLeft(name) <= 0) return 'gears';
     return null;
   }
 
@@ -164,11 +192,13 @@ export class Arsenal {
     const why = this.blockReason(name);
     if (why) {
       this.stats.blocked++;
-      if (why === 'gems') this.onEvent?.('blocked', { name, why });
+      if (why === 'gems' || why === 'keys' || why === 'gears') this.onEvent?.('blocked', { name, why });
       return false;
     }
     if (name === 'batarang') this.ammo--;
-    this.cooldowns[name] = name === 'batarang' ? BT.cooldown : FB.cooldown;
+    else if (name === 'cogShot') this.spendKey(CS.keys);
+    else if (name === 'gearWheel') this.gearStock -= GW.gears;
+    this.cooldowns[name] = { batarang: BT.cooldown, fireBlast: FB.cooldown, cogShot: CS.cooldown, gearWheel: GW.cooldown }[name];
     this.pending = { name, t: 0, target: this.pick() };
     this.hero.throwAnim = { kind: 'throw', t: 0 };
     this.#face(this.pending.target);
@@ -181,7 +211,10 @@ export class Arsenal {
     this.pending = null;
     this.proj = null;
     this.ball = null;
-    this.cooldowns.batarang = this.cooldowns.fireBlast = 0;
+    this.cog = null;
+    this.wheel = null;
+    if (this.cogMesh) this.cogMesh.visible = this.wheelMesh.visible = false;
+    for (const k of Object.keys(this.cooldowns)) this.cooldowns[k] = 0;
     this.hero.throwAnim = null;
     if (this.model) this.model.visible = false;
     if (this.ballMesh) this.ballMesh.visible = false;
@@ -249,12 +282,16 @@ export class Arsenal {
         const { name, target } = this.pending;
         this.pending = null;
         if (name === 'batarang') this.#throwBatarang(hand, target);
+        else if (name === 'cogShot') this.#throwCog(hand, target);
+        else if (name === 'gearWheel') this.#rollWheel(target);
         else this.#throwBall(hand, target);
-        this.sound?.play(name === 'batarang' ? 'batarang_throw' : 'fire_blast_cast', { position: hand });
+        this.sound?.play({ batarang: 'batarang_throw', cogShot: 'batarang_throw', gearWheel: 'gear_whoosh' }[name] ?? 'fire_blast_cast', { position: hand, pitch: name === 'cogShot' ? 0.7 : 1 });
       }
     }
     if (this.proj) this.#flyBatarang(dt);
     if (this.ball) this.#flyBall(dt);
+    if (this.cog) this.#flyCog(dt);
+    if (this.wheel) this.#rollOn(dt);
     if (this.ring) {
       this.ring.material.opacity = Math.max(0, this.ring.material.opacity - dt * 2.4);
       const s = this.ring.scale.x + dt * 9;
@@ -357,6 +394,85 @@ export class Arsenal {
     for (let i = 0; i < 2; i++) this.fx.flame(f.pos, 0.35);
     const hit = u < 1 ? this.#foeAt(f.pos, new Set(), 0.15) : null;
     if (u >= 1 || hit) this.#explode(f.pos.clone());
+  }
+
+  /** Cog Shot: a spinning golden cog thrown in an arc at the nearest foe (or ahead); 2 damage where it lands. */
+  #throwCog(hand, target) {
+    const t = target?.alive ? target : this.pick(CS.range);
+    const { fwd } = this.#origin();
+    const end = t ? this.#centre(t) : hand.clone().addScaledVector(fwd, CS.forward).setY(this.hero.position.y + 0.4);
+    this.cog = { start: hand.clone(), end, dist: Math.max(2, hand.distanceTo(end)), u: 0, pos: hand.clone(), target: t };
+    this.cogMesh.visible = true;
+    this.cogMesh.position.copy(hand);
+    this.stats.cogs = (this.stats.cogs ?? 0) + 1;
+  }
+
+  #flyCog(dt) {
+    const c = this.cog;
+    const rider = this.horse.mounted ? Math.abs(this.horse.speed) : 0;
+    if (c.target?.alive) c.end.copy(this.#centre(c.target));
+    c.u = Math.min(1, c.u + ((CS.speed + rider * 0.2) * dt) / c.dist);
+    c.pos.lerpVectors(c.start, c.end, c.u);
+    c.pos.y += CS.arc * 4 * c.u * (1 - c.u);
+    this.cogMesh.position.copy(c.pos);
+    this.cogMesh.rotation.x += 14 * dt;
+    this.cogMesh.rotation.y += 9 * dt;
+    const hit = c.u < 1 ? this.#foeAt(c.pos, new Set(), 0.2) : null;
+    if (c.u >= 1 || hit) {
+      this.cog = null;
+      this.cogMesh.visible = false;
+      const at = c.pos.clone();
+      this.fx.burst(at, 12, { speed: 4.5, life: 0.5, size: 0.14, color: CS.color, up: 2 });
+      this.sound?.play('batarang_hit', { position: at, pitch: 0.7 });
+      for (const t of this.targets()) {
+        if (!t.alive || t.untargetable) continue;
+        const d = Math.hypot(t.position.x - at.x, t.position.z - at.z) - t.radius;
+        if (d > 1.2 || at.y > t.position.y + t.height + 1.2) continue;
+        t.takeHit(CS.damage, 'cog');
+        this.stats.hits++;
+      }
+    }
+  }
+
+  /** Gear Wheel: a fast spinning wheel rolls along the ground (toward the nearest foe, else ahead): 3 damage to everything it touches (once each). */
+  #rollWheel(target) {
+    const t = target?.alive ? target : this.pick(GW.range);
+    const { fwd } = this.#origin();
+    const h = this.hero.position;
+    let dir = fwd.clone();
+    if (t) dir = new THREE.Vector3(t.position.x - h.x, 0, t.position.z - h.z).normalize();
+    const ground = this.horse.mounted ? this.horse.position.y : h.y;
+    this.wheel = { pos: new THREE.Vector3(h.x + dir.x * 1.2, ground + GW.height * 0.5 + 0.1, h.z + dir.z * 1.2), dir, travelled: 0, hit: new Set(), ground };
+    this.wheelMesh.visible = true;
+    this.wheelMesh.position.copy(this.wheel.pos);
+    this.wheelMesh.rotation.y = Math.atan2(dir.x, dir.z) + Math.PI / 2; // (its axle across its way)
+    this.stats.wheels = (this.stats.wheels ?? 0) + 1;
+  }
+
+  #rollOn(dt) {
+    const w = this.wheel;
+    const rider = this.horse.mounted ? Math.abs(this.horse.speed) : 0;
+    const step = (GW.speed + rider * 0.5) * dt;
+    const n = Math.max(1, Math.ceil(step / 0.6));
+    for (let i = 0; i < n; i++) {
+      w.pos.addScaledVector(w.dir, step / n);
+      const t = this.#foeAt(new THREE.Vector3(w.pos.x, w.ground + 0.3, w.pos.z), w.hit, GW.radius * 0.6);
+      if (t) {
+        w.hit.add(t);
+        t.takeHit(GW.damage, 'wheel');
+        this.stats.hits++;
+        this.fx.burst(w.pos, 10, { speed: 4, life: 0.4, size: 0.14, color: GW.color, up: 1.5 });
+        this.sound?.play('batarang_hit', { position: w.pos, pitch: 0.6 });
+      }
+    }
+    w.travelled += step;
+    this.wheelMesh.position.copy(w.pos);
+    this.wheelGear.rotation.z -= GW.spin * dt;
+    if (Math.random() < dt * 30) this.fx.emit(w.pos.clone().setY(w.ground + 0.1), new THREE.Vector3((Math.random() - 0.5) * 2, 1.5, (Math.random() - 0.5) * 2), { life: 0.3, size: 0.09, color: F.accent2, g: 6 });
+    if (w.travelled >= GW.range) {
+      this.wheel = null;
+      this.wheelMesh.visible = false;
+    }
   }
 
   /** The ball bursts: everyone within the splash takes the damage and catches fire. */

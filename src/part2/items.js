@@ -218,7 +218,7 @@ export class Items {
   /** Remove everything (a new level). */
   clear() {
     for (const e of this.entries) {
-      e.content?.removeFromParent();
+      for (const m of e.contentList ?? []) m.removeFromParent();
       e.model.removeFromParent();
     }
     this.entries.length = 0;
@@ -229,10 +229,10 @@ export class Items {
    * Place an item. `type` a pickup type, or 'chest' / 'chestBig' (`contents`: { type, n } inside it).
    * `lift`: extra height. Returns the entry.
    */
-  async add(type, position, { id = `${type}${this.entries.length}`, contents = null, lift = 0, temp = false } = {}) {
+  async add(type, position, { id = `${type}${this.entries.length}`, contents = null, lift = 0, temp = false, popup = null } = {}) {
     const model = await loadItemModel(type);
     const chest = type === 'chest' || type === 'chestBig';
-    const e = { id, type, chest, contents, temp, pos: position.clone(), model, taken: false, state: 'closed', t: 0, redT: 0, content: null, lift, phase: Math.random() * 6.28 };
+    const e = { id, type, chest, contents, temp, popup, pos: position.clone(), model, taken: false, state: 'closed', t: 0, redT: 0, content: null, lift, phase: Math.random() * 6.28 };
     model.position.copy(position);
     if (!chest) model.position.y += IT.types[type].height + lift;
     this.group.add(model);
@@ -327,19 +327,20 @@ export class Items {
     if (e.state === 'rising') {
       e.t += dt;
       const k = clamp(e.t / CH.riseTime, 0, 1);
-      if (e.content) {
-        e.content.position.set(e.pos.x, e.pos.y + u.height * 0.7 + CH.riseHeight * k, e.pos.z);
-        e.content.userData.spin.rotation.y += 3 * dt;
-        const s = lerp(0.3, 1, k);
-        e.content.scale.setScalar(s);
-      }
+      // (every item of the reward floats up side by side)
+      (e.contentList ?? []).forEach((m, i, all) => {
+        m.position.set(e.pos.x + (i - (all.length - 1) / 2) * 1.1, e.pos.y + u.height * 0.7 + CH.riseHeight * k, e.pos.z);
+        m.userData.spin.rotation.y += 3 * dt;
+        m.scale.setScalar(lerp(0.3, 1, k));
+      });
       if (e.t >= CH.riseTime + CH.hold) {
-        e.state = 'open';
-        e.content?.removeFromParent();
-        e.content = null;
-        const c = e.contents;
-        this.ctx.sound?.play(IT.types[c.type].sound, { position: e.pos });
-        this.ctx.onCollect?.(c.type, e, c.n ?? 1);
+        e.state = 'open'; // (and it stays open)
+        for (const m of e.contentList ?? []) m.removeFromParent();
+        e.contentList = null;
+        for (const c of e.contents instanceof Array ? e.contents : [e.contents]) {
+          this.ctx.sound?.play(IT.types[c.type].sound, { position: e.pos });
+          this.ctx.onCollect?.(c.type, e, c.n ?? 1);
+        }
         this.ctx.onChest?.(e);
       }
       return;
@@ -350,14 +351,17 @@ export class Items {
   }
 
   async #spawnContent(e) {
-    const c = e.contents;
-    if (!c) return;
-    const m = await loadItemModel(c.type);
-    if (e.state !== 'rising') return; // (restored meanwhile)
-    m.position.copy(e.pos);
-    m.scale.setScalar(0.3);
-    this.group.add(m);
-    e.content = m;
+    if (!e.contents) return;
+    const list = [];
+    for (const c of e.contents instanceof Array ? e.contents : [e.contents]) {
+      const m = await loadItemModel(c.type);
+      if (e.state !== 'rising') return; // (restored meanwhile)
+      m.position.copy(e.pos);
+      m.scale.setScalar(0.3);
+      this.group.add(m);
+      list.push(m);
+    }
+    e.contentList = list;
   }
 
   /** What to save at a checkpoint: the keys, the taken pickups, the opened chests. */
@@ -372,8 +376,8 @@ export class Items {
     for (const e of this.entries.filter((x) => x.temp)) e.model.removeFromParent();
     this.entries = this.entries.filter((x) => !x.temp);
     for (const e of this.entries) {
-      e.content?.removeFromParent();
-      e.content = null;
+      for (const m of e.contentList ?? []) m.removeFromParent();
+      e.contentList = null;
       if (e.chest) {
         const u = e.model.userData;
         const open = !!snap?.opened.includes(e.id);

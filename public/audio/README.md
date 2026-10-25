@@ -155,6 +155,7 @@ Layer files only play over a music file of their track (they start together, so 
 | furnace_guardian_steam_burst | furnace_guardian_steam_burst.ogg | Fire level: the Furnace Guardian vents steam — a big hissing burst |
 | furnace_guardian_charge | furnace_guardian_charge.ogg | Fire level: the Furnace Guardian charges — a rising mechanical roar |
 | furnace_guardian_roar | furnace_guardian_roar.ogg | Fire level: the Furnace Guardian roars — a furnace bellow |
+| stomp_warning | stomp_warning.ogg | Fire level: the Furnace Guardian’s Stomp telegraph (1.5 s) — a low tone rising with four quickening ticks |
 | steam_barrier_close | steam_barrier_close.ogg | Fire level: a steam barrier closes — a hiss rising to a seal |
 | steam_barrier_open | steam_barrier_open.ogg | Fire level: a steam barrier opens — a hiss falling away |
 | element_orb_hum ↻ | element_orb_hum.ogg | Fire level: the element orb — a soft rising hum (loop) |

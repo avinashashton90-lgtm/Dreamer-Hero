@@ -264,6 +264,13 @@ export class UI {
     }
   }
 
+  /** The Elements row's rectangle (the Part 2 Dismount button sits under it), or null while it is hidden. */
+  elementsRect() {
+    if (this.elementsEl.style.display === 'none') return null;
+    const r = this.elementsEl.getBoundingClientRect();
+    return r.width ? r : null;
+  }
+
   /** The cog-key counter (Part 2's chests); `show` false hides it. */
   setCogKeys(count, show = true, pulse = false) {
     const el = this.keysEl;

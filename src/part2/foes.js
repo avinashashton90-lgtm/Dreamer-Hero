@@ -136,7 +136,7 @@ class Foe {
 
   #scout(dt) {
     const horse = this.ctx.horse;
-    const target = horse.position;
+    const target = this.ctx.targetPos(); // (the horse, or AJ on foot)
     const away = new THREE.Vector3(this.position.x - target.x, 0, this.position.z - target.z);
     if (this.state === 'rise') {
       const k = Math.min(1, this.t / SC.rise);
@@ -149,7 +149,7 @@ class Foe {
       return;
     }
     if (this.state === 'run') {
-      const lead = horse.velocity ? new THREE.Vector3(horse.velocity.x, 0, horse.velocity.z).multiplyScalar(0.25) : new THREE.Vector3();
+      const lead = horse.mounted && horse.velocity ? new THREE.Vector3(horse.velocity.x, 0, horse.velocity.z).multiplyScalar(0.25) : new THREE.Vector3();
       const d = this.stepToward(target.clone().add(lead), SC.speed, dt);
       if (d < SC.reach && this.grace <= 0) {
         this.state = 'lunge';
@@ -183,8 +183,7 @@ class Foe {
   // --- sword robots -----------------------------------------------------------------
 
   #sword(dt) {
-    const horse = this.ctx.horse;
-    const hp = horse.position;
+    const hp = this.ctx.targetPos();
     const dx = hp.x - this.position.x;
     const dz = hp.z - this.position.z;
     const dist = Math.hypot(dx, dz);
@@ -321,6 +320,7 @@ export class Foes {
         this.onKill?.(f);
       },
       behind: (p) => this.#behind(p),
+      targetPos: () => (this.targetPos ? this.targetPos() : this.horse.position),
       get time() { return ctx.t; },
       t: 0,
       playing: false,
@@ -359,7 +359,8 @@ export class Foes {
   #behind(p) {
     // how far behind the horse along the trail (positive: behind)
     const a = this.track.nearest(p.x, p.z, 30);
-    const h = this.track.nearest(this.horse.position.x, this.horse.position.z, 30);
+    const tp = this.ctx.targetPos();
+    const h = this.track.nearest(tp.x, tp.z, 30);
     return a && h ? h.s - a.s : 0;
   }
 
@@ -404,7 +405,8 @@ export class Foes {
     this.ctx.t = this.time;
     this.ctx.playing = playing;
     if (playing) {
-      const n = this.track.nearest(this.horse.position.x, this.horse.position.z, 30);
+      const tp = this.ctx.targetPos();
+      const n = this.track.nearest(tp.x, tp.z, 30);
       if (n) this.#callScouts(n.s);
     }
     for (const f of this.all) f.update(playing ? dt : 0);

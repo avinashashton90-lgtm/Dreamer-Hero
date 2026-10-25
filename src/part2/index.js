@@ -174,6 +174,7 @@ class Part2 {
     if (start === 'robots') return this.showRobots();
     if (start === 'props') return this.showProps();
     if (start === 'ride') return this.enterRide();
+    if (start === 'fire') return this.enterFire({ debug: true }); // (?debug "Fire level (start)": with 3 cog keys, 20 gems and 30 gears)
     if (start === 'fireBoss') return this.fire.build().then(() => this.fire.debugBoss());
     if (start === 'firePlaza') return this.fire.build().then(() => this.fire.debugPlaza());
     return this.enterLevel(start);
@@ -569,11 +570,12 @@ class Part2 {
   }
 
   /** The Fire Element's level: the furnace city (built the first time), from its start. */
-  async enterFire({ fresh = true } = {}) {
+  async enterFire({ fresh = true, debug = false } = {}) {
     await this.fire.build();
     this.freshFire = fresh;
     this.enterRide('fire');
     this.freshFire = true;
+    if (debug) this.fire.debugStart();
   }
 
   /** Out of the ride (to a stub, the courtyard, anywhere): back to Gearhaven's floors and sky. */
@@ -827,7 +829,10 @@ class Part2 {
       }
     }
     let inp = null;
-    const riding = this.at === 'ride' || this.at === 'fire'; // (a ride: on the horse, ride.js)
+    const riding = this.at === 'ride' || this.at === 'fire'; // (a ride: ride.js)
+    const fireRide = this.at === 'fire';
+    // (in the Fire level AJ can get down and walk: the horse then stands, and ride.js leaves him alone)
+    const mounted = riding && (!fireRide || horse.controlsHero);
     const fire = this.fire;
     const fight = !!fire?.stage && (this.at === 'fire' || this.at === 'fireBoss'); // (the Fire level's fighting: the Batarang and Fire Blast)
     // After the Fire Element, Fire Blast is his everywhere (the Arsenal outside the level too).
@@ -841,17 +846,27 @@ class Part2 {
       const ability = inp.ability;
       inp.ability = null;
       if (ability && (fight || armed)) fire.useAbility(ability);
-      if (riding) this.ride.update(dt, inp); // (the horse carries him: rails, conveyors, cogs)
+      if (mounted) this.ride.update(dt, inp); // (the horse carries him: rails, conveyors, cogs)
       else {
         hero.lastDt = dt;
         hero.update(dt, inp, cam.yaw);
       }
       // The HUD: no gems (the elements replace them; the ride counts brass gears), no horse
       // energy, no boss bar; Jump (and Gallop on the ride).
-      input.setCombatButtons(riding || (horse.mounted && fight), fight || armed ? fire.arsenal : this.abilities, !(fight || armed));
-      input.setMountButton(false);
-      input.setDismountButton(false, false, realDt, null, 1);
-      input.setGallopButton(riding, DIALOGUE.gallop, horse.stamina, horse.galloping, false);
+      input.setCombatButtons(mounted, fight || armed ? fire.arsenal : this.abilities, !(fight || armed));
+      if (fireRide) {
+        // The Dismount button (hold 0.4 s, only below the horse's speed limit) and, on foot beside the horse, Mount — as in Part 1,
+        // all through the ride and its plaza (in the boss plaza AJ is already on foot and the horse waits by the gate).
+        const DM = CONFIG.input.dismount;
+        const speed = Math.abs(horse.speed);
+        input.setMountButton(!horse.controlsHero && horse.canMount(hero));
+        input.setDismountButton(horse.mode === 'riding', speed < DM.maxSpeed, realDt, ui.elementsRect?.() ?? null, DM.maxSpeed / Math.max(DM.maxSpeed, speed));
+        if (inp.mountPressed && (horse.mode !== 'riding' || speed < DM.maxSpeed)) horse.toggle(hero);
+      } else {
+        input.setMountButton(false);
+        input.setDismountButton(false, false, realDt, null, 1);
+      }
+      input.setGallopButton(mounted, DIALOGUE.gallop, horse.stamina, horse.galloping, false);
       ui.showGems(false);
       ui.setHorseEnergy(1, false, false);
       const g = fire?.guardian;
@@ -865,8 +880,8 @@ class Part2 {
     }
     if (!playing && this.ajSpot && horse.mode === 'idle') hero.puppet(this.ajSpot.pos, this.ajSpot.yaw, live ? dt : 0); // (the arrival: AJ to his place)
     hero.lastDt = live ? dt : 0; // (the rider's status timers — invincibility, the hurt blink — tick in his pose, mounted or not)
-    horse.update(live ? dt : 0, riding && playing ? inp : null, cam.yaw, hero); // (ridden only on the ride; else it stands)
-    if (riding && playing) this.ride.after(dt);
+    horse.update(live ? dt : 0, mounted && playing ? inp : null, cam.yaw, hero); // (ridden only on the ride; else it stands)
+    if (mounted && playing) this.ride.after(dt);
     if (fire?.stage) fire.update(live ? dt : 0, live ? realDt : 0, playing);
     else if (armed) fire.updateIdle(live && playing ? dt : 0);
     spinHorseKey(this.upgrade, live ? dt : 0);
@@ -878,7 +893,7 @@ class Part2 {
     if (this.at === 'robots') this.#updateShowcase(live ? dt : 0, live ? realDt : 0, inp);
     else if (this.at === 'props') this.#updateProps(live ? dt : 0, live ? realDt : 0, inp);
     else if (cinematic.active) cinematic.update(paused ? 0 : realDt);
-    else cam.update(realDt, hero.position, { mounted: horse.mounted, speed: riding ? horse.speedRatio : 0, gallop: riding && horse.galloping, heading: horse.heading });
+    else cam.update(realDt, hero.position, { mounted: horse.mounted, speed: mounted ? horse.speedRatio : 0, gallop: mounted && horse.galloping, heading: horse.heading });
     if (!cinematic.active) hero.cameraOpacity = cam.heroOpacity;
     // (the sky dome round the camera; the amber point lights on the lamps nearest AJ)
     const spots = riding ? this.rideParts.city.userData.lampSpots : this.at === 'courtyard' || this.at === 'arrival' ? this.gearhaven.userData.lampSpots : [];

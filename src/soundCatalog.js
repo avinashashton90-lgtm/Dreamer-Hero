@@ -139,6 +139,7 @@ export const SOUNDS = {
   furnace_guardian_steam_burst: { group: 'effects', desc: 'Fire level: the Furnace Guardian vents steam — a big hissing burst' },
   furnace_guardian_charge: { group: 'effects', desc: 'Fire level: the Furnace Guardian charges — a rising mechanical roar' },
   furnace_guardian_roar: { group: 'effects', desc: 'Fire level: the Furnace Guardian roars — a furnace bellow' },
+  stomp_warning: { group: 'effects', desc: 'Fire level: the Furnace Guardian’s Stomp telegraph (1.5 s) — a low tone rising with four quickening ticks' },
   steam_barrier_close: { group: 'effects', desc: 'Fire level: a steam barrier closes — a hiss rising to a seal' },
   steam_barrier_open: { group: 'effects', desc: 'Fire level: a steam barrier opens — a hiss falling away' },
   element_orb_hum: { group: 'effects', loop: true, desc: 'Fire level: the element orb — a soft rising hum (loop)' },
