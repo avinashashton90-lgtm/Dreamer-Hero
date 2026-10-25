@@ -509,7 +509,7 @@ export class Input {
     // (Part 2's fighting levels pass their own set — `ab.layout` '2': the Batarang and unlocked items)
     this.#applyLayout((mounted ? 'ride' : 'foot') + (ab.layout ?? ''));
     const L = I.layout[this.layoutMode];
-    show(this.attackBtn, (!!L.attack || ab.melee === true) && !exhausted);
+    show(this.attackBtn, !!L.attack && !exhausted);
     show(this.dodgeBtn, !!L.dodge && !exhausted);
     for (const [name, b] of Object.entries(this.abilityBtns)) {
       show(b, !!L[name] && !exhausted && (ab.visible ? ab.visible(name) : !['fireBlast', 'cogShot', 'gearWheel'].includes(name)));

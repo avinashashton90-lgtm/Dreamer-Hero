@@ -45,7 +45,6 @@ export async function createPart2(shared) {
 class Part2 {
   constructor(shared) {
     Object.assign(this, shared);
-    this.part1CombatTargets = [...(this.combat?.targets ?? [])];
     this.id = 'part2';
     this.at = null; // 'arrival' | 'courtyard' | a level id | 'final' | 'ending'
     this.tweens = [];
@@ -149,8 +148,6 @@ class Part2 {
     if (hero.world !== this.world) this.saved = { heroWorld: hero.world, horseWorld: horse.world, camWorld: cam.world, bodies: this.cinematic.bodies };
     hero.world = horse.world = cam.world = this.world;
     for (const o of [hero.model, hero.shadow, horse.model, horse.shadow]) this.scene.add(o);
-    if (this.combat?.ring) this.scene.add(this.combat.ring);
-    this.combat?.reset();
     horse.setPassenger(null);
     horse.scripted = false;
     horse.hold = false;
@@ -189,11 +186,6 @@ class Part2 {
     const { hero, horse, cam } = this;
     this.#clearDown();
     this.leaveRide();
-    if (this.combat) {
-      this.combat.reset();
-      this.combat.targets = this.part1CombatTargets;
-      if (this.combat.ring) this.combat.scene.add(this.combat.ring);
-    }
     this.ui.setElements?.([], false);
     this.ui.setCogKeys?.(0, false);
     if (this.saved) {
@@ -848,8 +840,7 @@ class Part2 {
     if (live) hero.watchdog(realDt); // (no protection flag outlives `down.invincibleMax`)
     const alive = hero.life === 'alive';
     const fire = this.fire;
-    const fight = !!fire?.stage && (this.at === 'fire' || this.at === 'fireBoss' || this.at === 'firePractice');
-    const melee = this.at === 'fireBoss' && fight;
+    const fight = !!fire?.stage && (this.at === 'fire' || this.at === 'fireBoss');
     // After the Fire Element, Fire Blast is his everywhere (the Arsenal outside the level too).
     const armed = !fight && !!fire?.built && this.elements.includes('fire') && !fire.stage;
     if (playing) {
@@ -862,14 +853,7 @@ class Part2 {
       }
       if (this.at === 'robots' || this.at === 'props') inp.moveX = inp.moveY = 0; // (AJ stands for scale; a swipe turns the view)
       else cam.rotate(inp.lookDX, inp.lookDY, inp.lookSensitivity);
-      if (!melee) inp.attackPressed = false;
-      inp.dodgePressed = false;
-      if (this.combat) {
-        this.combat.targets = melee ? [fire.meleeTarget] : [];
-        fire.arsenal.melee = melee;
-        fire.arsenal.layout = melee ? '2Boss' : '2';
-        this.combat.update(dt, inp, { mounted: mounted || !melee });
-      }
+      inp.attackPressed = inp.dodgePressed = false; // (no melee here: jumps, the Shield and the weapons)
       const ability = inp.ability;
       inp.ability = null;
       if (ability && (fight || armed)) fire.useAbility(ability);

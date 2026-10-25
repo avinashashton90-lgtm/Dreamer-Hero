@@ -119,8 +119,8 @@ check(p2.at === 'fire' && fire.built && fire.stage === 'ride' && state.is(STATES
   const keys = fire.items.entries.filter((e) => e.type === 'cogKey');
   const chests = fire.items.entries.filter((e) => e.chest);
   const costs = chests.map((c) => c.model.userData.cost).sort();
-  check(keys.length === 7 && chests.length === 3 && JSON.stringify(costs) === '[1,1,1]' && costs.reduce((a, b) => a + b, 0) + F.gate.keys === 5 && keys.length - 2 >= 5,
-    `${keys.length} cog keys and 3 chests (costs ${costs.join(', ')}) + the cog gate (${F.gate.keys}): five keys still cover every cost after missing two`);
+  check(keys.length === 7 && chests.length === 4 && JSON.stringify(costs) === '[1,1,1,1]' && costs.reduce((a, b) => a + b, 0) + F.gate.keys === 6 && keys.length - 1 >= 6,
+    `${keys.length} cog keys and 4 chests (costs ${costs.join(', ')}; one holds the Shield) + the cog gate (${F.gate.keys}): six keys cover every cost, one may be missed`);
   const lat = (e) => Math.abs(track.nearest(e.pos.x, e.pos.z, 30).lateral);
   const mainKeys = keys.filter((k) => lat(k) < 0.1);
   check(mainKeys.length === 2 && keys.every((k) => lat(k) <= 4), `two keys sit on the fixed main line; the other ${keys.length - mainKeys.length} are within 4 units`);
@@ -129,7 +129,7 @@ check(p2.at === 'fire' && fire.built && fire.stage === 'ride' && state.is(STATES
   const plaza = F.plaza;
   const pk = keys.filter((k) => { const s0 = track.nearest(k.pos.x, k.pos.z, 30).s; return s0 >= plaza.from && s0 <= plaza.to; });
   const nearChest = (k) => chests.some((c) => c.pos.distanceTo(k.pos) < 6.5);
-  check(pk.length === 3 && pk.every(nearChest) && chests.every((c) => { const s0 = track.nearest(c.pos.x, c.pos.z, 30).s; return s0 >= plaza.from && s0 <= plaza.to; }), 'the plaza: the 3 chests, with a cog key near each');
+  check(pk.length === 3 && pk.every(nearChest) && chests.every((c) => { const s0 = track.nearest(c.pos.x, c.pos.z, 30).s; return s0 >= plaza.from && s0 <= plaza.to; }), 'the plaza: the 4 chests (3 with a cog key near each; the Shield chest is paid from the rest)');
   const catchupKey = fire.items.find('key0');
   const keyTrack = track.nearest(catchupKey.pos.x, catchupKey.pos.z, 30);
   const keyHeight = catchupKey.pos.y + P2.items.types.cogKey.height;
@@ -143,8 +143,8 @@ check(p2.at === 'fire' && fire.built && fire.stage === 'ride' && state.is(STATES
   const gemItems = fire.items.entries.filter((e) => e.type === 'gem' && !e.temp);
   check(CONFIG.part2.items.types.gem.ammo === 5 && gemItems.length >= F.fireGemCount, `blue diamond gems: ${gemItems.length} along the path, 5 Batarang ammo each`);
   await run(0.2);
-  check(input.combat?.ab === fire.arsenal && !input.combat.hidden && input.combat.ab.has('batarang') && input.combat.ab.has('fireBlast') && input.combat.ab.has('cogShot') && input.combat.ab.has('gearWheel') && input.combat.ab.usesLeft('batarang') === F.fireGemCount * 0 + F.startAmmo && input.combat.ab.layout === '2',
-    `the buttons: the Batarang with its gems (${input.combat.ab.usesLeft('batarang')}) — Fire Blast, Cog Shot and Gear Wheel are his for the level`);
+  check(input.combat?.ab === fire.arsenal && !input.combat.hidden && input.combat.ab.has('batarang') && !input.combat.ab.has('fireBlast') && !input.combat.ab.has('shield') && !input.combat.ab.visible('fireBlast') && !input.combat.ab.visible('shield') && input.combat.ab.has('cogShot') && input.combat.ab.has('gearWheel') && input.combat.ab.usesLeft('batarang') === F.fireGemCount * 0 + F.startAmmo && input.combat.ab.layout === '2',
+    `the buttons: the Batarang with its gems (${input.combat.ab.usesLeft('batarang')}) — no Fire Blast and no Shield button yet (the Fire Element and the Shield chest give them), Cog Shot and Gear Wheel are his for the level`);
   check(ui.keys?.show && ui.keys.n === 0 && ui.elements.length === 0 && ui.elementsShown, 'the HUD: a cog-key counter (0) and the Elements row (none yet)');
   let meshes = 0;
   p2.scene.traverseVisible((o) => { if (o.isMesh) meshes++; });
@@ -209,6 +209,7 @@ check(p2.at === 'fire' && fire.built && fire.stage === 'ride' && state.is(STATES
 
 // 2) Pickups and chests (the item system): keys, elixirs, "Needs 1 cog key", opening, contents, the checkpoint save.
 {
+  let pulsed0 = null;
   const items = fire.items;
   const key = items.find('key0');
   place(near()?.s ?? 4, 0);
@@ -252,6 +253,28 @@ check(p2.at === 'fire' && fire.built && fire.stage === 'ride' && state.is(STATES
   const hearts0 = lives.maxHearts;
   await run(3.8);
   check(big.state === 'open' && items.keys === 0 && lives.maxHearts === hearts0 + 1 && p2.extraHearts === 1 && lives.hearts === lives.maxHearts, `the big chest (1 key): a heart container, +1 max heart (${hearts0} → ${lives.maxHearts}) and a full heal`);
+  // the Shield chest: a fourth chest, one key, the Shield (not there before)
+  {
+    const shieldChest = items.find('chest3');
+    const shieldCfg = F.chests[3];
+    check(shieldCfg.contents[0].type === 'shield' && shieldCfg.cost === 1 && !fire.arsenal.has('shield') && !fire.arsenal.visible('shield') && !fire.arsenal.use('shield') && fire.arsenal.blockReason('shield') === 'locked', 'before its chest there is no Shield: no button, and a tap does nothing');
+    const ss = track.nearest(shieldChest.pos.x, shieldChest.pos.z, 30);
+    items.keys = 0;
+    place(ss.s, -2.2);
+    const tS = ui.toasts.length;
+    await run(0.3);
+    check(toastsSince(tS).includes(FD.needs(1)) && shieldChest.state === 'closed' && !fire.arsenal.has('shield'), `the Shield chest with no key: "${FD.needs(1)}"`);
+    await run(2.2);
+    items.addKeys(1);
+    pulsed0 = input.pulsed;
+    place(ss.s, -2.2);
+    await run(3.8);
+    check(shieldChest.state === 'open' && items.keys === 0 && fire.arsenal.has('shield') && fire.arsenal.visible('shield') && fire.stats.chestPopups?.includes(FD.chest.shield) && input.pulsed === 'shield', `the Shield chest (1 key): the Shield is his, the popup "${FD.chest.shield}", its button lights up`);
+    await run(2.2);
+    check(ui.toasts.includes(FD.shieldHint), `and a hint: "${FD.shieldHint}"`);
+    fire.arsenal.shieldUnlocked = false; // (the next sections start without it again)
+    items.restore(null);
+  }
   // gems out of the second small chest
   const gp = track.nearest(small2.pos.x, small2.pos.z, 30);
   items.addKeys(1);
@@ -659,7 +682,8 @@ const items0 = () => { fire.items.restore(null); fire.arsenal.clear(); fire.arse
   check(!sw.alive && sw.state === 'dying', 'the fourth defeats it (a death animation, then it fades)');
   await run(2.5);
   check(!sw.active, '...and it is gone');
-  // fire ball (once Fire Blast is unlocked): 3 damage and a 3 s burn
+  // fire ball: not before the Fire Element (no button, a tap does nothing); then 3 damage and a 3 s burn
+  check(!fire.arsenal.fireUnlocked && !fire.arsenal.has('fireBlast') && !fire.arsenal.use('fireBlast') && fire.arsenal.blockReason('fireBlast') === 'locked', 'Fire Blast is not his yet: no button, and a tap does nothing');
   fire.arsenal.unlockFire();
   sw.spawn(trackPoint(track, sp.s, sp.lat).pos, 0, 'idle');
   place(sp.s - 14, sp.lat, { speed: 0 });
@@ -895,6 +919,82 @@ const rel = (v) => new THREE.Vector3(C.x + v[0], 0, C.z + v[1]);
   hero.puppet(ringGem.pos.clone(), 0, 0);
   await run(0.3);
   check(stayed && ringGem.taken && fire.arsenal.ammo === am1 + A.gems.ammo, `a plaza gem stays where it is until AJ walks into it (nothing at 1.8 away), then +${A.gems.ammo} Batarangs (${am1} → ${fire.arsenal.ammo})`);
+}
+
+// 6b) The Shield in the plaza: jumps beat the Stomp (the Shield doesn't stop it), blocks stop the rest, a perfect block staggers him.
+{
+  const SH = F.shield;
+  const guardAt = (v, heading = 0) => { G.position.copy(rel(v)); G.heading = heading; G.model.position.copy(G.position); };
+  const heroAt = (v) => { hero.puppet(rel(v), Math.PI, 0); hero.velocity.set(0, 0, 0); hero.resetStatus?.(); };
+  const prep = () => { G.marksDone.clear(); fire.arenaItems.clear(); lives.setHearts(lives.maxHearts); hurts.length = 0; G.hp = G.maxHp; G.alive = true; G.sinceHit = 0; G.state = 'recover'; G.t = -50; G.cool = { stomp: 0, steam: 0, charge: 0 }; held = { moveX: 0, moveY: 0, jumpPressed: false, gallop: false, ability: null }; };
+  const ar12 = fire.arsenal;
+  const tap = () => { ar12.cooldowns.shield = 0; return ar12.use('shield'); };
+  // no Shield yet: the steam burst lands
+  ar12.shieldUnlocked = false;
+  prep(); guardAt([0, -7], 0); heroAt([0, 3]);
+  G.startAttack('steam');
+  await seconds(4, () => G.state === 'recover');
+  check(hurts.filter((h) => h.source === 'steam').length === 1 && !ar12.use('shield'), 'without the Shield the Steam Burst lands (half a heart) and the button does nothing');
+  ar12.shieldUnlocked = true;
+  check(ar12.has('shield') && ar12.visible('shield') && ar12.usesLeft('shield') === null, 'with the Shield the button is there (no count)');
+  // a plain block: raised for a while before the burst lands
+  prep(); guardAt([0, -7], 0); heroAt([0, 3]);
+  G.startAttack('steam');
+  await seconds(2, () => G.state === 'steamWind');
+  await run(SH.perfectWindow + 0.2);
+  const b0 = ar12.stats.blocks ?? 0, p0 = ar12.stats.perfects ?? 0;
+  const raised = tap();
+  await seconds(4, () => G.state === 'recover');
+  check(raised && (ar12.stats.blocks ?? 0) >= b0 + 1 && hurts.filter((h) => h.source === 'steam').length === 0 && (ar12.stats.perfects ?? 0) === p0 && G.state === 'recover', `a raised Shield blocks the Steam Burst (no damage, ${(ar12.stats.blocks ?? 0) - b0} block), a plain block does not stagger him`);
+  // the Shield is up for a moment, then a cooldown
+  await run(SH.duration);
+  check(ar12.shieldRemaining === 0 && ar12.cooldowns.shield > 0 && !ar12.use('shield') && ar12.blockReason('shield') === 'cooldown', `it drops after ${SH.duration} s and has a ${SH.cooldown} s cooldown`);
+  // the Stomp is not blocked: a raised Shield still costs the heart; a jump clears it
+  prep(); guardAt([0, -7]); heroAt([0, 3]);
+  G.startAttack('stomp');
+  await seconds(3, () => G.state === 'stompWind');
+  await run(B.stomp.windup - 0.5);
+  tap();
+  await seconds(4, () => G.state === 'recover');
+  check(hurts.filter((h) => h.source === 'stomp').length === 1 && B.stomp.damage === 0.5, 'the Shield does not stop the Stomp (a heart is lost): it has to be jumped');
+  prep(); guardAt([0, -7]); heroAt([0, 3]);
+  G.startAttack('stomp');
+  await seconds(2, () => G.state === 'stompRing');
+  await run(0.42);
+  held.jumpPressed = true;
+  await frame();
+  held.jumpPressed = false;
+  await seconds(4, () => G.state === 'recover');
+  check(!hurts.some((h) => h.source === 'stomp'), 'a jump over the ring clears the Stomp');
+  // the fire ball and the charge are blocked too
+  prep(); guardAt([0, -7]); heroAt([0, 11]);
+  G.startAttack('fireball');
+  await seconds(3, () => G.balls.length > 0);
+  tap();
+  await seconds(3, () => !G.balls.length);
+  check(!hurts.some((h) => h.source === 'fireball'), 'a raised Shield stops the Fire Ball');
+  // a PERFECT block: tapped just as it lands → he is staggered and takes extra
+  prep(); guardAt([0, -7], 0); heroAt([0, 3]);
+  G.startAttack('steam');
+  await seconds(4, () => G.state === 'steamWind');
+  await seconds(4, () => G.state === 'steamBurst' || G.state === 'steam' || (G.t >= 0 && G.state !== 'steamWind'));
+  const pp0 = ar12.stats.perfects ?? 0;
+  ar12.cooldowns.shield = 0; ar12.shieldRemaining = 0;
+  tap(); // (raised right before the burst's first hit lands: inside the perfect window)
+  await seconds(4, () => G.state === 'staggered');
+  check((ar12.stats.perfects ?? 0) === pp0 + 1 && G.state === 'staggered' && !hurts.some((h) => h.source === 'steam'), `a perfect block (tapped within ${SH.perfectWindow} s of the hit): no damage, and the Guardian is staggered`);
+  const hpS = G.hp;
+  G.takeHit(1, 'batarang');
+  check(Math.abs((hpS - G.hp) - B.staggerDamage) < 0.01, `while staggered he takes ×${B.staggerDamage} (1 → ${(hpS - G.hp).toFixed(2)})`);
+  await seconds(SH.staggerTime + 1, () => G.state !== 'staggered');
+  check(G.state !== 'staggered', `...and the stagger ends after ${SH.staggerTime} s`);
+  // a blow from behind is not blocked
+  prep(); guardAt([0, 8], Math.PI); heroAt([0, 3]); // (he is behind AJ, who faces -z)
+  tap();
+  const behind = ar12.shieldBlock(rel([0, 8]), 'charge');
+  check(behind === null, 'a hit from behind is not blocked');
+  ar12.shieldRemaining = 0;
+  prep();
 }
 
 // 7) Died in the plaza: revived inside with full hearts, 3 s of protection; he keeps half of the damage and backs off. Then his defeat.

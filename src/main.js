@@ -261,7 +261,7 @@ async function boot() {
   const levels = new LevelManager({
     part1: async () => part1,
     part2: async () => (await import('./part2/index.js')).createPart2({
-      state, STATES, ui, input, cam, cinematic, sound, soundscape, hero, horse, abilities, lives, combat, assets: {},
+      state, STATES, ui, input, cam, cinematic, sound, soundscape, hero, horse, abilities, lives, assets: {},
       damageHero: (...a) => damageHero(...a),
       getHeroState: () => dying ? (lives.hearts <= 0 ? 'downed' : 'respawning') : 'alive',
       debugEnabled: () => !!testMenu?.enabled || testMenuWanted(),

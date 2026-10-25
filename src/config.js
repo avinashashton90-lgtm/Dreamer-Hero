@@ -1004,6 +1004,7 @@ export const CONFIG = {
         elixirEnergy: { size: 0.46, height: 1.3, reach: 2, color: 0x3f9bff, glow: 0x9ccfff, crystal: 0x7fd0ff, sound: 'elixir_drink', label: 'blue potion' }, // BLUE potion: a tall flask with a blue crystal stopper; rests the horse (`fire.bluePotionEnergy`)
         gem: { size: 0.4, height: 1.2, reach: 2, color: 0x2f86ff, color2: 0x9fd4ff, glow: 0xbfe0ff, ammo: 5, sound: 'gem_collect', label: 'gem' }, // a blue diamond (two blues): 1 gem = 5 Batarang throws
         heartContainer: { size: 0.5, height: 1.4, reach: 2, color: 0xff3a52, glow: 0xff9aa8, sound: 'element_collect', label: 'heart container' },
+        shield: { size: 0.6, height: 1.4, reach: 2, color: 0x6ec6ff, glow: 0xbfe6ff, rim: 0xd8a640, sound: 'element_collect', label: 'shield' },
         gearBundle: { size: 0.55, height: 1.4, reach: 2, color: 0xe2b23c, glow: 0xffe8a0, gears: 10, sound: 'gear_collect', label: 'gear bundle' },
         runeStone: { size: 0.7, height: 1.2, reach: 2, color: 0x7c7468, glow: 0xff7a2a, sound: 'element_collect', label: 'rune stone' }, // (for later levels)
         wandPiece: { size: 0.6, height: 1.4, reach: 2, color: 0x9a6bff, glow: 0xd8c4ff, sound: 'element_collect', label: 'wand piece' }, // (three form Amy's wand)
@@ -1033,7 +1034,6 @@ export const CONFIG = {
       startAmmo: 8,           // Batarang ammo when the level starts (1 throw each; a blue gem gives 5)
       fireBossHealth: 40,     // the Furnace Guardian's HP (45 → 40: the Batarang is limited now — about 3 of its hits, the rest from Fire Blast, the cogs and the wheel)
       maxBatarangs: 12,       // the most Batarangs AJ can carry: blue gems are the only way to get more (nothing else ever refills them)
-      checkpointSave: true,   // opened chests, keys, taken pickups are saved at each checkpoint
       // Overrides of CONFIG.part2.ride for this layout (merged in fire.js). The first 780 of the trail is
       // the first ride's shape (only one of them is ever drawn), then it carries on east and turns south
       // — all inside the map's bounds (the horse is clamped to CONFIG.world) — so section 1 reuses its
@@ -1064,15 +1064,24 @@ export const CONFIG = {
         door: { s: 1318, scale: 2.4, reach: 4.5 },
         quest: 'fire',
       },
-      shield: { color: 0x6ec6ff }, // the Shield ability button's colour (Part 2)
+      // The Shield (found in a chest in the plaza, never at the start): tap it and he holds it up for `duration` s; a hit from the front
+      // that lands while it is up is blocked (no damage); one that lands in the first `perfectWindow` s is a PERFECT block — the Guardian
+      // is staggered `staggerTime` s (and takes `boss.staggerDamage`× while he is). `blocks` lists the attack sources it stops: the
+      // Stomp is not one of them (it is jumped). Then `cooldown` s before it comes up again.
+      shield: {
+        color: 0x6ec6ff, duration: 1.3, perfectWindow: 0.3, cooldown: 2.2, frontDot: 0.1, staggerTime: 2.0,
+        blocks: ['steam', 'fireball', 'charge', 'sword', 'scout'],
+        disc: { radius: 1.05, height: 1.0, ahead: 1.1, opacity: 0.45, perfect: 0xfff2c0, pulse: 0.25 },
+      },
       // Seven cog keys; two lie on the main line and five sit close enough to collect from the saddle.
-      // [s, lat, height above the street]. The gate and all three chests cost five keys in total.
+      // [s, lat, height above the street]. The gate and all four chests (one holds the Shield) cost six keys in total.
       keys: [[120, 0, 0], [212, 0, 0], [412, -2.2, 0], [730, -2.0, 0], [775, 2.0, 0], [835, -2.0, 0], [900, 2.2, 0]],
       // Chest rewards: a small one gives 2 elixirs (a list: healing + energy) or 3 gems, the big one +1 max heart or a gear bundle (10 gears).
       chests: [
         { size: 'small', s: 735, lat: -5.2, cost: 1, contents: [{ type: 'elixirHeal', n: 1 }, { type: 'elixirEnergy', n: 1 }], popup: 'elixirs' },
         { size: 'small', s: 780, lat: 5.2, cost: 1, contents: [{ type: 'gem', n: 3 }], popup: 'gems' },
         { size: 'big', s: 830, lat: -4.8, cost: 1, contents: [{ type: 'heartContainer', n: 1 }], popup: 'heart' },
+        { size: 'small', s: 808, lat: -5.2, cost: 1, contents: [{ type: 'shield', n: 1 }], popup: 'shield' }, // the Shield chest
       ],
       // Gems for the Batarang along the whole ride: `fireGemCount` in all, spread evenly along the path (about 1 every
       // 40), on the safe line, plus on the steam-jump landings and extra in the plaza.
@@ -1086,7 +1095,7 @@ export const CONFIG = {
       // The cog gate across the road at the end of section 1: opens with 2 cog keys (a solid barrier till then).
       gate: { s: 440, keys: 2, openTime: 1.2, reach: 7, width: 15, height: 6, color: 0xb8803a, red: 0xff2a1c },
       // Cog Shot (a spinning cog thrown in an arc, 2 damage, spends 1 cog key) and Gear Wheel (a fast spinning wheel rolling along
-      // the ground, 3 damage, spends 4 brass gears): the level's two extra weapons; Fire Blast is his from the start of the level.
+      // the ground, 3 damage, spends 4 brass gears): the level's two extra weapons; Fire Blast is not: it comes with the Fire Element.
       weapons: {
         cogShot: { damage: 2, cooldown: 1.2, speed: 26, arc: 3, range: 26, forward: 14, size: 0.5, keys: 1, color: 0xf0c048, roll: { flySpin: 0.6, speed: 11, decel: 4.5, fallSpeed: 2.5, gravity: 18, landBounce: 2.2, wobble: 0.6, wobbleRate: 22, wobbleAmp: 0.4, fall: 0.35, fade: 0.5 } }, // (an upright coin: thrown in an arc, one bounce, rolls on its edge slowing down, wobbles and falls flat, fades)
         gearWheel: { damage: 3, cooldown: 2.0, speed: 30, range: 34, radius: 1.5, height: 0.9, gears: 6, color: 0xd8a640, roll: 'gear_roll', maxBounces: 4, wheelSpeedKeepOnHit: 0.25, wheelWallBounceKeep: 0.6, hitPop: 2.6, wallPop: 1.6, gravity: 18, stopSpeed: 3, fade: 0.5, throwArc: { time: 0.32, height: 0.9, landBounce: 2.2 }, lean: { max: 0.3, rate: 1.5, ease: 8 } }, // (an upright wheel: thrown in a small arc, a little bounce, rolls spinning round its axle; a robot hit keeps `wheelSpeedKeepOnHit` of its speed and pops it up — it rolls on the same way; a wall keeps `wheelWallBounceKeep`; the Guardian stops it)
@@ -1118,14 +1127,14 @@ export const CONFIG = {
         pad: 0.5, robotRadius: 1.5, robotFlash: 0.15,
         guardianLegs: { side: 0.85, height: 1.15, radius: 0.6 },
       }, // torso sphere for cog weapons; the Batarang / fire ball keep their padded body capsule
-      // The Batarang in Part 2: 1 gem a throw, auto-aimed (the nearest foe, preferring ones ahead), out and back.
+      // The Batarang in Part 2: 1 Batarang a throw (blue gems add them, up to `maxBatarangs`), straight the way AJ faces, out and back.
       batarang: { damage: 1, cooldown: 0.8, speed: 38, returnSpeed: 40, range: 25, above: 1.6, forward: 16, release: 0.24, turn: 600, color: 0xffd23f, size: 0.4, prefer: 1.6 },
-      // Fire Blast (the Fire Element's ability): a ball of fire in an arc, 3× the Batarang, burns for 3 s.
+      // Fire Blast (the Fire Element's ability, not before it): a ball of fire in an arc, burns for 3 s.
       fireBlast: {
         damage: 3, burn: { time: 3, dps: 1 }, cooldown: 10, speed: 24, arc: 2.6, range: 28, forward: 14, release: 0.24, size: 0.55,
         color: 0xff6a1c, core: 0xffe08a, splash: 2.2, trail: 14, hint: true,
       },
-      // The Furnace Guardian (George, the big armoured mech): HP in Batarang hits, three attacks, a sealed plaza.
+      // The Furnace Guardian (George, the big armoured mech): `fireBossHealth`, four attacks, a sealed plaza.
       arena: {
         at: [300, 0, -60], radius: 24, wall: 23, pillars: { count: 4, ring: 13, radius: 1.3, height: 7 },
         spawn: [0, 17], horse: [0, 21], boss: [0, -7],   // [x, z] from the centre: AJ's entrance, the horse's place, the Guardian's
@@ -1139,7 +1148,7 @@ export const CONFIG = {
         openTime: 1.6, pedestalTime: 2.2,
       },
       boss: {
-        meleeDamage: 1, staggerDamage: 1.5, staggerDuration: 1.5, // melee hits on the Guardian (1), the bonus while he is staggered by a parry, and how long that lasts
+        staggerDamage: 1.5, staggerDuration: 1.5, // damage ×1.5 while a perfect block has staggered him, and for how long by default
         radius: 2.6, height: 6.5, walk: 3.4, walkEnraged: 4.6, enrageAt: 0.5, turn: 2.2,
         glow: { color: 0xff5a1c, tint: 0.5, furnace: { size: 0.9, up: 0.64, out: 0.7 } },
         recover: 1.4, recoverEnraged: 0.8,
@@ -1155,7 +1164,6 @@ export const CONFIG = {
         hurtFlash: 0.12, deathTime: 2.4,
       },
       // Tick calls out each attack's windup with small chirps.
-      tickCalls: { stomp: 'stomp', steam: 'steam', charge: 'charge', fireball: 'fireball' },
       // The Fire Element: a swirling orb of flame on a pedestal that rises when the Guardian falls.
       element: {
         orb: { radius: 0.85, particles: 36, swirl: 1.8, height: 1.7, glow: 3.2 },
@@ -1219,7 +1227,7 @@ export const CONFIG = {
       points: [[260, 110], [260, 300], [360, 380], [360, 540], [500, 600], [660, 600]], // the trail (~779 long), corners rounded at track.cornerRadius
       wall: { offset: 7.3, height: 7 }, // invisible side walls along the whole ride (the horse rails along them)
       checkpoints: [0, 205, 335, 495, 625], // s of each (the first is the start)
-      checkpointRadius: 9, checkpointSide: 8.6, // reached within this of the trail point; the flag stands this far right of the centre
+      checkpointSide: 8.6, // the flag stands this far right of the centre
       sky: { fog: { near: 45, far: 260 } }, // the fog's reach on the ride (its colour, the sky, the lights: the look's)
       ground: { size: [900, 760] },   // the far land (the look's ground colour; the city floor is silver: part2.floor)
       street: { curbHeight: 0.35 },
@@ -1754,8 +1762,8 @@ export const CONFIG = {
       },
       // Part 2's fighting levels (the Fire level): only the buttons they have — Jump / Gallop, the
       // Batarang and Fire Blast (in the spots Smoke Bomb and Flash have in Part 1).
-      foot2: { jump: [166, 60, 62], mount: [100, 135, 62], batarang: [230, 104, 58], fireBlast: [204, 190, 58], cogShot: [136, 208, 58], gearWheel: [60, 215, 58] },
-      ride2: { gallop: [66, 66, 80], jump: [166, 60, 62], batarang: [222, 130, 58], fireBlast: [140, 160, 58], cogShot: [60, 170, 58], gearWheel: [200, 214, 58] },
+      foot2: { jump: [166, 60, 62], mount: [100, 135, 62], batarang: [230, 104, 58], fireBlast: [204, 190, 58], shield: [233, 24, 58], cogShot: [136, 208, 58], gearWheel: [60, 215, 58] },
+      ride2: { gallop: [66, 66, 80], jump: [166, 60, 62], batarang: [222, 130, 58], fireBlast: [140, 160, 58], shield: [233, 24, 58], cogShot: [60, 170, 58], gearWheel: [200, 214, 58] },
       minGap: 12,                // px of clear space kept between the corner buttons
     },
     // Ability buttons: a badge with the uses left (gems on hand ÷ cost, rounded down), capped
@@ -2349,13 +2357,14 @@ export const DIALOGUE = {
       shieldCooldown: 'Shield locked',
       got: { shield: 'Shield unlocked!', cogKey: 'Cog key!', elixirHeal: (n) => `Green potion: +${n} heart${n > 1 ? 's' : ''}`, elixirEnergy: 'Blue potion: the horse is rested', gem: (n) => `+${n} gem${n > 1 ? 's' : ''}`, heartContainer: 'Heart container: +1 max heart!', gearBundle: (n) => `+${n} gears`, runeStone: 'Rune stone', wandPiece: 'Wand piece' },
       keysLabel: 'Cog keys', keyIcon: '🗝',
-      blastUnlocked: 'Fire Blast unlocked!', blastHint: 'Tap Fire to throw a fireball — it burns!',
+      blastUnlocked: 'Fire Blast unlocked!', blastHint: 'Tap Fire to throw a fireball — it burns!', // (only after the Fire Element is his)
+      shieldHint: 'Tap Shield just before a hit lands — a perfect block staggers the Guardian!', shieldChestHint: 'Something is locked in the chests… keep an eye out for a shield.',
       ammoOut: 'Out of gems!',
       gateSealed: 'The furnace gate is sealed!', gateOpen: 'The way out is open.',
       banner: 'Fire Element recovered',
       tick: { stomp: 'Stomp coming!', steam: 'Steam! Get clear!', charge: 'It is charging!', fireball: 'Fire ball!' },
       gate: { locked: (n) => `The cog gate needs ${n} cog keys`, open: 'The cog gate opens!' },
-      chest: { elixirs: 'Chest: 2 potions! (a green one and a blue one)', gems: (n) => `Chest: ${n} gems!`, heart: 'Chest: +1 max heart!', gears: (n) => `Chest: a gear bundle, ${n} gears!` },
+      chest: { elixirs: 'Chest: 2 potions! (a green one and a blue one)', gems: (n) => `Chest: ${n} gems!`, heart: 'Chest: +1 max heart!', shield: 'Chest: the Shield! Block with it, jump the Stomp.', gears: (n) => `Chest: a gear bundle, ${n} gears!` },
       weapons: { hint: (n) => `Cog Shot spends a cog key; Gear Wheel spends ${n} gears`, needGears: (n) => `Needs ${n} gears`, needKey: 'Needs 1 cog key' },
       scene: {
         one: 'That is one of five.',            // (Tick)
@@ -2387,7 +2396,7 @@ export const DIALOGUE = {
   dismount: 'Dismount',
   checkpoint: 'Checkpoint!',
   gemNames: { yellow: 'Yellow', blue: 'Blue', pink: 'Pink' },
-  abilityNames: { batarang: 'Batarang', smokeBomb: 'Smoke Bomb', flashMode: 'Flash Mode', fireBlast: 'Fire Blast', cogShot: 'Cog Shot', gearWheel: 'Gear Wheel' },
+  abilityNames: { batarang: 'Batarang', smokeBomb: 'Smoke Bomb', flashMode: 'Flash Mode', fireBlast: 'Fire Blast', shield: 'Shield', cogShot: 'Cog Shot', gearWheel: 'Gear Wheel' },
   unlocked: (ability) => `${ability} Unlocked!`,
   smokeResisted: 'It shrugs off the smoke!',
   arenaGems: 'Gems at the arena edge!',
@@ -2410,7 +2419,7 @@ export const DIALOGUE = {
   attack: 'Attack',
   dodge: 'Dodge',
   jump: 'Jump',
-  abilityShort: { batarang: '★', smokeBomb: '☁', flashMode: '⚡', fireBlast: '🔥', cogShot: '⚙', gearWheel: '◎' },
+  abilityShort: { batarang: '★', smokeBomb: '☁', flashMode: '⚡', fireBlast: '🔥', shield: '🛡', cogShot: '⚙', gearWheel: '◎' },
   gameOverTitle: 'Game Over',
   retryRide: 'Retry',
   bossName: 'Cave Monster',

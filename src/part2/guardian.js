@@ -4,8 +4,8 @@ import { loadRobotModel } from './robots.js';
 import { makeFloorMaterial } from './floor.js';
 
 // The Furnace Guardian (George, the big armoured mech, tinted a hot red-orange with a glowing
-// chest furnace) and the sealed circular plaza he guards (CONFIG.part2.fire.arena / .boss). Three
-// attacks, each telegraphed on the floor and called out by Tick:
+// chest furnace) and the sealed circular plaza he guards (CONFIG.part2.fire.arena / .boss). Four
+// attacks (the Fire Ball is a longer-range projectile fired from his chest; the Shield blocks it, the Steam Burst and the Charge, never the Stomp), each telegraphed on the floor and called out by Tick:
 //   Stomp         rears up and slams; a shockwave ring spreads from his feet — AJ must be in the air
 //                 (jump) when it passes him, or it costs a heart.
 //   Steam Burst   a cone of steam from the furnace (marked on the floor first): half a heart.
@@ -199,12 +199,12 @@ export class Guardian {
     for (const m of [this.tgStomp, this.tgStompFill, this.wave, this.cone, this.lane]) if (m) m.visible = false;
   }
 
-  /** Hits: weapons and melee. Charge-stunned and parried states take their configured bonus damage. */
+  /** Hits: weapons. A charge-stunned or perfect-blocked (staggered) Guardian takes extra damage. */
   takeHit(damage, source = 'batarang', impact = null) {
     if (!this.alive || this.state === 'dying') return false;
     if (this.state === 'idle') this.#notice();
-    const multiplier = this.state === 'staggered' && source === 'melee' ? B.staggerDamage : this.state === 'stunned' ? B.charge.stunDamage : 1;
-    const dmg = (source === 'melee' ? B.meleeDamage : damage) * multiplier;
+    const multiplier = this.state === 'staggered' ? B.staggerDamage : this.state === 'stunned' ? B.charge.stunDamage : 1;
+    const dmg = damage * multiplier;
     this.hp = Math.max(0, this.hp - dmg);
     this.sinceHit = 0;
     this.regenerating = false;

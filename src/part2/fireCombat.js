@@ -5,10 +5,11 @@ import { gearGeometry } from '../portal.js';
 
 // Part 2's fighting (the Fire level): the cheap particle pool the fire is made of (`FireFx`: one
 // additive InstancedMesh of embers, flames and sparks) and the hero's `Arsenal` — the Batarang
-// (1 gem a throw, auto-aimed at the nearest foe, preferring ones ahead, out and back, the
-// ammo shown as the button's badge) and, once the Fire Element is recovered, Fire Blast (a ball of
-// fire thrown in an arc: 3 times the Batarang's damage, and it burns for 3 s; a cooldown ring
-// instead of a count). Both work on horseback and on foot. The Arsenal also has the small
+// (1 Batarang a throw from the blue gems, capped, flying straight the way AJ faces, out and back,
+// the ammo shown as the button's badge), the Cog Shot and Gear Wheel, the Shield (found in a chest:
+// raised for a moment, blocks front attacks, a perfect block staggers the Guardian) and, once the
+// Fire Element is recovered, Fire Blast (a ball of fire thrown in an arc, it burns for 3 s; a
+// cooldown ring instead of a count). All but the Shield work on horseback and on foot. The Arsenal also has the small
 // interface the HUD's ability buttons read (`has`, `usesLeft`, `cooldownFraction`, `canAfford`,
 // `visible`, `layout`), so the same buttons serve here as in Part 1. Targets (foes and the boss)
 // implement { alive, position (feet), radius, height, takeHit(damage, source), ignite(time, dps) }.
@@ -16,6 +17,7 @@ import { gearGeometry } from '../portal.js';
 const F = CONFIG.part2.fire;
 const BT = F.batarang;
 const FB = F.fireBlast;
+const SH = F.shield;
 const CS = F.weapons.cogShot;
 const GW = F.weapons.gearWheel;
 const TH = CONFIG.abilities.throw;
@@ -134,12 +136,15 @@ export class Arsenal {
     this.layout = '2'; // (the HUD's button set for the fighting levels: input.js layout foot2 / ride2)
     this._ammo = 0;
     this.ammo = F.startAmmo;
-    this.fireUnlocked = false; // (the Fire Element recovered: Fire Blast for the rest of Part 2)
-    this.levelOn = false; // (in the Fire level: Fire Blast, Cog Shot and Gear Wheel are all his)
+    this.fireUnlocked = false; // (the Fire Element recovered: Fire Blast for the rest of Part 2 — not before)
+    this.shieldUnlocked = false; // (the Shield chest opened)
+    this.shieldRemaining = 0; // s of the raised shield left
+    this.shieldAge = 0; // s since it was raised (the perfect-block window)
+    this.levelOn = false; // (in the Fire level: Cog Shot and Gear Wheel are his)
     this.keys = () => 0; // (the cog keys on hand: set by the level)
     this.spendKey = () => {};
     this.gearStock = 0; // (brass gears on hand for Gear Wheel shots; the level's gear counter, for the rewards, is separate)
-    this.cooldowns = { batarang: 0, fireBlast: 0, cogShot: 0, gearWheel: 0 };
+    this.cooldowns = { batarang: 0, fireBlast: 0, shield: 0, cogShot: 0, gearWheel: 0 };
     this.cog = null; // the Cog Shot in flight
     this.wheel = null; // the Gear Wheel rolling
     this.pending = null; // { name, t, target } — the throw pose running; it leaves the hand at TH.release
@@ -150,7 +155,6 @@ export class Arsenal {
     this.strike = null;
     this.aimTarget = null;
     this.stats = { throws: 0, hits: 0, blasts: 0, catches: 0, blocked: 0 };
-    this.hinted = false;
     this.ready = (async () => {
       this.model = await loadBatarangModel();
       this.model.visible = false;
@@ -170,6 +174,10 @@ export class Arsenal {
       this.wheelMesh.add(this.wheelGear);
       this.wheelMesh.visible = false;
       scene.add(this.wheelMesh);
+      const D = SH.disc;
+      this.shieldMesh = new THREE.Mesh(new THREE.CircleGeometry(D.radius, 24), new THREE.MeshBasicMaterial({ color: SH.color, transparent: true, opacity: D.opacity, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+      this.shieldMesh.visible = false;
+      scene.add(this.shieldMesh);
       this.ring = new THREE.Mesh(new THREE.RingGeometry(0.7, 0.9, 20).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: FB.color, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false }));
       scene.add(this.ring);
     })();
@@ -179,7 +187,8 @@ export class Arsenal {
 
   has(name) {
     if (name === 'batarang') return true;
-    if (name === 'fireBlast') return this.fireUnlocked || this.levelOn;
+    if (name === 'fireBlast') return this.fireUnlocked;
+    if (name === 'shield') return this.shieldUnlocked;
     return (name === 'cogShot' || name === 'gearWheel') && this.levelOn;
   }
 
@@ -199,6 +208,7 @@ export class Arsenal {
   cooldownFraction(name) {
     if (name === 'batarang') return this.proj ? 1 : this.cooldowns.batarang / BT.cooldown;
     if (name === 'fireBlast') return this.cooldowns.fireBlast / FB.cooldown;
+    if (name === 'shield') return this.shieldRemaining > 0 ? 0 : this.cooldowns.shield / SH.cooldown;
     if (name === 'cogShot') return this.cog?.phase === 'fly' ? 1 : this.cooldowns.cogShot / CS.cooldown;
     if (name === 'gearWheel') return this.wheel ? 1 : this.cooldowns.gearWheel / GW.cooldown;
     return 0;
@@ -223,6 +233,7 @@ export class Arsenal {
   blockReason(name) {
     if (!this.has(name)) return 'locked';
     if (this.hero.life && this.hero.life !== 'alive') return 'down'; // (lying down, or getting up: nothing can be thrown)
+    if (name === 'shield' && this.shieldRemaining > 0) return 'busy';
     if (this.pending || (name === 'batarang' && this.proj)) return 'busy';
     if (this.cooldowns[name] > 0) return 'cooldown';
     if (name === 'batarang' && this.ammo <= 0) return 'gems';
@@ -248,6 +259,13 @@ export class Arsenal {
       if (why === 'gems' || why === 'keys' || why === 'gears') this.onEvent?.('blocked', { name, why });
       return false;
     }
+    if (name === 'shield') {
+      this.shieldRemaining = SH.duration;
+      this.shieldAge = 0;
+      this.sound?.play('shield_up', { position: this.hero.position });
+      this.onEvent?.('use', { name });
+      return true;
+    }
     if (name === 'batarang') this.ammo--;
     else if (name === 'cogShot') this.spendKey(CS.keys);
     else if (name === 'gearWheel') this.gearStock -= GW.gears;
@@ -267,6 +285,8 @@ export class Arsenal {
     this.ball = null;
     this.cog = null;
     this.wheel = null;
+    this.shieldRemaining = 0;
+    if (this.shieldMesh) this.shieldMesh.visible = false;
     if (this.cogMesh) this.cogMesh.visible = this.wheelMesh.visible = false;
     for (const k of Object.keys(this.cooldowns)) this.cooldowns[k] = 0;
     this.hero.throwAnim = null;
@@ -385,6 +405,7 @@ export class Arsenal {
 
   update(dt) {
     for (const k of Object.keys(this.cooldowns)) this.cooldowns[k] = Math.max(0, this.cooldowns[k] - dt);
+    this.#updateShield(dt);
     const anim = this.hero.throwAnim;
     if (anim) {
       anim.t += dt;
@@ -790,6 +811,50 @@ export class Arsenal {
       t.ignite?.(FB.burn.time, FB.burn.dps);
     }
     this.onEvent?.('blast', { at });
+  }
+
+  // --- the Shield ----------------------------------------------------------------
+
+  #updateShield(dt) {
+    const m = this.shieldMesh;
+    if (this.shieldRemaining > 0) {
+      this.shieldAge += dt;
+      this.shieldRemaining -= dt;
+      if (this.shieldRemaining <= 0) {
+        this.shieldRemaining = 0;
+        this.cooldowns.shield = SH.cooldown;
+      }
+    }
+    if (!m) return;
+    m.visible = this.shieldRemaining > 0;
+    if (!m.visible) return;
+    const D = SH.disc;
+    const { at, heading, fwd } = this.#origin();
+    m.position.set(at.x + fwd.x * D.ahead, this.hero.position.y + D.height, at.z + fwd.z * D.ahead);
+    m.rotation.y = heading;
+    const perfect = this.shieldAge <= SH.perfectWindow;
+    m.material.color.setHex(perfect ? D.perfect : SH.color);
+    m.scale.setScalar(1 + D.pulse * (perfect ? 1 - this.shieldAge / SH.perfectWindow : 0));
+  }
+
+  /**
+   * An attack from `source` at `from` is about to land: the Shield stops it when it is up, the attack is one it blocks and it comes from the front.
+   * 'perfect' inside the first `perfectWindow` s after the raise, else 'block'; null: it lands.
+   */
+  shieldBlock(from, source) {
+    if (this.shieldRemaining <= 0 || !SH.blocks.includes(source)) return null;
+    const { at, fwd } = this.#origin();
+    const dx = from.x - at.x;
+    const dz = from.z - at.z;
+    const len = Math.hypot(dx, dz) || 1;
+    if ((dx * fwd.x + dz * fwd.z) / len < SH.frontDot) return null;
+    const kind = this.shieldAge <= SH.perfectWindow ? 'perfect' : 'block';
+    this.stats.blocks = (this.stats.blocks ?? 0) + 1;
+    if (kind === 'perfect') this.stats.perfects = (this.stats.perfects ?? 0) + 1;
+    this.sound?.play(kind === 'perfect' ? 'shield_perfect' : 'shield_block', { position: at });
+    this.fx.impact(new THREE.Vector3(at.x + fwd.x * SH.disc.ahead, at.y, at.z + fwd.z * SH.disc.ahead), kind === 'perfect' ? SH.disc.perfect : SH.color);
+    this.cam?.shake?.(F.weaponImpact.shake, F.weaponImpact.shakeTime);
+    return kind;
   }
 
   /** Fire Blast unlocked (the Fire Element recovered). */

@@ -144,7 +144,18 @@ function wand(T) {
   return g;
 }
 
+function shieldItem(T) {
+  const g = new THREE.Group();
+  const face = new THREE.Mesh(new THREE.CylinderGeometry(T.size, T.size, 0.12, 20).rotateX(Math.PI / 2), lambert(T.color, 0.4));
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(T.size, T.size * 0.1, 6, 20), lambert(T.rim, 0.2));
+  const boss = new THREE.Mesh(new THREE.SphereGeometry(T.size * 0.28, 10, 8), lambert(T.rim, 0.3));
+  boss.position.z = 0.1;
+  g.add(face, rim, boss);
+  return g;
+}
+
 const BUILDERS = {
+  shield: shieldItem,
   cogKey: (T) => cog(T),
   elixirHeal: greenPotion,
   elixirEnergy: bluePotion,

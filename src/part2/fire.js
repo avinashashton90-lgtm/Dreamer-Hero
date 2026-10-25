@@ -12,12 +12,12 @@ import { applyLook } from './looks.js';
 
 // The Fire Element's level (STORY.md; CONFIG.part2.fire): the furnace city. The first stretch is the
 // Gearhaven ride's own machinery on a new layout (conveyors, steam vents, rails, the belt deck, a
-// saw and hammers, brass gears, five cog keys off the road); then scout robots run at the horse in
-// pairs, a plaza has two small chests and a big one (a cog key by each, two elixirs), and sword
+// saw and hammers, brass gears, seven cog keys); then scout robots run at the horse in
+// pairs, a plaza has four chests (two small, a big one and the Shield chest, a cog key each, two elixirs), and sword
 // robots patrol the last stretch; the furnace gate leads into a sealed circular plaza with the
 // Furnace Guardian (George); when he falls, the Fire Element rises on a pedestal: AJ takes it (the
 // flame flows into his hand, his eyes flash orange), a hooded figure watches from a far tower and
-// vanishes in violet light, and Fire Blast is his. This class owns the level's things and runs them
+// vanishes in violet light, and Fire Blast is his (it is not before that; the Shield comes from a plaza chest). This class owns the level's things and runs them
 // each frame; the Part2 chapter (index.js) hands it the shared systems and calls it.
 
 const P2 = CONFIG.part2;
@@ -117,7 +117,7 @@ export class FireLevel {
     // The robots.
     this.foes = new Foes({
       scene: root, world: this.world, horse: p.horse, hero: p.hero, fx: this.fx, sound: p.sound, track, scrap: this.scrap, assets,
-      hitHero: (dmg, from, source) => p.damageHero?.(dmg, from.x, from.z, { source, knockback: false }),
+      hitHero: (dmg, from, source) => this.#hitHero(dmg, from, { source, knockback: false }),
       onDrop: (pos) => this.#drop(pos),
       targetPos: () => this.#targetPos(),
     });
@@ -137,7 +137,7 @@ export class FireLevel {
     for (const q of this.arena.userData.pillars) p.world.cylinders.push({ x: C.x + q.x, z: C.z + q.z, r: q.r, bottom: q.bottom, top: q.top });
     this.guardian = new Guardian({
       scene: p.scene, world: p.world, hero: p.hero, fx: this.fx, sound: p.sound, assets,
-      hitHero: (dmg, from, opts) => p.damageHero?.(dmg, from.x, from.z, opts),
+      hitHero: (dmg, from, opts) => this.#hitHero(dmg, from, opts, true),
       call: (kind) => this.#tickCall(kind),
     });
     await this.guardian.build();
@@ -288,8 +288,9 @@ export class FireLevel {
     this.guardian.group.visible = false;
     this.guardian.hide();
     this.cinematicDone = false;
-    this.arsenal.levelOn = true; // (Fire Blast, Cog Shot and Gear Wheel are his for the level)
+    this.arsenal.levelOn = true; // (Cog Shot and Gear Wheel are his for the level; Fire Blast and the Shield are not until he earns them)
     if (fresh) {
+      this.arsenal.shieldUnlocked = false; // (the chests are shut again)
       this.items.restore(null);
       this.items.keys = 0;
       this.arsenal.ammo = Math.max(this.arsenal.ammo, F.startAmmo);
@@ -302,10 +303,16 @@ export class FireLevel {
     this.#tint(true);
     p.ui.setCogKeys?.(this.items.keys, true);
     p.ui.toast(FD.start);
-    if (!this.hinted) {
-      this.hinted = true;
-      setTimeout?.(() => p.ui.toast(FD.blastHint), 2200);
-    }
+  }
+
+  /** The Shield found (or taken away again by the debug menu). */
+  setShieldUnlocked(on) {
+    if (this.arsenal) this.arsenal.shieldUnlocked = !!on;
+  }
+
+  /** The Fire Element his (or not): Fire Blast. */
+  setFireUnlocked(on) {
+    if (this.arsenal) this.arsenal.fireUnlocked = !!on;
   }
 
   /** AJ is down: whatever he had in flight stops. */
@@ -348,6 +355,7 @@ export class FireLevel {
     if (!this.built) return;
     this.arsenal.ammo = F.startAmmo;
     this.arsenal.fireUnlocked = false;
+    this.arsenal.shieldUnlocked = false;
     this.items.restore(null);
     this.items.keys = 0;
     this.save = null;
@@ -387,6 +395,12 @@ export class FireLevel {
     } else if (type === 'gem') {
       this.arsenal.ammo += n * (entry?.ammo ?? T.ammo); // (capped at `maxBatarangs`; the plaza's three gems give +3 each)
       this.stats.gemsFound += n;
+    } else if (type === 'shield') {
+      this.arsenal.shieldUnlocked = true;
+      this.stats.shieldFound = true;
+      p.input.pulseAbility?.('shield');
+      p.sound?.play('gear_reward', { position: p.hero.position, volume: 0.6 });
+      p.ui.toast(FD.shieldHint);
     } else if (type === 'heartContainer') {
       p.extraHearts = (p.extraHearts ?? 0) + 1;
       p.applyRewards();
@@ -396,6 +410,20 @@ export class FireLevel {
     }
     if (entry?.chest) this.stats.chests++;
     if (msg) p.ui.toast(msg);
+  }
+
+  /**
+   * A foe's blow on AJ: the Shield stops it when it is up and the attack is one it blocks (a perfect block also staggers the
+   * Guardian); otherwise it goes to the chapter's damage.
+   */
+  #hitHero(dmg, from, opts, fromGuardian = false) {
+    const p = this.p;
+    const kind = this.arsenal?.shieldBlock(from, opts?.source);
+    if (kind) {
+      if (kind === 'perfect' && fromGuardian && this.guardian?.alive) this.guardian.stagger(F.shield.staggerTime);
+      return false;
+    }
+    return p.damageHero?.(dmg, from.x, from.z, opts);
   }
 
   /** A small coloured sparkle on a body (AJ or the horse): motes rising round it. */
@@ -419,7 +447,7 @@ export class FireLevel {
   #chestPopup(e) {
     const T = FD.chest;
     const c = (e.contents instanceof Array ? e.contents : [e.contents])[0];
-    const text = e.popup === 'elixirs' ? T.elixirs : e.popup === 'gems' ? T.gems(c.n) : e.popup === 'heart' ? T.heart : T.gears(CONFIG.part2.items.types.gearBundle.gears);
+    const text = e.popup === 'elixirs' ? T.elixirs : e.popup === 'gems' ? T.gems(c.n) : e.popup === 'heart' ? T.heart : e.popup === 'shield' ? T.shield : T.gears(CONFIG.part2.items.types.gearBundle.gears);
     this.p.ui.banner?.(text, 2600, { small: true });
     this.stats.chestPopups = [...(this.stats.chestPopups ?? []), text];
   }
@@ -565,6 +593,7 @@ export class FireLevel {
   debugBoss() {
     this.enterBoss({ debug: true });
     this.#debugKit();
+    this.arsenal.shieldUnlocked = true; // (the boss is fought with the Shield: the debug jump skips its chest)
   }
 
   /** The ?debug kits: gems for the Batarang and brass gears for the Gear Wheel (counted on the level's counter too). */
@@ -774,10 +803,10 @@ export class FireLevel {
     this.arsenal.update(dt);
   }
 
-  /** Ability keys / buttons: the Batarang and Fire Blast. */
+  /** Ability keys / buttons: the Batarang, the Shield, Fire Blast (once the Fire Element is his) and the cog weapons. */
   useAbility(name) {
     if (!name || !this.arsenal) return;
-    if (this.arsenal.use(name) && name === 'fireBlast') this.hinted = true;
+    this.arsenal.use(name);
   }
 
   /**
@@ -1023,6 +1052,7 @@ export class FireLevel {
     p.ajSpot = null;
     p.ui.banner?.(FD.banner, E.bannerMs, { small: true });
     p.ui.toast(FD.blastUnlocked);
+    setTimeout?.(() => p.ui.toast(FD.blastHint), 2400);
     p.sound?.play('gear_reward');
     p.input.pulseAbility?.('fireBlast');
     p.afterFire();

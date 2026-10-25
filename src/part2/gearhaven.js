@@ -4,7 +4,7 @@ import { CONFIG } from '../config.js';
 import { loadGearShapes, buildGearDecor } from './props.js';
 import { loadClockTowerModel } from './clockTower.js';
 import { loadSkylineModel, ringSpots } from './skyline.js';
-import { roleMaterial, roleInstances, lookGlow, steamMaterial, onLook } from './looks.js';
+import { roleMaterial, lookGlow, steamMaterial } from './looks.js';
 import { makeFloorMaterial } from './floor.js';
 
 // Gearhaven (Part 2): a brass courtyard under a sky of huge slow-turning gears, cogs and steam
@@ -115,7 +115,6 @@ export class GearhavenWorld {
   }
 }
 
-const lambert = (color, extra = {}) => new THREE.MeshLambertMaterial({ color, ...extra });
 const glowMat = (color, opacity = 0.8) => new THREE.MeshBasicMaterial({ color, transparent: true, opacity, blending: THREE.AdditiveBlending, depthWrite: false });
 
 /** A brass gear wheel (rim, spokes, hub and teeth) for the sky; `r` its radius. */
