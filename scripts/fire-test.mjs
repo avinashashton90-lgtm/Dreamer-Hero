@@ -99,7 +99,7 @@ const seconds = async (t, fn) => { for (let x = 0; x < t; x += dt) { await frame
 await run(1);
 {
   const D = F.debug;
-  check(fire.items.keys === D.startKeys && fire.arsenal.ammo === D.startGems && fire.arsenal.gearStock === D.startGears && fire.arsenal.usesLeft('cogShot') === D.startKeys && fire.arsenal.usesLeft('gearWheel') === Math.floor(D.startGears / F.weapons.gearWheel.gears),
+  check(fire.items.keys === D.startKeys && fire.arsenal.ammo === Math.min(F.maxBatarangs, D.startGems) && fire.arsenal.gearStock === D.startGears && fire.arsenal.usesLeft('cogShot') === D.startKeys && fire.arsenal.usesLeft('gearWheel') === Math.floor(D.startGears / F.weapons.gearWheel.gears),
     `"Fire level (start)": ${fire.items.keys} cog keys, ${fire.arsenal.ammo} gems, ${fire.arsenal.gearStock} brass gears (Cog Shot ×${fire.arsenal.usesLeft('cogShot')}, Gear Wheel ×${fire.arsenal.usesLeft('gearWheel')})`);
   // (the rest of the test starts from the plain level)
   fire.items.keys = 0;
@@ -125,7 +125,7 @@ check(p2.at === 'fire' && fire.built && fire.stage === 'ride' && state.is(STATES
   const mainKeys = keys.filter((k) => lat(k) < 0.1);
   check(mainKeys.length === 2 && keys.every((k) => lat(k) <= 4), `two keys sit on the fixed main line; the other ${keys.length - mainKeys.length} are within 4 units`);
   const keyProgress = keys.map((k) => track.nearest(k.pos.x, k.pos.z, 30).s);
-  check(keyProgress.every((s, i) => i === 0 || s > keyProgress[i - 1]) && P2.items.types.cogKey.reach === 2.5, 'keys are only placed ahead along the trail and use a 2.5-unit pickup radius');
+  check(keyProgress.every((s, i) => i === 0 || s > keyProgress[i - 1]) && P2.items.types.cogKey.reach <= P2.items.pickupMagnetRadius && P2.items.pickupMagnetRadius === 2, 'keys are only placed ahead along the trail and use at most the 2-unit pickup radius (pickupMagnetRadius)');
   const plaza = F.plaza;
   const pk = keys.filter((k) => { const s0 = track.nearest(k.pos.x, k.pos.z, 30).s; return s0 >= plaza.from && s0 <= plaza.to; });
   const nearChest = (k) => chests.some((c) => c.pos.distanceTo(k.pos) < 6.5);
@@ -255,10 +255,11 @@ check(p2.at === 'fire' && fire.built && fire.stage === 'ride' && state.is(STATES
   // gems out of the second small chest
   const gp = track.nearest(small2.pos.x, small2.pos.z, 30);
   items.addKeys(1);
-  const ammo0 = fire.arsenal.ammo;
+  fire.arsenal.ammo = 0;
+  const ammo0 = 0;
   place(gp.s, 2.2);
   await run(4);
-  check(small2.state === 'open' && fire.arsenal.ammo === ammo0 + 3 * CONFIG.part2.items.types.gem.ammo && fire.stats.chestPopups?.includes(FD.chest.gems(3)), `the other small chest: 3 gems and the popup "${FD.chest.gems(3)}" (Batarang ammo ${ammo0} → ${fire.arsenal.ammo})`);
+  check(small2.state === 'open' && fire.arsenal.ammo === Math.min(F.maxBatarangs, ammo0 + 3 * CONFIG.part2.items.types.gem.ammo) && fire.stats.chestPopups?.includes(FD.chest.gems(3)), `the other small chest: 3 gems and the popup "${FD.chest.gems(3)}" (Batarang ammo ${ammo0} → ${fire.arsenal.ammo})`);
   // elixirs
   const eh = items.entries.find((e) => e.type === 'elixirHeal' && !e.chest), ee = items.entries.find((e) => e.type === 'elixirEnergy');
   lives.setHearts(2);
@@ -325,9 +326,11 @@ const items0 = () => { fire.items.restore(null); fire.arsenal.clear(); fire.arse
   const target = ar.pick();
   const hp0 = target.hp;
   const fx0 = count('batarang_throw');
+  alive(f.scouts).forEach((x) => { x.active = false; }); // (held still: the Batarang is not aimed — it goes the way he faces)
+  horse.heading = Math.atan2(target.position.x - horse.position.x, target.position.z - horse.position.z); // (the Batarang is not aimed: it goes the way he faces)
   const used = ar.use('batarang');
   const blocked = ar.use('batarang'); // (busy / cooldown)
-  check(used && !blocked && ar.ammo === ammo0 - 1 && ar.pending && hero.throwAnim?.kind === 'throw' && ar.usesLeft('batarang') === ammo0 - 1, `the Batarang: a tap throws it at the nearest scout (auto-aim), 1 gem spent (${ammo0} → ${ar.ammo}), the throw pose first`);
+  check(used && !blocked && ar.ammo === ammo0 - 1 && ar.pending && hero.throwAnim?.kind === 'throw' && ar.usesLeft('batarang') === ammo0 - 1, `the Batarang: a tap throws it at the nearest scout (straight ahead), 1 Batarang spent (${ammo0} → ${ar.ammo}), the throw pose first`);
   let flew = false, caught = false, maxD = 0;
   await seconds(3, () => { if (ar.proj) { flew = true; maxD = Math.max(maxD, ar.proj.pos.distanceTo(horse.position)); } if (flew && !ar.proj) { caught = true; return true; } return false; });
   check(flew && caught && ar.stats.catches === 1 && count('batarang_throw') === fx0 + 1 && (target.hp < hp0 || !target.alive) && !ar.model.visible, `it flies out, hits (${hp0} → ${target.alive ? target.hp : 0} HP), comes back and is caught (${maxD.toFixed(0)} out)`);
@@ -342,7 +345,7 @@ const items0 = () => { fire.items.restore(null); fire.arsenal.clear(); fire.arse
   victims.forEach((v) => v.takeHit(1));
   Math.random = realRandom;
   await frame();
-  check(a1.every(Boolean) && (mid.some(Boolean) || victims.length === 1) && victims.every((v) => !v.alive) && fire.scrap.pieces.length > burst0 && fire.items.entries.filter((e) => e.temp).length > gems0,
+  check(a1.every(Boolean) && victims.every((v) => !v.alive) && fire.scrap.pieces.length > burst0 && fire.items.entries.filter((e) => e.temp).length > gems0,
     `scouts have 2 HP: the second Batarang hit breaks each into brass parts (${fire.scrap.pieces.length - burst0} flying) and a gem drops where it fell`);
   Math.random = realRandom;
   // standing still: a scout that reaches the horse lunges once for a quarter heart
@@ -446,7 +449,7 @@ const items0 = () => { fire.items.restore(null); fire.arsenal.clear(); fire.arse
   const ar = fire.arsenal, f = fire.foes, GW = F.weapons.gearWheel;
   const loops = [];
   p2.sound.manager = { setLoop: (key, name, o) => loops.push({ key, name, ...o }), playSound() {} };
-  check(GW.gears === 6 && F.weapons.cogShot.keys === 1 && F.fireBlast.cooldown === 10 && F.fireBossHealth === 45, `the numbers: Gear Wheel ${GW.gears} gears, Cog Shot 1 key, Fire Blast ${F.fireBlast.cooldown} s, the Guardian ${F.fireBossHealth} HP`);
+  check(GW.gears === 6 && F.weapons.cogShot.keys === 1 && F.fireBlast.cooldown === 10 && F.fireBossHealth === 40 && F.maxBatarangs === 12, `the numbers: Gear Wheel ${GW.gears} gears, Cog Shot 1 key, Fire Blast ${F.fireBlast.cooldown} s, the Guardian ${F.fireBossHealth} HP`);
   // the gear counter: only the count, no fraction; ticks as marks on a bar
   await run(0.3);
   check(ui.gears && ui.gears.showTotal === false && ui.gears.total === ride.total && ui.gears.tiers.length === 3 && ride.total >= 24 && ride.total <= 40, `the gear counter shows only the count (${ui.gears?.count}); the bar scales to the level's ${ride.total} gears with ${ui.gears?.tiers.length} reward marks`);
@@ -689,7 +692,7 @@ const rel = (v) => new THREE.Vector3(C.x + v[0], 0, C.z + v[1]);
   await run(1);
   check(p2.at === 'fireBoss' && fire.stage === 'boss' && !hero.riding && horse.mode === 'idle' && hero.world === p2.world && fire.arena.visible && !fire.parts.root.visible && state.is(STATES.PLAY) && ui.quest === FD.questBoss,
     `the furnace gate leads into the plaza: AJ on foot, the horse waiting, "${ui.quest}"`);
-  check(Math.abs(hero.position.x - C.x - A.spawn[0]) < 1 && Math.abs(hero.position.z - C.z - A.spawn[1]) < 1 && G.alive && G.state === 'idle' && G.hp === F.fireBossHealth && F.fireBossHealth === 45, `AJ enters at the plaza's edge; the Guardian waits in the middle with ${G.hp} HP (fireBossHealth, +50% of the old 30)`);
+  check(Math.abs(hero.position.x - C.x - A.spawn[0]) < 1 && Math.abs(hero.position.z - C.z - A.spawn[1]) < 1 && G.alive && G.state === 'idle' && G.hp === F.fireBossHealth && F.fireBossHealth === 40, `AJ enters at the plaza's edge; the Guardian waits in the middle with ${G.hp} HP (fireBossHealth)`);
   const gm = G.model;
   const box = new THREE.Box3().setFromObject(gm, true);
   check(Math.abs(box.max.y - box.min.y - B.height) < B.height * 0.1 && G.mats.length > 0 && G.mats.every((m) => m.emissive && m.emissive.r > m.emissive.g && m.emissive.g > m.emissive.b && m.emissiveIntensity > 0) && !!G.furnace.parent, `the Guardian: George, ${(box.max.y - box.min.y).toFixed(1)} tall, tinted hot red-orange (${G.mats.length} materials of his own) with a glowing chest furnace`);
@@ -883,10 +886,15 @@ const rel = (v) => new THREE.Vector3(C.x + v[0], 0, C.z + v[1]);
   await run(0.1);
   check(fire.arenaItems.entries.filter((e) => e.temp).length === rings0 + A.gems.count && fire.arsenal.ammo > 0, `a ring of ${A.gems.count} gems appears round the plaza as he drops below ${A.gems.marks[0] * 100}%`);
   const ringGem = fire.arenaItems.entries.find((e) => e.temp && !e.taken);
+  fire.arsenal.ammo = 4;
   const am1 = fire.arsenal.ammo;
+  // nothing pulls it in: 1.8 away it stays put, however long AJ stands there; walking into it (within 1.5) takes it
+  hero.puppet(ringGem.pos.clone().add(new THREE.Vector3(1.8, -0.0, 0)), 0, 0);
+  await run(1.5);
+  const stayed = !ringGem.taken && ringGem.model.visible && fire.arsenal.ammo === am1;
   hero.puppet(ringGem.pos.clone(), 0, 0);
   await run(0.3);
-  check(ringGem.taken && fire.arsenal.ammo === am1 + CONFIG.part2.items.types.gem.ammo, 'walking over a gem collects it (+5 Batarang)');
+  check(stayed && ringGem.taken && fire.arsenal.ammo === am1 + A.gems.ammo, `a plaza gem stays where it is until AJ walks into it (nothing at 1.8 away), then +${A.gems.ammo} Batarangs (${am1} → ${fire.arsenal.ammo})`);
 }
 
 // 7) Died in the plaza: revived inside with full hearts, 3 s of protection; he keeps half of the damage and backs off. Then his defeat.
@@ -1081,6 +1089,113 @@ const rel = (v) => new THREE.Vector3(C.x + v[0], 0, C.z + v[1]);
   p2.retry();
   await run(0.5);
   check(hero.life === 'alive' && input.enabled, 'Retry: alive, controls on');
+}
+
+
+// 11) Batarangs are limited (a cap, a clamp on entering the plaza, aimed straight, short range), the cog key is a beacon, the spike gears always hit.
+{
+  await levels.load('part2', { start: 'fire' });
+  await run(0.5);
+  const f3 = p2.fire;
+  const ar = f3.arsenal, fo = f3.foes, rd = f3.ride;
+  const P = CONFIG.part2;
+  // the cap: gems (and a heap of them) never carry more than maxBatarangs; no other ability gives any back
+  ar.ammo = 100;
+  check(ar.ammo === F.maxBatarangs && F.maxBatarangs === 12, `Batarangs are capped at maxBatarangs (${ar.ammo})`);
+  ar.ammo = 10;
+  f3.items.keys = 3; ar.gearStock = F.weapons.gearWheel.gears * 2; ar.unlockFire?.();
+  for (const n of ['fireBlast', 'cogShot', 'gearWheel']) { ar.cooldowns[n] = 0; ar.use(n); await run(0.4); }
+  await run(3);
+  check(ar.ammo === 10, 'Fire Blast, Cog Shot and Gear Wheel never give a Batarang back (still 10)');
+  // blue gems add ammo only up to the cap
+  const gemE = f3.items.entries.find((e) => e.type === 'gem' && !e.taken);
+  place(track.nearest(gemE.pos.x, gemE.pos.z, 30).s, 0);
+  horse.position.copy(gemE.pos.clone().setY(0));
+  await run(0.3);
+  check(gemE.taken && ar.ammo === F.maxBatarangs, `a blue gem tops it up to the cap (10 → ${ar.ammo}), no further`);
+  // straight, no auto-aim; a miss is wasted; short range
+  fo.reset(0); fo.clear();
+  place(430, 0, { speed: CONFIG.horse.maxSpeed });
+  held.moveY = 1;
+  await seconds(4, () => alive(fo.scouts).length >= 1);
+  held.moveY = 0;
+  place(near().s, 0, { speed: 0 });
+  await seconds(3, () => { const t = ar.pick(); return t && Math.hypot(t.position.x - horse.position.x, t.position.z - horse.position.z) < 10; });
+  const tg = alive(fo.scouts)[0];
+  alive(fo.scouts).forEach((x) => { x.active = false; }); // (held still)
+  const toT = Math.atan2(tg.position.x - horse.position.x, tg.position.z - horse.position.z);
+  horse.heading = toT + Math.PI * 0.75; // facing away: the throw goes away from it
+  ar.ammo = 8; ar.cooldowns.batarang = 0;
+  const hpT = tg.hp;
+  const c00 = ar.stats.catches;
+  ar.use('batarang');
+  await seconds(4, () => ar.stats.catches > c00 && !ar.proj);
+  check(ar.ammo === 7 && tg.hp === hpT, 'thrown the wrong way the Batarang misses (no auto-aim): a Batarang wasted, the robot untouched');
+  horse.heading = toT;
+  ar.cooldowns.batarang = 0;
+  const catches0 = ar.stats.catches;
+  let maxOut = 0;
+  ar.use('batarang');
+  await seconds(3, () => { if (ar.proj) maxOut = Math.max(maxOut, ar.proj.travelled); return ar.stats.catches > catches0 && !ar.proj; });
+  check(tg.hp < hpT && ar.ammo === 6 && maxOut <= P.fire.batarang.range + 2, `facing it, it hits (${hpT} → ${tg.hp}); it never flies further than ${P.fire.batarang.range} (${maxOut.toFixed(0)}), ammo ${ar.ammo}`);
+  // the button shows the count
+  check(input.combat.ab.usesLeft('batarang') === ar.ammo, `the Batarang button's badge shows the ammo (${ar.ammo})`);
+  // entering the plaza: the kept ammo, at least 6 and at most 10
+  for (const [have, want] of [[1, 6], [8, 8], [12, 10]]) {
+    ar.ammo = have;
+    place(1290, 0, { speed: 0 });
+    f3.ride.finished = false;
+    await f3.ride.onFinish();
+    await run(0.3);
+    check(f3.stage === 'boss' && ar.ammo === want, `into the plaza with ${have} Batarangs: ${ar.ammo} (kept, min ${F.arena.ammoMin}, max ${F.arena.ammoMax})`);
+    await levels.load('part2', { start: 'fire' });
+    await run(0.3);
+  }
+  // the plaza holds exactly three gem pickups (one at each mark, +3 each); the Guardian's batarang damage is 1
+  check(F.arena.gems.marks.length * F.arena.gems.count === 3 && F.arena.gems.ammo === 3 && F.batarang.damage === 1, 'the plaza has three blue-gem pickups in all (+3 each); a Batarang that hits the Guardian does 1');
+  // a cog key is a beacon, bigger than a gear, spinning slowly; collected with a sparkle sound
+  const key0 = f3.items.find('key0');
+  const U = key0.model.userData;
+  const gearR = P.ride.gears.size * P.ride.gears.fit;
+  check(!!U.beam && !!U.ring && U.beam.material.fog === false && P.items.types.cogKey.size >= gearR * 1.45 && P.items.types.cogKey.spin > 0 && P.items.cogKeyBeacon.beamHeight >= 12,
+    `a cog key has a pulsing ring and a ${P.items.cogKeyBeacon.beamHeight}-high beam (unfogged), its cog ${(P.items.types.cogKey.size / gearR).toFixed(1)}× a gear, turning and bobbing`);
+  const sp0 = count('cog_key_sparkle');
+  place(track.nearest(key0.pos.x, key0.pos.z, 30).s, 0);
+  horse.position.copy(key0.pos.clone().setY(0));
+  await run(0.3);
+  check(key0.taken && count('cog_key_sparkle') === sp0 + 1, 'collecting it plays the little cog-sparkle sound');
+  // every spike gear hits, every time: the whole body along its swept path, even crossing in a single frame
+  const saws = rd.parts.saws;
+  const S = P.ride.saw;
+  let allHit = true;
+  for (const sw of saws) {
+    for (const k of [0, 1, 3]) {
+      rd.time = (k * S.period) / 2 - (sw.phase * S.period) / (Math.PI * 2); // (the blade is at the middle of the road)
+      rd.hzPrev = null;
+      sw.wait = 0;
+      place(sw.s - 3, 0, { speed: 0 });
+      horse.mode = 'riding';
+      rd.after(1 / 30);
+      const hits0 = rd.stats.sawHits;
+      place(sw.s + 3, 0, { speed: 0 }); // (6 in one frame: past the old 1.0 window)
+      horse.mode = 'riding';
+      rd.after(1 / 30);
+      if (rd.stats.sawHits !== hits0 + 1) { allHit = false; }
+      sw.wait = 0;
+    }
+  }
+  check(allHit, `a horse crossing each spike gear in one big step is hit every time (${saws.length} saws × 3 blade phases)`);
+  // a hit: the horse flinches, sparks, a sound, a shake; the same blade waits 1 s, nothing else holds it off
+  const sw0 = saws[0];
+  rd.time = -(sw0.phase * S.period) / (Math.PI * 2);
+  sw0.wait = 0; hero.iframes = 50; hero.reviveShield = 50; // (leftover protection timers change nothing)
+  place(sw0.s, 0, { speed: 8 });
+  horse.mode = 'riding';
+  const st0 = horse.stumbles, fl0 = count('saw_hit');
+  rd.hzPrev = null;
+  rd.after(1 / 60);
+  check(horse.stumbles === st0 + 1 && count('saw_hit') === fl0 + 1 && hero.riderFlinch > 0 && sw0.wait === P.ride.hitCooldown && P.ride.hitCooldown === 1, `a saw hit: the horse flinches (stagger + a jolt), sparks and a clang, a 1 s cooldown for that blade — protection timers on AJ change nothing`);
+  hero.resetStatus();
 }
 
 console.log(failed ? '\nFIRE TEST FAILED' : '\nFIRE TEST PASSED');

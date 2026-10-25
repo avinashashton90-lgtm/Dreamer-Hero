@@ -990,17 +990,23 @@ export const CONFIG = {
     // levels reuse them (rune stones and wand pieces are for later: three wand pieces form Amy's wand).
     items: {
       bob: 0.16, bobRate: 2.4, spin: 1.5, halo: { size: 1.7, opacity: 0.32 },
+      // No pickup pulls itself to AJ: the largest pickup radius anywhere is `pickupMagnetRadius` (the ride, from the saddle); on foot (the plaza)
+      // a pickup is taken only by walking into it, within `walkPickupRadius`. Gems stay where they are, bobbing and glowing.
+      pickupMagnetRadius: 2, walkPickupRadius: 1.5,
+      // The cog key is a beacon: a gold-white ring pulsing out along the ground, a thin light beam straight up (unfogged: seen from far away) and
+      // a bigger halo; the cog is 1.5× a gear (`types.cogKey.size` 0.8 vs a gear's ~0.52), turning slowly and bobbing.
+      cogKeyBeacon: { beamHeight: 16, beamRadius: 0.09, beamColor: 0xfff0b0, beamOpacity: 0.4, ringColor: 0xffe58a, ringInner: 0.8, ringOuter: 1.0, ringGrow: 3.2, pulse: 1.2, haloScale: 1.7, sparkle: 14 },
       colors: { brass: 0xd8a640, copper: 0xb8683a, gold: 0xf0c048, dark: 0x3a2a1c, stone: 0x7c7468, violet: 0x9a6bff },
       // A pickup: `size` its radius, `reach` the pickup distance from the rider's collect point, `height` it floats at.
       types: {
-        cogKey: { size: 0.8, height: 1.5, reach: 2.5, color: 0xf0c048, glow: 0xffd870, spin: 1.1, sound: 'cog_key_collect', label: 'cog key' },
-        elixirHeal: { size: 0.46, height: 1.3, reach: 2.2, color: 0x44d86a, glow: 0x9dffb4, cork: 0x2e9c48, sound: 'elixir_drink', label: 'green potion' }, // GREEN potion: a round flask with a green cork; heals AJ (`fire.greenPotionHearts`)
-        elixirEnergy: { size: 0.46, height: 1.3, reach: 2.2, color: 0x3f9bff, glow: 0x9ccfff, crystal: 0x7fd0ff, sound: 'elixir_drink', label: 'blue potion' }, // BLUE potion: a tall flask with a blue crystal stopper; rests the horse (`fire.bluePotionEnergy`)
-        gem: { size: 0.4, height: 1.2, reach: 2.2, color: 0x2f86ff, color2: 0x9fd4ff, glow: 0xbfe0ff, ammo: 5, sound: 'gem_collect', label: 'gem' }, // a blue diamond (two blues): 1 gem = 5 Batarang throws
-        heartContainer: { size: 0.5, height: 1.4, reach: 2.4, color: 0xff3a52, glow: 0xff9aa8, sound: 'element_collect', label: 'heart container' },
-        gearBundle: { size: 0.55, height: 1.4, reach: 2.4, color: 0xe2b23c, glow: 0xffe8a0, gears: 10, sound: 'gear_collect', label: 'gear bundle' },
-        runeStone: { size: 0.7, height: 1.2, reach: 2.4, color: 0x7c7468, glow: 0xff7a2a, sound: 'element_collect', label: 'rune stone' }, // (for later levels)
-        wandPiece: { size: 0.6, height: 1.4, reach: 2.4, color: 0x9a6bff, glow: 0xd8c4ff, sound: 'element_collect', label: 'wand piece' }, // (three form Amy's wand)
+        cogKey: { size: 0.8, height: 1.5, reach: 2, color: 0xf0c048, glow: 0xffd870, spin: 1.1, sound: 'cog_key_collect', label: 'cog key' },
+        elixirHeal: { size: 0.46, height: 1.3, reach: 2, color: 0x44d86a, glow: 0x9dffb4, cork: 0x2e9c48, sound: 'elixir_drink', label: 'green potion' }, // GREEN potion: a round flask with a green cork; heals AJ (`fire.greenPotionHearts`)
+        elixirEnergy: { size: 0.46, height: 1.3, reach: 2, color: 0x3f9bff, glow: 0x9ccfff, crystal: 0x7fd0ff, sound: 'elixir_drink', label: 'blue potion' }, // BLUE potion: a tall flask with a blue crystal stopper; rests the horse (`fire.bluePotionEnergy`)
+        gem: { size: 0.4, height: 1.2, reach: 2, color: 0x2f86ff, color2: 0x9fd4ff, glow: 0xbfe0ff, ammo: 5, sound: 'gem_collect', label: 'gem' }, // a blue diamond (two blues): 1 gem = 5 Batarang throws
+        heartContainer: { size: 0.5, height: 1.4, reach: 2, color: 0xff3a52, glow: 0xff9aa8, sound: 'element_collect', label: 'heart container' },
+        gearBundle: { size: 0.55, height: 1.4, reach: 2, color: 0xe2b23c, glow: 0xffe8a0, gears: 10, sound: 'gear_collect', label: 'gear bundle' },
+        runeStone: { size: 0.7, height: 1.2, reach: 2, color: 0x7c7468, glow: 0xff7a2a, sound: 'element_collect', label: 'rune stone' }, // (for later levels)
+        wandPiece: { size: 0.6, height: 1.4, reach: 2, color: 0x9a6bff, glow: 0xd8c4ff, sound: 'element_collect', label: 'wand piece' }, // (three form Amy's wand)
       },
       // Chests: `size` [w, h, d]; `cost` cog keys; they open on their own when the rider has the keys.
       chests: {
@@ -1025,7 +1031,8 @@ export const CONFIG = {
       accent: 0xff4a1c, accent2: 0xffa040, ember: 0x4a1608, // red-orange; the fog warms toward `ember` (`fogMix`)
       fogMix: 0.38, lightColor: 0xff7a2a,
       startAmmo: 8,           // Batarang ammo when the level starts (1 throw each; a blue gem gives 5)
-      fireBossHealth: 45,     // the Furnace Guardian's HP (was 30: +50%)
+      fireBossHealth: 40,     // the Furnace Guardian's HP (45 → 40: the Batarang is limited now — about 3 of its hits, the rest from Fire Blast, the cogs and the wheel)
+      maxBatarangs: 12,       // the most Batarangs AJ can carry: blue gems are the only way to get more (nothing else ever refills them)
       checkpointSave: true,   // opened chests, keys, taken pickups are saved at each checkpoint
       // Overrides of CONFIG.part2.ride for this layout (merged in fire.js). The first 780 of the trail is
       // the first ride's shape (only one of them is ever drawn), then it carries on east and turns south
@@ -1109,7 +1116,7 @@ export const CONFIG = {
         guardianLegs: { side: 0.85, height: 1.15, radius: 0.6 },
       }, // torso sphere for cog weapons; the Batarang / fire ball keep their padded body capsule
       // The Batarang in Part 2: 1 gem a throw, auto-aimed (the nearest foe, preferring ones ahead), out and back.
-      batarang: { damage: 1, cooldown: 0.8, speed: 38, returnSpeed: 40, range: 30, forward: 16, release: 0.24, turn: 600, color: 0xffd23f, size: 0.4, prefer: 1.6 },
+      batarang: { damage: 1, cooldown: 0.8, speed: 38, returnSpeed: 40, range: 25, above: 1.6, forward: 16, release: 0.24, turn: 600, color: 0xffd23f, size: 0.4, prefer: 1.6 },
       // Fire Blast (the Fire Element's ability): a ball of fire in an arc, 3× the Batarang, burns for 3 s.
       fireBlast: {
         damage: 3, burn: { time: 3, dps: 1 }, cooldown: 10, speed: 24, arc: 2.6, range: 28, forward: 14, release: 0.24, size: 0.55,
@@ -1123,8 +1130,9 @@ export const CONFIG = {
         stayIn: 1.4,                                     // while the Guardian stands nobody leaves: AJ is kept this far inside the wall
         gate: { width: 9, close: 1.4, steam: 40 },       // the steam barrier at the entrance (z+): closes when the Guardian notices AJ
         notice: 22,                                      // the Guardian notices AJ within this
-        gems: { marks: [0.8, 0.6, 0.4, 0.2], count: 4, ring: 19 }, // rings of gems (5 Batarang ammo each) at these shares of its HP
-        protection: 3, reviveRecover: 0.5, reviveAmmo: 8, retreat: { speed: 7, far: 0.8 },
+        gems: { marks: [0.75, 0.5, 0.25], count: 1, ring: 19, ammo: 3 }, // three blue-gem pickups in all (one at each mark), +3 Batarangs each
+        ammoMin: 6, ammoMax: 10,                         // entering the plaza: the ammo kept from the ride, topped up to at least 6 and held to at most 10
+        protection: 3, reviveRecover: 0.5, reviveAmmo: 6, retreat: { speed: 7, far: 0.8 },
         openTime: 1.6, pedestalTime: 2.2,
       },
       boss: {
@@ -1156,7 +1164,7 @@ export const CONFIG = {
         },
         bannerMs: 2800,
       },
-      debug: { plazaKeys: 2, plazaCheckpoint: 5, bossAmmo: 20, startKeys: 3, startGems: 20, startGears: 30 }, // ("Fire level (start)": 3 cog keys, 20 gems, 30 brass gears)
+      debug: { plazaKeys: 2, plazaCheckpoint: 5, bossAmmo: 10, startKeys: 3, startGems: 20, startGears: 30 }, // ("Fire level (start)": 3 cog keys, 20 gems, 30 brass gears)
       // ("Fire plaza chests": at the plaza with `plazaKeys` keys; "Fire boss": `bossAmmo` gems)
     },
     music: 'gearhaven',
@@ -1301,7 +1309,8 @@ export const CONFIG = {
       saws: [{ s: 304, phase: 0 }, { s: 318, phase: Math.PI }, { s: 468, phase: 1.2 }],
       saw: { radius: 1.25, sink: 0.3, thickness: 0.22, travel: 4.4, period: 3.6, spin: 10, reach: 1.0, push: 6, slotWidth: 0.4, color: 0xb9c0c8, emissive: 0x141418 },
       stagger: 0.9,               // seconds of stagger (slower) after a hit
-      hitCooldown: 1.2,
+      hitCooldown: 1,             // a hazard can hit again after 1 s (its own timer — nothing else can hold a hit off)
+      hazard: { step: 0.5, maxSweep: 8, bodyHalfLength: 0.8 }, // the horse's whole body is tested along its swept path (sub-steps of `step`; a teleport longer than `maxSweep` isn't swept)
       // Brass gears: the currency (like Part 1's gems), on the rails, the deck and above the vents.
       gears: {
         size: 0.42, fit: 1.25, color: 0xe2b23c, spin: 1.6, // (its glow and halo: the look's `gears`)

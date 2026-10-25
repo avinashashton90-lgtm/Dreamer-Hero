@@ -132,6 +132,7 @@ export class Arsenal {
   constructor({ scene, hero, horse, fx, sound, cam, ui, targets, onEvent }) {
     Object.assign(this, { scene, hero, horse, fx, sound, cam, ui, targets, onEvent });
     this.layout = '2'; // (the HUD's button set for the fighting levels: input.js layout foot2 / ride2)
+    this._ammo = 0;
     this.ammo = F.startAmmo;
     this.fireUnlocked = false; // (the Fire Element recovered: Fire Blast for the rest of Part 2)
     this.levelOn = false; // (in the Fire level: Fire Blast, Cog Shot and Gear Wheel are all his)
@@ -230,6 +231,15 @@ export class Arsenal {
     return null;
   }
 
+  /** The Batarangs carried: never more than `maxBatarangs`, never fewer than none (only blue gems add to them, and only up to the cap). */
+  get ammo() {
+    return this._ammo;
+  }
+
+  set ammo(v) {
+    this._ammo = Math.max(0, Math.min(F.maxBatarangs, Math.floor(v)));
+  }
+
   /** Use an ability (button / key). True if it fired. */
   use(name) {
     const why = this.blockReason(name);
@@ -242,7 +252,8 @@ export class Arsenal {
     else if (name === 'cogShot') this.spendKey(CS.keys);
     else if (name === 'gearWheel') this.gearStock -= GW.gears;
     this.cooldowns[name] = { batarang: BT.cooldown, fireBlast: FB.cooldown, cogShot: CS.cooldown, gearWheel: GW.cooldown }[name];
-    this.pending = { name, t: 0, target: this.pick() };
+    // (the Batarang is not aimed: it flies straight the way AJ faces; the rest still lock on to the nearest foe)
+    this.pending = { name, t: 0, target: name === 'batarang' ? null : this.pick() };
     this.hero.throwAnim = { kind: 'throw', t: 0 };
     this.#face(this.pending.target);
     this.onEvent?.('use', { name });
@@ -300,10 +311,10 @@ export class Arsenal {
   }
 
   /** The foe whose hit body (a vertical capsule from its feet, padded) contains `p`, other than those in `skip`. */
-  #foeAt(p, skip, pad = F.hit.pad) {
+  #foeAt(p, skip, pad = F.hit.pad, up = 0) {
     for (const t of this.targets()) {
       if (!t.alive || skip.has(t) || t.untargetable) continue;
-      if (p.y < t.position.y - pad || p.y > t.position.y + t.height + pad) continue;
+      if (p.y < t.position.y - pad || p.y > t.position.y + t.height + pad + up) continue;
       if (Math.hypot(p.x - t.position.x, p.z - t.position.z) <= t.radius + pad) return t;
     }
     return null;
@@ -392,11 +403,11 @@ export class Arsenal {
     }
   }
 
-  #throwBatarang(hand, target) {
-    const t = target?.alive ? target : this.pick();
+  /** The Batarang: straight out the way AJ faces (the horse's heading when riding), no auto-aim, no homing: a throw that misses is wasted. */
+  #throwBatarang(hand) {
     const { fwd } = this.#origin();
-    const dir = t ? this.#centre(t).sub(hand).normalize() : fwd.clone();
-    this.proj = { phase: 'out', pos: hand.clone(), dir, target: t, age: 0, travelled: 0, hit: new Set(), back: new Set() };
+    const dir = fwd.clone();
+    this.proj = { phase: 'out', pos: hand.clone(), dir, target: null, age: 0, travelled: 0, hit: new Set(), back: new Set() };
     this.stats.throws++;
     if (this.model) {
       this.model.visible = true;
@@ -410,17 +421,10 @@ export class Arsenal {
     b.age += dt;
     const rider = this.horse.mounted ? Math.abs(this.horse.speed) : this.hero.moveSpeed ?? 0;
     if (b.phase === 'out') {
-      if (b.target?.alive) {
-        const want = this.#centre(b.target).sub(b.pos).normalize();
-        const turn = THREE.MathUtils.degToRad(BT.turn) * dt;
-        const ang = Math.min(b.dir.angleTo(want), turn);
-        if (ang > 1e-4) b.dir.applyAxisAngle(new THREE.Vector3().crossVectors(b.dir, want).normalize(), ang);
-      }
       const step = (BT.speed + rider * 0.3) * dt;
       this.#sweep(b, step, b.hit, () => (b.phase = 'back'));
       b.travelled += step;
-      if (b.phase === 'out' && (b.travelled >= BT.range || (b.target && !b.target.alive && !this.pick()))) b.phase = 'back';
-      if (b.phase === 'out' && b.target && !b.target.alive) b.phase = 'back';
+      if (b.phase === 'out' && b.travelled >= BT.range) b.phase = 'back';
     } else {
       const to = hand.clone().sub(b.pos);
       const d = to.length();
@@ -449,7 +453,7 @@ export class Arsenal {
     const n = Math.max(1, Math.ceil(step / 0.5));
     for (let i = 0; i < n; i++) {
       b.pos.addScaledVector(b.dir, step / n);
-      const t = this.#foeAt(b.pos, hits);
+      const t = this.#foeAt(b.pos, hits, F.hit.pad, BT.above); // (thrown from the saddle it flies above a small robot's head: it counts down to the ground)
       if (t) {
         hits.add(t);
         this.stats.hits++;

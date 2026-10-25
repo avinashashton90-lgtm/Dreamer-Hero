@@ -87,6 +87,7 @@ export const SOUNDS = {
   // --- Gearhaven ambience (very quiet loops, faded in and out between sections) ---
   clock_tick: { group: 'effects', loop: true, desc: 'Gearhaven ambience: a slow, soft two-note tick-tock (loop; never a drum)' },
   gear_turn: { group: 'effects', loop: true, desc: 'Gearhaven ambience: big gears turning — a low gentle grind (loop)' },
+  cog_key_sparkle: { group: 'effects', desc: 'Fire level: a cog key collected — a small cog-icon sparkle (a few quick rising twinkles)' },
   gear_roll: { group: 'effects', loop: true, desc: 'Fire level: the Gear Wheel rolling along the ground — a rumbling, ticking whir (loop, 3D, follows the wheel)' },
   steam_hiss: { group: 'effects', loop: true, desc: 'Gearhaven: steam hissing (a quiet ambience loop; also one soft hiss per courtyard vent puff)' },
   factory_hum: { group: 'effects', loop: true, desc: 'Gearhaven ambience: the brass city’s machines — a soft low hum (loop, the ride)' },

@@ -296,6 +296,7 @@ export class Ride {
     this.leftAt = -Infinity;
     this.lastRail = null;
     this.push = null;
+    this.hzPrev = null; // where the horse was last frame (the hazards' swept test)
     this.finished = false;
     this.count = 0;
     this.stickHeld = false;
@@ -374,13 +375,17 @@ export class Ride {
   /** After the horse's update: rails to land on, vents, hammers, gears, the door. */
   after(dt) {
     const { horse } = this;
-    if (horse.mode !== 'riding') return;
+    if (horse.mode !== 'riding') {
+      this.hzPrev = null;
+      return;
+    }
     this.stats.maxY = Math.max(this.stats.maxY, horse.position.y);
     if (!this.grind) this.#deckLanding();
     if (!this.grind) this.#tryRail();
     if (!this.grind) this.#vents(dt);
     this.#hammers(dt);
     this.#saws(dt);
+    this.hzPrev = horse.position.clone();
     this.#gears();
     this.#machineLoops();
     if (!this.finished && this.s >= R.door.s - R.door.reach) {
@@ -539,33 +544,73 @@ export class Ride {
     }
   }
 
+  /**
+   * The horse's path this frame (where it was → where it is) as points along the way, so a fast horse or a fast hazard never skips through
+   * the other between two frames. A teleport (a respawn) longer than `hazard.maxSweep` is not swept.
+   */
+  #bodyPath() {
+    const Z = R.hazard;
+    const now = this.horse.position;
+    const prev = this.hzPrev;
+    const d = prev ? prev.distanceTo(now) : 0;
+    const n = prev && d < Z.maxSweep ? Math.max(1, Math.ceil(d / Z.step)) : 1;
+    const out = [];
+    for (let i = 1; i <= n; i++) out.push({ k: i / n, pos: prev && d < Z.maxSweep ? prev.clone().lerp(now, i / n) : now.clone() });
+    return out;
+  }
+
+  /** A hazard hit: the horse flinches (staggered and slower, the rider jolted), sparks, a sound, a short screen shake — never a heart, and only the hazard's own cooldown holds the next hit off. */
+  #hazardHit(h, at, sound, push) {
+    h.wait = R.hitCooldown;
+    this.stats.hits++;
+    this.horse.stumbleFor(R.stagger);
+    if (this.hero) this.hero.riderFlinch = CONFIG.combat.riderFlinch.time;
+    if (push) this.push = push;
+    this.sound?.play(sound, { position: at });
+    this.#sparkBurst(at, 14);
+    this.cam?.shake?.(0.25, 0.3);
+  }
+
   #hammers(dt) {
     const { horse } = this;
     const H = R.hammer;
-    const body = horse.position.clone().setY(horse.position.y + 1.3);
+    const Z = R.hazard;
+    const heading = new THREE.Vector3(Math.sin(horse.heading), 0, Math.cos(horse.heading));
+    const path = this.#bodyPath();
     for (const h of this.parts.hammers) {
       h.wait = Math.max(0, h.wait - dt);
       const swing = this.#swing(h);
-      h.model.userData.pivot.rotation.z = swing;
       // (a heavy whoosh each time it sweeps through the bottom of its swing, from where it is)
       if (h.lastSwing !== undefined && Math.sign(swing) !== Math.sign(h.lastSwing) && horse.position.distanceTo(h.model.position) < SND.hammerRange) {
+        h.model.userData.pivot.rotation.z = swing;
         h.model.updateMatrixWorld(true);
         this.sound?.play('hammer_swing', { position: h.model.userData.head.getWorldPosition(new THREE.Vector3()) });
       }
       h.lastSwing = swing;
-      if (h.wait > 0 || this.grind) continue;
-      h.model.updateMatrixWorld(true);
-      const head = h.model.userData.head.getWorldPosition(new THREE.Vector3());
-      if (head.distanceTo(body) > H.reach + 0.9) continue;
-      h.wait = R.hitCooldown;
-      this.stats.hits++;
-      horse.stumbleFor(R.stagger); // (staggered and slower — never a heart)
+      if (h.wait > 0 || this.grind) {
+        h.model.userData.pivot.rotation.z = swing;
+        continue;
+      }
+      // (the head's whole swept path against the horse's whole body: back, middle and front, along its way this frame)
+      let hit = null;
+      if (horse.position.distanceTo(h.model.position) < H.arm + H.reach + 6) {
+        for (const p of path) {
+          h.model.userData.pivot.rotation.z = H.amp * Math.sin(((this.time - dt * (1 - p.k)) / H.period) * Math.PI * 2 + h.phase);
+          h.model.updateMatrixWorld(true);
+          const head = h.model.userData.head.getWorldPosition(new THREE.Vector3());
+          for (const along of [-Z.bodyHalfLength, 0, Z.bodyHalfLength]) {
+            const body = p.pos.clone().addScaledVector(heading, along).setY(p.pos.y + 1.3);
+            if (head.distanceTo(body) <= H.reach + 0.9) { hit = head; break; }
+          }
+          if (hit) break;
+        }
+      }
+      h.model.userData.pivot.rotation.z = swing;
+      if (!hit) continue;
       // Knocked aside the way the head is swinging.
       const n = this.track.nearest(horse.position.x, horse.position.z, R.wall.offset + 4);
       const dir = Math.sign(Math.cos(this.#phase(h))) * -1 || 1;
-      if (n) this.push = { x: -n.tz * dir * H.push, z: n.tx * dir * H.push, t: 0.35, time: 0.35 };
-      this.sound?.play('hammer_hit', { position: head });
-      this.cam?.shake?.(0.25, 0.3);
+      this.#hazardHit(h, hit, 'hammer_hit', n ? { x: -n.tz * dir * H.push, z: n.tx * dir * H.push, t: 0.35, time: 0.35 } : null);
     }
   }
 
@@ -578,29 +623,27 @@ export class Ride {
     return R.saw.travel * Math.sin((this.time / R.saw.period) * Math.PI * 2 + sw.phase);
   }
 
-  /** Spinning saws: touching a blade staggers the horse and knocks it aside (never a heart); a jump clears it. */
+  /** Spinning saws: touching a blade staggers the horse and knocks it aside (never a heart); a jump clears it. The whole body is tested along the swept path against where the blade was and is. */
   #saws(dt) {
     const { horse } = this;
     const S = R.saw;
+    const Z = R.hazard;
+    const path = this.#bodyPath();
+    const top = S.radius * (2 - S.sink);
     for (const sw of this.parts.saws) {
       sw.wait = Math.max(0, sw.wait - dt);
-      if (sw.wait > 0 || this.grind) continue;
-      const lat = this.#sawLat(sw);
-      const n = this.track.nearest(horse.position.x, horse.position.z, R.wall.offset + 4);
-      if (!n || Math.abs(n.s - sw.s) > S.reach) continue;
-      const top = S.radius * (2 - S.sink);
-      if (horse.position.y > top - 0.25) continue; // (jumped over it)
-      if (Math.abs(n.lateral - lat) > S.radius * 0.85 + HC.radius) continue;
-      sw.wait = R.hitCooldown;
-      this.stats.hits++;
-      this.stats.sawHits++;
-      horse.stumbleFor(R.stagger);
-      const dir = Math.sign(n.lateral - lat) || 1; // (thrown clear of the blade)
-      this.push = { x: -n.tz * dir * S.push, z: n.tx * dir * S.push, t: 0.3, time: 0.3 };
-      const at = trackPoint(this.track, sw.s, lat, S.radius).pos;
-      this.sound?.play('saw_hit', { position: at });
-      this.#sparkBurst(at, 14);
-      this.cam?.shake?.(0.2, 0.25);
+      if (sw.wait > 0) continue;
+      for (const p of path) {
+        if (p.pos.y > top - 0.25) continue; // (jumped over it)
+        const n = this.track.nearest(p.pos.x, p.pos.z, R.wall.offset + 4);
+        if (!n || Math.abs(n.s - sw.s) > S.reach + Z.bodyHalfLength) continue;
+        const lat = S.travel * Math.sin(((this.time - dt * (1 - p.k)) / S.period) * Math.PI * 2 + sw.phase); // (where the blade was at this moment)
+        if (Math.abs(n.lateral - lat) > S.radius * 0.85 + HC.radius) continue;
+        this.stats.sawHits++;
+        const dir = Math.sign(n.lateral - lat) || 1; // (thrown clear of the blade)
+        this.#hazardHit(sw, trackPoint(this.track, sw.s, lat, S.radius).pos, 'saw_hit', { x: -n.tz * dir * S.push, z: n.tx * dir * S.push, t: 0.3, time: 0.3 });
+        break;
+      }
     }
   }
 

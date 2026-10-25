@@ -130,6 +130,7 @@ export class FireLevel {
     p.scene.add(this.arena);
     this.arenaItems = new Items(p.scene, {
       sound: p.sound,
+      maxReach: CONFIG.part2.items.walkPickupRadius, // (on foot in the plaza: a pickup is taken only by walking into it)
       onCollect: (type, e, k) => this.#gain(type, k, e),
     });
     p.world.addFloor(C.x, C.z, A.radius, A.wall);
@@ -364,6 +365,9 @@ export class FireLevel {
       this.items.addKeys(n);
       this.stats.keysFound++;
       p.ui.setCogKeys?.(this.items.keys, true, true);
+      // (a little golden cog sparkle, with its own twinkle)
+      this.#sparkle(entry ? entry.model.position : p.hero.position, 0xffe58a, 0);
+      p.sound?.play('cog_key_sparkle', { position: entry ? entry.model.position : p.hero.position });
     } else if (type === 'elixirHeal') {
       // the GREEN potion: +greenPotionHearts hearts, a chime and a green sparkle on AJ
       p.lives?.setHearts?.(Math.min(p.lives.maxHearts, p.lives.hearts + F.greenPotionHearts));
@@ -381,7 +385,7 @@ export class FireLevel {
       p.sound?.play('river_splash', { position: horse.position, volume: 0.7 });
       this.stats.bluePotions = (this.stats.bluePotions ?? 0) + 1;
     } else if (type === 'gem') {
-      this.arsenal.ammo += n * T.ammo;
+      this.arsenal.ammo += n * (entry?.ammo ?? T.ammo); // (capped at `maxBatarangs`; the plaza's three gems give +3 each)
       this.stats.gemsFound += n;
     } else if (type === 'heartContainer') {
       p.extraHearts = (p.extraHearts ?? 0) + 1;
@@ -528,7 +532,7 @@ export class FireLevel {
     const C = this.centre;
     for (let k = 0; k < G.count; k++) {
       const a = (k / G.count) * Math.PI * 2 + i * 0.4;
-      this.arenaItems.add('gem', new THREE.Vector3(C.x + Math.sin(a) * G.ring, 0, C.z + Math.cos(a) * G.ring), { id: `ring${i}_${k}`, temp: true });
+      this.arenaItems.add('gem', new THREE.Vector3(C.x + Math.sin(a) * G.ring, 0, C.z + Math.cos(a) * G.ring), { id: `ring${i}_${k}`, temp: true, ammo: G.ammo });
     }
     this.p.ui.toast(FD.got.gem(G.count));
   }
@@ -647,7 +651,8 @@ export class FireLevel {
     this.barrier = { state: 'open', k: 0 };
     this.arena.userData.barrier.material.opacity = 0;
     this.arsenal.clear();
-    this.arsenal.ammo = Math.max(this.arsenal.ammo, F.startAmmo);
+    // the Batarangs kept from the ride, topped up to at least `ammoMin` and held to at most `ammoMax`
+    this.arsenal.ammo = Math.min(A.ammoMax, Math.max(A.ammoMin, this.arsenal.ammo));
     this.fx.list.length = 0;
     p.tick.place(new THREE.Vector3(C.x - A.wall * 0.62, 5.5, C.z + A.wall * 0.55), 0);
     p.tick.target = new THREE.Vector3(C.x - A.wall * 0.62, 5.5, C.z + A.wall * 0.55);

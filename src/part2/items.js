@@ -178,9 +178,21 @@ export async function loadItemModel(name) {
   const group = new THREE.Group();
   group.name = `item:${name}`;
   const body = BUILDERS[name](T);
-  const h = halo(T.glow, T.size * IT.halo.size);
+  const B = IT.cogKeyBeacon;
+  const h = halo(T.glow, T.size * IT.halo.size * (name === 'cogKey' ? B.haloScale / IT.halo.size : 1));
   group.add(body, h);
   group.userData = { type: name, spin: body, halo: h };
+  if (name === 'cogKey') {
+    // the beacon: a thin beam straight up and a ring pulsing out along the ground — unfogged and additive, so it is seen from far away
+    const mat = (color, opacity) => new THREE.MeshBasicMaterial({ color, transparent: true, opacity, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false });
+    const beam = new THREE.Mesh(new THREE.CylinderGeometry(B.beamRadius, B.beamRadius * 1.6, B.beamHeight, 8, 1, true), mat(B.beamColor, B.beamOpacity));
+    beam.position.y = B.beamHeight / 2 - T.height;
+    const ring = new THREE.Mesh(new THREE.RingGeometry(B.ringInner, B.ringOuter, 32).rotateX(-Math.PI / 2), mat(B.ringColor, 0.8));
+    ring.position.y = -T.height + 0.08;
+    group.add(beam, ring);
+    group.userData.beam = beam;
+    group.userData.ring = ring;
+  }
   return group;
 }
 
@@ -230,6 +242,7 @@ export class Items {
   constructor(scene, ctx = {}) {
     this.scene = scene;
     this.ctx = ctx;
+    this.maxReach = ctx.maxReach ?? IT.pickupMagnetRadius; // (no pickup is taken from further than this: nothing is pulled in)
     this.group = new THREE.Group();
     this.group.name = 'items';
     scene.add(this.group);
@@ -256,11 +269,11 @@ export class Items {
    * Place an item. `type` a pickup type, or 'chest' / 'chestBig' (`contents`: { type, n } inside it).
    * `lift`: extra height. Returns the entry.
    */
-  async add(type, position, { id = `${type}${this.entries.length}`, contents = null, lift = 0, temp = false, popup = null, cost = null } = {}) {
+  async add(type, position, { id = `${type}${this.entries.length}`, contents = null, lift = 0, temp = false, popup = null, cost = null, ammo = null } = {}) {
     const model = await loadItemModel(type);
     const chest = type === 'chest' || type === 'chestBig';
     if (chest && cost !== null) model.userData.cost = cost;
-    const e = { id, type, chest, contents, temp, popup, pos: position.clone(), model, taken: false, state: 'closed', t: 0, redT: 0, content: null, lift, phase: Math.random() * 6.28 };
+    const e = { id, type, chest, contents, temp, popup, ammo, pos: position.clone(), model, taken: false, state: 'closed', t: 0, redT: 0, content: null, lift, phase: Math.random() * 6.28 };
     model.position.copy(position);
     if (!chest) model.position.y += IT.types[type].height + lift;
     this.group.add(model);
@@ -301,10 +314,19 @@ export class Items {
       u.spin.rotation.y += (T.spin ?? IT.spin) * dt;
       e.model.position.y = e.pos.y + T.height + e.lift + Math.sin(this.time * IT.bobRate + e.phase) * IT.bob;
       u.halo.material.opacity = IT.halo.opacity * (0.8 + 0.2 * Math.sin(this.time * 3 + e.phase));
+      if (u.ring) {
+        // (the beacon's ring: out along the ground, fading as it grows, over and over; the beam breathes)
+        const B = IT.cogKeyBeacon;
+        const k = (this.time / B.pulse + e.phase) % 1;
+        u.ring.scale.setScalar(1 + k * B.ringGrow);
+        u.ring.material.opacity = 0.85 * (1 - k);
+        u.beam.material.opacity = B.beamOpacity * (0.75 + 0.25 * Math.sin(this.time * 3.1 + e.phase));
+      }
       if (rider && dt > 0) {
-        const direct = rider.pos.distanceTo(e.model.position) <= T.reach;
+        const reach = Math.min(T.reach, this.maxReach);
+        const direct = rider.pos.distanceTo(e.model.position) <= reach;
         const swept = e.type === 'cogKey' && this.lastRiderPos
-          && segmentDistanceSquared(e.model.position, this.lastRiderPos, rider.pos) <= T.reach * T.reach;
+          && segmentDistanceSquared(e.model.position, this.lastRiderPos, rider.pos) <= reach * reach;
         if (direct || swept) this.#take(e, e.model.position);
       }
     }

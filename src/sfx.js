@@ -615,6 +615,12 @@ export const RECIPES = {
     k.tone(o, t + 0.16, { type: 'sine', f: 2349 * p, d: 0.4, v: 0.025 });
     return 0.9;
   },
+  cog_key_sparkle: (k, o, t, p) => {
+    // a cog-icon sparkle: three quick rising twinkles over a tiny click
+    k.noise(o, t, { filter: 'bandpass', f: 4200 * p, q: 6, d: 0.02, v: 0.05 });
+    [2093, 2637, 3136].forEach((f, i) => k.tone(o, t + 0.03 + i * 0.07, { type: 'sine', f: f * p, d: 0.18, v: 0.045 }));
+    return 0.5;
+  },
   elixir_drink: (k, o, t, p) => {
     [0, 0.22, 0.44].forEach((dt) => k.noise(o, t + dt, { filter: 'bandpass', f: 600 * p, q: 3, a: 0.02, d: 0.1, v: 0.12 }));
     k.tone(o, t + 0.6, { type: 'sine', f: 660 * p, f2: 990 * p, a: 0.1, d: 0.5, v: 0.04 });

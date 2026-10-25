@@ -127,7 +127,7 @@ const PART2_SOUNDS = ['portal_open', 'portal_pull', 'gear_whoosh', 'clock_tick',
   'tick_beep', 'tick_hover', 'robot_walk', 'robot_swing', 'robot_hit', 'robot_die', 'robot_alert', 'boss_mech_step', 'boss_mech_roar', 'boss_mech_death',
   'element_collect', 'element_power_up', 'amy_magic_cast', 'amy_hit_reflect', 'amy_eyes_glow', 'amy_gasp', 'clock_chime', 'clock_stop_warning',
   'chest_open', 'chest_locked', 'cog_key_collect', 'elixir_drink', 'fire_blast_cast', 'fire_blast_hit', 'burn_loop', 'furnace_guardian_stomp',
-  'furnace_guardian_steam_burst', 'furnace_guardian_charge', 'furnace_guardian_roar', 'stomp_warning', 'gear_roll', 'steam_barrier_close', 'steam_barrier_open', 'element_orb_hum'];
+  'furnace_guardian_steam_burst', 'furnace_guardian_charge', 'furnace_guardian_roar', 'stomp_warning', 'gear_roll', 'cog_key_sparkle', 'steam_barrier_close', 'steam_barrier_open', 'element_orb_hum'];
 const PART2_MUSIC = ['part2_portal', 'gearhaven', 'gearhaven_chase', 'element_fire', 'element_lightning', 'element_steam', 'element_magnet', 'element_time', 'amy_theme', 'final_fight', 'part2_end'];
 {
   const missing = PART2_SOUNDS.filter((n) => !SOUNDS[n] || !RECIPES[n]);
