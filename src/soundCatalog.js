@@ -40,6 +40,9 @@ export const SOUNDS = {
   flash_release: { group: 'effects', desc: 'The Flash lightning bolt strikes (crackle)' },
   melee_swing: { group: 'effects', desc: 'A punch / kick swing (whoosh)' },
   melee_hit: { group: 'effects', desc: 'A punch / kick lands' },
+  shield_up: { group: 'effects', desc: 'AJ raises the Shield' },
+  shield_block: { group: 'effects', desc: 'The Shield blocks an incoming attack' },
+  shield_perfect: { group: 'effects', desc: 'A perfectly timed Shield block staggers the attacker' },
   // Gems and items
   gem_collect: { group: 'effects', desc: 'A gem picked up (higher for blue, highest for pink)' },
   potion_pickup: { group: 'effects', desc: 'An energy potion picked up' },

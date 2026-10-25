@@ -348,6 +348,9 @@ html, body {
   right: calc(max(12px, env(safe-area-inset-right)) + 38px);
   display: flex; gap: 3px;
 }
+.fire-debug { position: absolute; top: calc(max(10px, env(safe-area-inset-top)) + 132px); right: 12px; min-width: 176px; padding: 6px 9px; border-radius: 8px; color: #eaf7ff; background: rgba(8, 18, 30, 0.78); font: 600 11px/1.45 system-ui, sans-serif; pointer-events: none; }
+.fire-debug-line { display: flex; justify-content: space-between; gap: 12px; }
+.fire-debug-line b { color: #87d3ff; }
 .element-slot { display: block; width: clamp(18px, 5.2vh, 25px); height: clamp(18px, 5.2vh, 25px); color: #6c7380; opacity: 0.7; }
 .element-slot.on { color: var(--el); opacity: 1; filter: drop-shadow(0 0 4px var(--el)); }
 .element-slot.pulse { animation: gem-pulse 0.9s ease-out 2; }

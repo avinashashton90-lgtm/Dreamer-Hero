@@ -70,6 +70,17 @@ export class UI {
     }
     this.hud.appendChild(this.elementsEl);
 
+    this.fireDebugEl = this.#el('div', 'fire-debug');
+    this.fireDebugEl.style.display = 'none';
+    this.fireDebugLines = {};
+    for (const label of ['Shield', 'Shield cooldown', 'Hero state', 'Invulnerable']) {
+      const row = this.#el('div', 'fire-debug-line');
+      row.innerHTML = `<b>${label}</b><span></span>`;
+      this.fireDebugEl.appendChild(row);
+      this.fireDebugLines[label] = row.lastElementChild;
+    }
+    this.hud.appendChild(this.fireDebugEl);
+
     // Exhaustion: a faint red vignette that breathes (strength set by setExhaustion).
     this.vignette = this.#el('div', 'vignette');
     this.exhaustion = 0;
@@ -293,12 +304,22 @@ export class UI {
     if (this.elementsEl.style.display !== display) this.elementsEl.style.display = display;
     for (const [id, slot] of Object.entries(this.elementSlots)) {
       slot.classList.toggle('on', unlocked.includes(id));
+      slot.style.display = id === 'fire' && !unlocked.includes('fire') ? 'none' : '';
       if (id === pulse) {
         slot.classList.remove('pulse');
         void slot.offsetWidth;
         slot.classList.add('pulse');
       }
     }
+  }
+
+  setFireDebug({ shield, cooldown, heroState, invulnerable, visible = false }) {
+    this.fireDebugEl.style.display = visible ? '' : 'none';
+    if (!visible) return;
+    this.fireDebugLines.Shield.textContent = shield;
+    this.fireDebugLines['Shield cooldown'].textContent = cooldown;
+    this.fireDebugLines['Hero state'].textContent = heroState;
+    this.fireDebugLines.Invulnerable.textContent = invulnerable ? 'yes' : 'no';
   }
 
   /** Briefly pulses a gem counter (used when a colour's set completes). */
