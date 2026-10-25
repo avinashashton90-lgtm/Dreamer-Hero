@@ -19,6 +19,14 @@ const IT = CONFIG.part2.items;
 const { lerp, clamp } = THREE.MathUtils;
 
 const mats = new Map();
+
+function segmentDistanceSquared(point, start, end) {
+  const delta = end.clone().sub(start);
+  const lengthSq = delta.lengthSq();
+  const t = lengthSq > 0 ? clamp(point.clone().sub(start).dot(delta) / lengthSq, 0, 1) : 0;
+  return point.distanceToSquared(start.clone().addScaledVector(delta, t));
+}
+
 /** A shared Lambert material in `color`, with a soft self-glow (`glow` 0..1 of the colour). */
 function lambert(color, glow = 0.18, extra = {}) {
   const key = `${color}:${glow}:${JSON.stringify(extra)}`;
@@ -212,6 +220,7 @@ export class Items {
     this.keys = 0;
     this.time = 0;
     this.hintAt = -Infinity;
+    this.lastRiderPos = null;
     this.stats = { collected: {}, opened: 0, refused: 0 };
   }
 
@@ -223,15 +232,17 @@ export class Items {
     }
     this.entries.length = 0;
     this.keys = 0;
+    this.lastRiderPos = null;
   }
 
   /**
    * Place an item. `type` a pickup type, or 'chest' / 'chestBig' (`contents`: { type, n } inside it).
    * `lift`: extra height. Returns the entry.
    */
-  async add(type, position, { id = `${type}${this.entries.length}`, contents = null, lift = 0, temp = false, popup = null } = {}) {
+  async add(type, position, { id = `${type}${this.entries.length}`, contents = null, lift = 0, temp = false, popup = null, cost = null } = {}) {
     const model = await loadItemModel(type);
     const chest = type === 'chest' || type === 'chestBig';
+    if (chest && cost !== null) model.userData.cost = cost;
     const e = { id, type, chest, contents, temp, popup, pos: position.clone(), model, taken: false, state: 'closed', t: 0, redT: 0, content: null, lift, phase: Math.random() * 6.28 };
     model.position.copy(position);
     if (!chest) model.position.y += IT.types[type].height + lift;
@@ -260,6 +271,7 @@ export class Items {
    */
   update(dt, rider) {
     this.time += dt;
+    if (!rider || dt <= 0) this.lastRiderPos = null;
     for (const e of this.entries) {
       if (!e.model.visible && !e.chest) continue;
       if (e.chest) {
@@ -272,8 +284,14 @@ export class Items {
       u.spin.rotation.y += (T.spin ?? IT.spin) * dt;
       e.model.position.y = e.pos.y + T.height + e.lift + Math.sin(this.time * IT.bobRate + e.phase) * IT.bob;
       u.halo.material.opacity = IT.halo.opacity * (0.8 + 0.2 * Math.sin(this.time * 3 + e.phase));
-      if (rider && dt > 0 && rider.pos.distanceTo(e.model.position) <= T.reach) this.#take(e, e.model.position);
+      if (rider && dt > 0) {
+        const direct = rider.pos.distanceTo(e.model.position) <= T.reach;
+        const swept = e.type === 'cogKey' && this.lastRiderPos
+          && segmentDistanceSquared(e.model.position, this.lastRiderPos, rider.pos) <= T.reach * T.reach;
+        if (direct || swept) this.#take(e, e.model.position);
+      }
     }
+    if (rider && dt > 0) this.lastRiderPos = rider.pos.clone();
   }
 
   #take(e, at) {
@@ -372,6 +390,7 @@ export class Items {
   /** Put a snapshot back (a respawn): the pickups taken after it are there again, chests opened after it are closed. */
   restore(snap) {
     this.keys = snap?.keys ?? 0;
+    this.lastRiderPos = null;
     // (pickups that were dropped on the way — a robot's gem — are gone)
     for (const e of this.entries.filter((x) => x.temp)) e.model.removeFromParent();
     this.entries = this.entries.filter((x) => !x.temp);

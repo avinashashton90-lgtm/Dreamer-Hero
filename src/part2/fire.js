@@ -29,7 +29,12 @@ const E = F.element;
 /** The Fire ride's config: the Gearhaven ride's with this level's layout on top. */
 export function fireRideConfig() {
   const base = P2.ride;
-  return { ...base, ...F.ride, gears: { ...base.gears, ...F.ride.gears } };
+  return {
+    ...base,
+    ...F.ride,
+    gears: { ...base.gears, ...F.ride.gears },
+    grind: { ...base.grind, ...F.ride.grind },
+  };
 }
 
 export class FireLevel {
@@ -91,7 +96,7 @@ export class FireLevel {
     n = 0;
     for (const c of F.chests) {
       const tp = trackPoint(track, c.s, c.lat);
-      const e = await this.items.add(c.size === 'big' ? 'chestBig' : 'chest', tp.pos, { id: `chest${n++}`, contents: c.contents, popup: c.popup });
+      const e = await this.items.add(c.size === 'big' ? 'chestBig' : 'chest', tp.pos, { id: `chest${n++}`, contents: c.contents, popup: c.popup, cost: c.cost });
       this.items.face(e, tp.heading + (c.lat < 0 ? -Math.PI / 2 : Math.PI / 2)); // (its front toward the road)
     }
     n = 0;
@@ -146,7 +151,7 @@ export class FireLevel {
     this.#element();
     // The hero's arsenal: the Batarang (gems) and, with the Fire Element, Fire Blast.
     this.arsenal = new Arsenal({
-      scene: p.scene, hero: p.hero, horse: p.horse, fx: this.fx, sound: p.sound,
+      scene: p.scene, hero: p.hero, horse: p.horse, fx: this.fx, sound: p.sound, cam: p.cam, ui: p.ui,
       targets: () => this.targets(),
       onEvent: (name, d) => {
         if (name === 'blocked' && d.why === 'gems') p.ui.toast(FD.ammoOut);
@@ -155,6 +160,7 @@ export class FireLevel {
       },
     });
     await this.arsenal.ready;
+    this.guardian.getWheelThreat = () => this.arsenal?.wheel ?? null;
     this.arsenal.fireUnlocked = p.elements.includes('fire');
     this.arsenal.keys = () => this.items.keys;
     this.arsenal.spendKey = (k) => {
@@ -837,7 +843,7 @@ export class FireLevel {
       { wait: SH.circle.duration },
       { say: 'tick', text: L.one },
       { say: 'aj', text: L.others },
-      { say: 'tick', text: L.witch },
+      { say: 'tick', text: L.taken },
       // the hooded figure on the distant tower
       { call: () => { cameo.show(); this.sound('eerie'); } },
       { camera: { pos: v(C.x - 5, SH.tower.up + 0.6, C.z + 7), look: () => cameo.head(), duration: SH.tower.duration, fov: 34 } },

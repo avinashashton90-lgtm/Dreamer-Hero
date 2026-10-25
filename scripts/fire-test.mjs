@@ -14,7 +14,9 @@ import { characterBodies } from '../src/fade.js';
 import { LevelManager } from '../src/levelManager.js';
 import { Lives } from '../src/lives.js';
 
-const P2 = CONFIG.part2, F = P2.fire, D2 = DIALOGUE.part2, FD = D2.fire;
+const P2 = CONFIG.part2, F = P2.fire, D2 = DIALOGUE.part2, FD = D2.fire, CS = F.weapons.cogShot, GW = F.weapons.gearWheel;
+globalThis.innerWidth = 915;
+globalThis.innerHeight = 412;
 const dt = 1 / 60;
 let failed = false;
 const check = (ok, msg) => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${msg}`); if (!ok) failed = true; };
@@ -32,8 +34,9 @@ const view = { lines: [], complete: false, show() {}, hide() {}, dialogue(s, t, 
 const cinematic = new Cinematic(cam, view);
 cinematic.bodies = characterBodies({ hero, girlModel: new THREE.Group(), horse });
 const ui = {
-  quest: null, dist: null, toasts: [], banners: [], keys: null, elements: [], boss: null, flashes: 0,
+  quest: null, dist: null, toasts: [], banners: [], numbers: [], keys: null, elements: [], boss: null, flashes: 0,
   banner(t) { this.banners.push(t); },
+  damageNumber(x, y, text) { this.numbers.push({ x, y, text }); },
   toast(t) { this.toasts.push(t); }, setQuest(t, d) { this.quest = t; this.dist = d; }, fadeOut(ms, then) { return then(); }, fadeIn() {},
   showGems() {}, setHorseEnergy() {}, setGears() {}, screenFlash() { this.flashes++; },
   setBossBar(on, frac, name, regen) { this.boss = { on, frac, name, regen }; },
@@ -71,6 +74,27 @@ const p2 = await levels.load('part2', { start: 'fire' });
 const fire = p2.fire;
 const ride = fire.ride;
 const track = fire.world.track;
+const near = () => track.nearest(horse.position.x, horse.position.z, 20);
+const lastToast = () => ui.toasts.at(-1);
+/** Put the horse at `s`, `lat`, riding at `speed` along the trail. */
+const place = (s, lat = 0, { speed = 0 } = {}) => {
+  ride.stop();
+  const pt = trackPoint(track, s, lat, 0);
+  horse.position.copy(pt.pos);
+  horse.heading = pt.heading;
+  horse.speed = speed;
+  horse.velocity.set(0, 0, 0);
+  horse.grounded = true;
+  horse.stumble = horse.stumbleStop = 0;
+  horse.steer = horse.yawRate = 0;
+  horse.galloping = false;
+  horse.mode = 'riding';
+  horse.scripted = false;
+  cam.snapTo?.(hero.position);
+};
+const toastsSince = (n) => ui.toasts.slice(n);
+const count = (name) => played.filter((x) => x.name === name).length;
+const seconds = async (t, fn) => { for (let x = 0; x < t; x += dt) { await frame(); if (fn?.()) return true; } return false; };
 await run(1);
 {
   const D = F.debug;
@@ -94,14 +118,24 @@ check(p2.at === 'fire' && fire.built && fire.stage === 'ride' && state.is(STATES
   const keys = fire.items.entries.filter((e) => e.type === 'cogKey');
   const chests = fire.items.entries.filter((e) => e.chest);
   const costs = chests.map((c) => c.model.userData.cost).sort();
-  check(keys.length === 6 && chests.length === 3 && JSON.stringify(costs) === '[1,1,2]' && keys.length >= costs.reduce((a, b) => a + b, 0) + F.gate.keys,
-    `${keys.length} cog keys and 3 chests (costs ${costs.join(', ')}) + the cog gate (${F.gate.keys}): enough keys for all of it`);
+  check(keys.length === 7 && chests.length === 3 && JSON.stringify(costs) === '[1,1,1]' && costs.reduce((a, b) => a + b, 0) + F.gate.keys === 5 && keys.length - 2 >= 5,
+    `${keys.length} cog keys and 3 chests (costs ${costs.join(', ')}) + the cog gate (${F.gate.keys}): five keys still cover every cost after missing two`);
   const lat = (e) => Math.abs(track.nearest(e.pos.x, e.pos.z, 30).lateral);
-  check(keys.every((k) => lat(k) > 4.5), 'every cog key is off the main path (beside the road, 4.5+ from the middle)');
+  const mainKeys = keys.filter((k) => lat(k) < 0.1);
+  check(mainKeys.length === 2 && keys.every((k) => lat(k) <= 4), `two keys sit on the fixed main line; the other ${keys.length - mainKeys.length} are within 4 units`);
+  const keyProgress = keys.map((k) => track.nearest(k.pos.x, k.pos.z, 30).s);
+  check(keyProgress.every((s, i) => i === 0 || s > keyProgress[i - 1]) && P2.items.types.cogKey.reach === 2.5, 'keys are only placed ahead along the trail and use a 2.5-unit pickup radius');
   const plaza = F.plaza;
   const pk = keys.filter((k) => { const s0 = track.nearest(k.pos.x, k.pos.z, 30).s; return s0 >= plaza.from && s0 <= plaza.to; });
   const nearChest = (k) => chests.some((c) => c.pos.distanceTo(k.pos) < 6.5);
-  check(pk.length === 3 && pk.every(nearChest) && chests.every((c) => { const s0 = track.nearest(c.pos.x, c.pos.z, 30).s; return s0 >= plaza.from && s0 <= plaza.to; }), 'the plaza: the 3 chests, with a cog key hidden near each');
+  check(pk.length === 3 && pk.every(nearChest) && chests.every((c) => { const s0 = track.nearest(c.pos.x, c.pos.z, 30).s; return s0 >= plaza.from && s0 <= plaza.to; }), 'the plaza: the 3 chests, with a cog key near each');
+  const catchupKey = fire.items.find('key0');
+  const keyTrack = track.nearest(catchupKey.pos.x, catchupKey.pos.z, 30);
+  const keyHeight = catchupKey.pos.y + P2.items.types.cogKey.height;
+  fire.items.update(dt, { pos: trackPoint(track, keyTrack.s - 6, keyTrack.lateral).pos.setY(keyHeight) });
+  fire.items.update(dt, { pos: trackPoint(track, keyTrack.s + 6, keyTrack.lateral).pos.setY(keyHeight) });
+  check(catchupKey.taken && fire.items.keys === 1, 'a fast horse that passes within the key radius collects it even when neither frame ends nearby');
+  fire.items.restore(null);
   const elix = fire.items.entries.filter((e) => e.type.startsWith('elixir'));
   check(elix.length === 2 && elix.some((e) => e.type === 'elixirHeal') && elix.some((e) => e.type === 'elixirEnergy'), 'two elixirs in the plaza (healing and energy)');
   await run(0.2);
@@ -119,40 +153,46 @@ check(p2.at === 'fire' && fire.built && fire.stage === 'ride' && state.is(STATES
 }
 
 
-const near = () => track.nearest(horse.position.x, horse.position.z, 20);
-const lastToast = () => ui.toasts.at(-1);
-/** Put the horse at `s`, `lat`, riding at `speed` along the trail. */
-const place = (s, lat = 0, { speed = 0 } = {}) => {
+// 1a) The second vent's normal gallop launch reaches the lowered upper rail; its snap also accepts a landing up to 2 units above it.
+{
+  const upper = fire.cfg.rails.find((r) => r.upper);
+  const vent = fire.cfg.vents[1];
+  place(vent.s - 5, vent.lat, { speed: CONFIG.horse.maxSpeed * 2 });
+  horse.galloping = true;
+  held.moveY = 1;
+  held.gallop = true;
+  const caught = await seconds(2, () => ride.grinding && ride.grind.rail === upper);
+  held.moveY = 0;
+  held.gallop = false;
+  check(caught && upper.s[0] - vent.s <= 5 && upper.h < 4.2, `the second steam vent catches a normal gallop on the closer, lower upper rail (s ${upper.s[0]}, height ${upper.h})`);
   ride.stop();
-  const pt = trackPoint(track, s, lat, 0);
-  horse.position.copy(pt.pos);
-  horse.heading = pt.heading;
-  horse.speed = speed;
-  horse.velocity.set(0, 0, 0);
-  horse.grounded = true;
-  horse.stumble = horse.stumbleStop = 0;
-  horse.steer = horse.yawRate = 0;
-  horse.galloping = false;
-  horse.mode = 'riding';
-  horse.scripted = false;
-  cam.snapTo?.(hero.position);
-};
-const toastsSince = (n) => ui.toasts.slice(n);
-const count = (name) => played.filter((x) => x.name === name).length;
+  place(upper.s[0] + 12, upper.lat);
+  horse.position.copy(trackPoint(track, upper.s[0] + 12, upper.lat, upper.h + 1.8).pos);
+  horse.velocity.set(0, -1, 0);
+  horse.grounded = false;
+  ride.update(dt, {});
+  ride.after(dt);
+  check(ride.grinding && ride.grind.rail === upper, 'the upper-rail landing assist snaps a falling horse within 2 vertical units onto the rail');
+  ride.stop();
+  place(430, 0);
+}
 
 // 1b) The cog gate at the end of section 1: shut without 2 keys ("Needs 2 cog keys", solid), open with them (they are spent).
 {
   const G = F.gate;
   const items = fire.items;
+  fire.gateOpen = false;
+  fire.gate.goal = fire.gate.k = 0;
+  fire.gate.bars.position.y = 0;
+  fire.world.gates[0].open = false;
   items.keys = 1;
-  place(G.s - 14, 0, { speed: CONFIG.horse.maxSpeed });
-  held.moveY = 1;
+  place(G.s, 0);
+  fire.gate.hintAt = -Infinity;
   const t0 = ui.toasts.length;
-  await run(2.5);
-  held.moveY = 0;
+  await run(0.2);
   check(near().s < G.s + 0.5 && !fire.gateOpen && ui.toasts.slice(t0).includes(FD.gate.locked(G.keys)), `the cog gate with 1 key: "${FD.gate.locked(G.keys)}", the horse stopped at it (s ${near().s.toFixed(0)} of ${G.s})`);
   items.keys = G.keys;
-  await run(0.5);
+  await run(0.2);
   check(fire.gateOpen && items.keys === 0 && ui.keys.n === 0 && ui.toasts.includes(FD.gate.open), `with ${G.keys} keys it opens and the counter drops to 0`);
   place(G.s - 8, 0, { speed: CONFIG.horse.maxSpeed });
   held.moveY = 1;
@@ -194,18 +234,18 @@ const count = (name) => played.filter((x) => x.name === name).length;
   await run(2.6);
   check(small.state === 'open' && items.keys === 0 && count('chest_open') === c1 + 1 && lives.hearts === 5 && ui.toasts.includes(FD.got.elixirHeal) && small.model.userData.lid.rotation.x < -1.5,
     'the lid lifts, light pours out, the elixir floats up and is drunk: +2 hearts (3 → 5), the key spent');
-  // the big chest needs 2
+  // the big chest also costs one key
   const bp = track.nearest(big.pos.x, big.pos.z, 30);
-  items.addKeys(1);
+  items.keys = 0;
   place(bp.s, -2.0);
   const t1 = ui.toasts.length;
   items.hintAt = -Infinity;
   await run(0.4);
-  check(toastsSince(t1).includes(FD.needs(2)) && FD.needs(2).endsWith('keys') && big.state === 'closed' && items.keys === 1, `the big chest with 1 key: "${FD.needs(2)}"`);
+  check(toastsSince(t1).includes(FD.needs(1)) && big.state === 'closed' && items.keys === 0, `the big chest with no key: "${FD.needs(1)}"`);
   items.addKeys(1);
   const hearts0 = lives.maxHearts;
   await run(3.8);
-  check(big.state === 'open' && items.keys === 0 && lives.maxHearts === hearts0 + 1 && p2.extraHearts === 1 && lives.hearts === lives.maxHearts, `the big chest (2 keys): a heart container, +1 max heart (${hearts0} → ${lives.maxHearts}) and a full heal`);
+  check(big.state === 'open' && items.keys === 0 && lives.maxHearts === hearts0 + 1 && p2.extraHearts === 1 && lives.hearts === lives.maxHearts, `the big chest (1 key): a heart container, +1 max heart (${hearts0} → ${lives.maxHearts}) and a full heal`);
   // gems out of the second small chest
   const gp = track.nearest(small2.pos.x, small2.pos.z, 30);
   items.addKeys(1);
@@ -246,7 +286,6 @@ const count = (name) => played.filter((x) => x.name === name).length;
 
 const SC = F.scouts, SW = F.swords;
 const alive = (list) => list.filter((f) => f.alive);
-const seconds = async (t, fn) => { for (let x = 0; x < t; x += dt) { await frame(); if (fn?.()) return true; } return false; };
 const fresh = () => { items0(); lives.setHearts(lives.maxHearts); hurts.length = 0; hero.resetStatus?.(); };
 const items0 = () => { fire.items.restore(null); fire.arsenal.clear(); fire.arsenal.ammo = F.startAmmo; fire.foes.reset(0); fire.fx.list.length = 0; };
 
@@ -312,11 +351,10 @@ const items0 = () => { fire.items.restore(null); fire.arsenal.clear(); fire.arse
   check(alive(f.scouts).length === 0 || alive(f.scouts).every((x) => x.state === 'away' || x.state === 'run'), 'and are gone after');
 }
 
-// 3b) The cog weapons (Cog Shot: a key; Gear Wheel: 10 gears), the gems along the ride, the Dismount button.
+// 3b) The cog weapons (Cog Shot: a key; Gear Wheel: 4 gears), the gems along the ride, the Dismount button.
 {
   fresh();
   const ar = fire.arsenal, f = fire.foes, items = fire.items;
-  const CS = F.weapons.cogShot, GW = F.weapons.gearWheel;
   // gems: about one every 40 along the ride, on the steam-jump landings, extra in the plaza
   const gems = items.entries.filter((e) => e.type === 'gem' && !e.temp && !e.chest);
   const gs = gems.map((g) => track.nearest(g.pos.x, g.pos.z, 30).s).sort((a, b) => a - b);
@@ -336,25 +374,45 @@ const items0 = () => { fire.items.restore(null); fire.arsenal.clear(); fire.arse
   items.keys = 2;
   ui.setCogKeys(2, true);
   const t1 = ar.pick(), hp1 = t1.hp;
+  const numbers0 = ui.numbers.length;
+  const hitSound0 = count('robot_hit');
+  let impactSeen = false;
   check(ar.usesLeft('cogShot') === 2 && ar.canAfford('cogShot'), 'Cog Shot: 2 keys = 2 shots (the uses-left badge)');
   const usedCog = ar.use('cogShot');
-  await seconds(3, () => !ar.cog && items.keys < 2);
-  await seconds(2, () => !t1.alive || t1.hp < hp1);
+  await seconds(3, () => {
+    impactSeen ||= ar.fx.impacts.length > 0;
+    return !ar.cog && items.keys < 2 && (!t1.alive || t1.hp < hp1);
+  });
   check(usedCog && items.keys === 1 && ar.usesLeft('cogShot') === 1 && (!t1.alive || t1.hp <= hp1 - CS.damage), `a Cog Shot spends 1 key (2 → ${items.keys}) and does ${CS.damage} damage (${hp1} → ${t1.alive ? t1.hp : 0} HP)`);
+  check(impactSeen && ui.numbers.slice(numbers0).some((n) => n.text === '-2') && count('robot_hit') > hitSound0,
+    'Cog Shot impact: a visible flash/spark ring, clanging hit sound and "-2" popup');
   items.keys = 0;
   check(!ar.use('cogShot') && ar.blockReason('cogShot') != null, 'with no cog key the Cog Shot is blocked (greyed out)');
   // Gear Wheel
+  f.reset(0);
+  const wheelTarget = f.scouts[0];
+  const wheelPoint = trackPoint(track, 500, 0);
+  wheelTarget.spawn(wheelPoint.pos, wheelPoint.heading, 'idle');
+  wheelTarget.active = false;
+  place(492, 0);
+  await frame();
+  const wheelForward = new THREE.Vector3(Math.sin(horse.heading), 0, Math.cos(horse.heading));
+  wheelTarget.position.copy(horse.position).addScaledVector(wheelForward, 5);
+  wheelTarget.position.y = 0;
+  wheelTarget.model.position.copy(wheelTarget.position);
   ar.gearStock = GW.gears * 2 - 1;
   check(ar.usesLeft('gearWheel') === 1, `Gear Wheel: ${ar.gearStock} gears = ${ar.usesLeft('gearWheel')} shot (${GW.gears} gears each)`);
   ar.cooldowns.gearWheel = 0;
   const stock0 = ar.gearStock;
+  const wheelHp0 = wheelTarget.hp;
   const usedGw = ar.use('gearWheel');
   let rolled = false;
-  await seconds(1, () => { if (ar.wheel) rolled = true; return false; });
-  check(usedGw && rolled && ar.gearStock === stock0 - GW.gears && ar.usesLeft('gearWheel') === 0, `a Gear Wheel spends ${GW.gears} gears (${stock0} → ${ar.gearStock}) and rolls across the ground`);
+  await seconds(2, () => { rolled ||= !!ar.wheel; return rolled && !ar.wheel; });
+  check(usedGw && rolled && wheelTarget.hp <= wheelHp0 - GW.damage && ar.gearStock === stock0 - GW.gears && ar.usesLeft('gearWheel') === 0,
+    `a Gear Wheel spends ${GW.gears} gears (${stock0} → ${ar.gearStock}), rolls along the ground and hits Leela (${wheelHp0} → ${wheelTarget.hp})`);
   ar.cooldowns.gearWheel = 0;
   await seconds(4, () => !ar.wheel);
-  check(!ar.use('gearWheel'), 'with fewer than 10 gears the Gear Wheel is blocked');
+  check(!ar.use('gearWheel'), 'with fewer than 4 gears the Gear Wheel is blocked');
   // Dismount: hold the button → AJ gets down; Mount gets him back on
   place(300, 0, { speed: 0 });
   await run(0.3);
@@ -381,8 +439,45 @@ const items0 = () => { fire.items.restore(null); fire.arsenal.clear(); fire.arse
   const sw = f.swords[0];
   const sp = SW.spots[0];
   check(sw.alive && sw.state === 'patrol' && f.swords.length === 4 && f.swords.every((x) => x.model.userData.height === SW.height || true), `${f.swords.length} sword robots (Mike and Stan) patrol the last stretch`);
+  const ar = fire.arsenal;
+  for (const kind of [...new Set(SW.spots.map((spot) => spot.kind))]) {
+    const target = f.swords.find((foe) => foe.spot.kind === kind);
+    const spot = target.spot;
+    const nearTarget = track.nearest(target.position.x, target.position.z, 30);
+    for (const weapon of ['cogShot', 'gearWheel']) {
+      f.scouts.forEach((foe) => foe.remove());
+      f.swords.forEach((foe) => foe !== target && foe.remove());
+      const point = trackPoint(track, nearTarget.s, nearTarget.lateral);
+      target.spawn(point.pos, point.heading, 'idle');
+      target.active = false;
+      place(nearTarget.s - 8, nearTarget.lateral);
+      await frame();
+      ar.clear();
+      fire.items.keys = weapon === 'cogShot' ? 1 : 0;
+      ar.gearStock = weapon === 'gearWheel' ? GW.gears : 0;
+      const hp = target.hp;
+      const used = ar.use(weapon);
+      let started = false;
+      await seconds(3, () => {
+        started ||= weapon === 'cogShot' ? !!ar.cog : !!ar.wheel;
+        return started && !ar.cog && !ar.wheel && target.hp < hp;
+      });
+      check(used && target.hp <= hp - F.weapons[weapon].damage, `${weapon} damages ${kind} (${hp} → ${target.hp})`);
+    }
+    target.active = true;
+  }
+  f.reset(0);
   // patrol: it moves about its post
   const p0 = sw.position.clone();
+  const materials0 = sw.hitMaterials.map((m) => m.material.color.clone());
+  const pushDirection = new THREE.Vector3(Math.sin(sw.heading), 0, Math.cos(sw.heading));
+  sw.takeHit(1, 'wheel', { direction: pushDirection });
+  const pushed = sw.position.distanceTo(p0) >= F.weaponImpact.push * 0.5;
+  await frame();
+  const flashed = sw.flash > 0 && sw.hitMaterials.some((m, i) =>
+    ((m.material.color.r - materials0[i].r) ** 2 + (m.material.color.g - materials0[i].g) ** 2 + (m.material.color.b - materials0[i].b) ** 2) > 0.01);
+  check(pushed && flashed, `a cog-weapon hit briefly flashes the robot white and nudges it back (push ${sw.position.distanceTo(p0).toFixed(2)}, flash ${sw.flash.toFixed(2)})`);
+  sw.spawn(trackPoint(track, sp.s, sp.lat).pos, 0, 'patrol');
   place(sp.s - 60, 0, { speed: 0 });
   await run(3);
   check(sw.state === 'patrol' && sw.position.distanceTo(p0) > 0.5, 'out of sight range it patrols to and fro about its post');
@@ -429,7 +524,6 @@ const items0 = () => { fire.items.restore(null); fire.arsenal.clear(); fire.arse
   place(sp.s - 14, sp.lat, { speed: 0 });
   sw.state = 'patrol';
   const hpBefore = sw.hp;
-  const ar = fire.arsenal;
   check(ar.use('fireBlast') && ar.cooldownFraction('fireBlast') > 0.95 && ar.usesLeft('fireBlast') === null, 'Fire Blast: thrown with a tap (no gems, no count: only a cooldown ring)');
   let hp1 = null;
   await seconds(2, () => { if (!ar.ball && ar.stats.blasts > 0 && ar.pending === null) { hp1 = sw.hp; return true; } return false; });
@@ -484,6 +578,37 @@ const rel = (v) => new THREE.Vector3(C.x + v[0], 0, C.z + v[1]);
   const used = fire.arsenal.use('batarang');
   await seconds(3, () => !fire.arsenal.proj && !fire.arsenal.pending && fire.arsenal.stats.catches > 0);
   check(used && G.hp <= hp0 - 1 && fire.arsenal.ammo === am0 - 1 && ui.boss?.on, `the Batarang from AJ's hand hits the Guardian for 1 (${hp0} → ${G.hp}), 1 gem; the boss bar shows`);
+  const ar = fire.arsenal;
+  ar.gearStock = F.weapons.gearWheel.gears;
+  ar.cooldowns.gearWheel = 0;
+  hero.puppet(rel([0, 6]), Math.PI, 0);
+  G.position.copy(rel([0, -4])); G.model.position.copy(G.position); G.heading = 0; G.state = 'recover'; G.t = -999; G.hp = 30; G.alive = true;
+  const hpWheel = G.hp;
+  const dodgesBefore = G.stats.wheelDodges ?? 0;
+  const wheelDir = new THREE.Vector3(G.position.x - hero.position.x, 0, G.position.z - hero.position.z).normalize();
+  const numbersBeforeWheel = ui.numbers.length;
+  let bounced = false, wheelImpact = false, wheelStarted = false;
+  const wheelUsed = ar.use('gearWheel');
+  await seconds(2, () => {
+    wheelStarted ||= !!ar.wheel;
+    bounced ||= !!ar.wheel && ar.wheel.dir.dot(wheelDir) < 0;
+    wheelImpact ||= ar.fx.impacts.length > 0;
+    return wheelStarted && !ar.wheel;
+  });
+  check(wheelUsed && wheelStarted && G.hp <= hpWheel - F.weapons.gearWheel.damage && bounced && ar.gearStock === 0 && (G.stats.wheelDodges ?? 0) === dodgesBefore + 1,
+    `the four-gear Gear Wheel hits the Guardian at its legs/body, damages it and bounces back; the Guardian makes one timely dodge`);
+  check(wheelImpact && ui.numbers.slice(numbersBeforeWheel).some((n) => n.text === '-3'),
+    'the boss impact shows a "-3" damage popup');
+  ar.clear();
+  fire.items.keys = 1;
+  ar.cooldowns.cogShot = 0;
+  G.position.copy(rel([0, -4])); G.model.position.copy(G.position); G.heading = 0; G.state = 'recover'; G.t = -999; G.hp = 30; G.alive = true;
+  hero.puppet(rel([0, 6]), Math.PI, 0);
+  const cogBossHp = G.hp;
+  const cogBoss = ar.use('cogShot');
+  await seconds(3, () => !ar.pending && !ar.cog && G.hp < cogBossHp);
+  check(cogBoss && G.hp <= cogBossHp - F.weapons.cogShot.damage && fire.items.keys === 0,
+    `Cog Shot's torso hit sphere damages the Furnace Guardian (${cogBossHp} → ${G.hp})`);
 }
 
 
@@ -654,7 +779,7 @@ const rel = (v) => new THREE.Vector3(C.x + v[0], 0, C.z + v[1]);
     if (view.complete) { view.complete = false; cinematic.tap(); cinematic.tap(); }
   }
   void scenePlayed;
-  const want = [`${DIALOGUE.speakers.tick}: ${L.one}`, `${DIALOGUE.speakers.aj}: ${L.others}`, `${DIALOGUE.speakers.tick}: ${L.witch}`, `${DIALOGUE.speakers.tick}: ${L.watching}`, `${DIALOGUE.speakers.aj}: ${L.amy}`, `${DIALOGUE.speakers.tick}: ${L.cannot}`];
+  const want = [`${DIALOGUE.speakers.tick}: ${L.one}`, `${DIALOGUE.speakers.aj}: ${L.others}`, `${DIALOGUE.speakers.tick}: ${L.taken}`, `${DIALOGUE.speakers.tick}: ${L.watching}`, `${DIALOGUE.speakers.aj}: ${L.amy}`, `${DIALOGUE.speakers.tick}: ${L.cannot}`];
   const got = view.lines.map((l) => l.replace(/^(\w+):/, (m, k) => `${DIALOGUE.speakers[k] ?? k}:`));
   check(JSON.stringify(got) === JSON.stringify(want), `the lines, in order:\n       ${got.join('\n       ')}`);
   check(circled.size >= 3 && orbToHand && ui.flashes > 0, `the camera circles the orb (${circled.size} directions), the flame flows into his hand, a flash`);

@@ -991,7 +991,7 @@ export const CONFIG = {
       colors: { brass: 0xd8a640, copper: 0xb8683a, gold: 0xf0c048, dark: 0x3a2a1c, stone: 0x7c7468, violet: 0x9a6bff },
       // A pickup: `size` its radius, `reach` the pickup distance from the rider's collect point, `height` it floats at.
       types: {
-        cogKey: { size: 0.8, height: 1.5, reach: 2.6, color: 0xf0c048, glow: 0xffd870, spin: 1.1, sound: 'cog_key_collect', label: 'cog key' },
+        cogKey: { size: 0.8, height: 1.5, reach: 2.5, color: 0xf0c048, glow: 0xffd870, spin: 1.1, sound: 'cog_key_collect', label: 'cog key' },
         elixirHeal: { size: 0.46, height: 1.3, reach: 2.2, color: 0x44d86a, glow: 0x9dffb4, heal: 2, sound: 'elixir_drink', label: 'healing elixir' },
         elixirEnergy: { size: 0.46, height: 1.3, reach: 2.2, color: 0x3f9bff, glow: 0x9ccfff, energy: 1, sound: 'elixir_drink', label: 'energy elixir' },
         gem: { size: 0.4, height: 1.2, reach: 2.2, color: 0x4aa8ff, color2: 0xffd23f, glow: 0xbfe0ff, ammo: 1, sound: 'gem_collect', label: 'gem' }, // a blue-yellow crystal: 1 gem = 1 Batarang throw
@@ -1036,8 +1036,9 @@ export const CONFIG = {
         saws: [{ s: 304, phase: 0 }, { s: 318, phase: Math.PI }],
         rails: [
           { group: 'a', s: [148, 204], lat: -4, h: 1.1 }, { group: 'a', s: [148, 204], lat: 0, h: 1.1 }, { group: 'a', s: [148, 204], lat: 4, h: 1.1 },
-          { group: 'u', s: [362, 436], lat: 0, h: 4.2, upper: true },
+          { group: 'u', s: [355, 436], lat: 0, h: 3.2, upper: true },
         ],
+        grind: { upperSnap: 2 }, // the second steam vent lands on the upper rail within 2 vertical units
         gears: {
           rows: [[28, 44, 0, 4], [660, 676, 0, 3], [740, 850, 0, 6], [1000, 1060, 0, 5], [1140, 1200, 0, 5]],
           railRows: [['a', 0, 156, 170, 3], ['a', 1, 172, 184, 3], ['a', 2, 186, 200, 3], ['u', 0, 372, 428, 6]],
@@ -1045,29 +1046,29 @@ export const CONFIG = {
         door: { s: 1318, scale: 2.4, reach: 4.5 },
         quest: 'fire',
       },
-      // Cog keys (5 in the level: 2 beside the road in section 1, one by each plaza chest) and plaza
-      // contents. [s, lat, height above the street]. Chests and keys sit off the centre line.
-      // (6 keys: the cog gate at the end of section 1 takes 2, the chests 1 + 1 + 2 — every one is needed; a Cog Shot spends one too)
-      keys: [[120, -5.8, 0], [212, 5.6, 0], [412, -5.8, 0], [730, -6.0, 0], [775, 6.0, 0], [835, -6.0, 0]],
+      // Seven cog keys; two lie on the main line and five sit close enough to collect from the saddle.
+      // [s, lat, height above the street]. The gate and all three chests cost five keys in total.
+      keys: [[120, 0, 0], [212, 0, 0], [412, -2.2, 0], [730, -2.0, 0], [775, 2.0, 0], [835, -2.0, 0], [900, 2.2, 0]],
       // Chest rewards: a small one gives 2 elixirs (a list: healing + energy) or 3 gems, the big one +1 max heart or a gear bundle (10 gears).
       chests: [
-        { size: 'small', s: 735, lat: -5.2, contents: [{ type: 'elixirHeal', n: 1 }, { type: 'elixirEnergy', n: 1 }], popup: 'elixirs' },
-        { size: 'small', s: 780, lat: 5.2, contents: [{ type: 'gem', n: 3 }], popup: 'gems' },
-        { size: 'big', s: 830, lat: -4.8, contents: [{ type: 'heartContainer', n: 1 }], popup: 'heart' },
+        { size: 'small', s: 735, lat: -5.2, cost: 1, contents: [{ type: 'elixirHeal', n: 1 }, { type: 'elixirEnergy', n: 1 }], popup: 'elixirs' },
+        { size: 'small', s: 780, lat: 5.2, cost: 1, contents: [{ type: 'gem', n: 3 }], popup: 'gems' },
+        { size: 'big', s: 830, lat: -4.8, cost: 1, contents: [{ type: 'heartContainer', n: 1 }], popup: 'heart' },
       ],
       // Gems for the Batarang along the whole ride: `fireGemCount` in all, spread evenly along the path (about 1 every
       // 40), on the safe line, plus on the steam-jump landings and extra in the plaza.
       fireGemCount: 32,
-      gemLandings: [[84, 0, 4.0], [366, 1.5, 4.2], [610, -2, 0]], // [s, lat, height]: the belt deck, the upper rail, the street after the last vent
+      gemLandings: [[84, 0, 4.0], [366, 0, 3.2], [610, -2, 0]], // [s, lat, height]: the belt deck, the upper rail, the street after the last vent
       plazaGems: [[704, 2.5], [722, -2.5], [752, 2.5], [768, -2.5], [800, 2.5], [815, -2.5], [845, 2.5], [858, -2.5]],
       // The cog gate across the road at the end of section 1: opens with 2 cog keys (a solid barrier till then).
       gate: { s: 440, keys: 2, openTime: 1.2, reach: 7, width: 15, height: 6, color: 0xb8803a, red: 0xff2a1c },
       // Cog Shot (a spinning cog thrown in an arc, 2 damage, spends 1 cog key) and Gear Wheel (a fast spinning wheel rolling along
-      // the ground, 3 damage, spends 10 brass gears): the level's two extra weapons; Fire Blast is his from the start of the level.
+      // the ground, 3 damage, spends 4 brass gears): the level's two extra weapons; Fire Blast is his from the start of the level.
       weapons: {
         cogShot: { damage: 2, cooldown: 1.2, speed: 26, arc: 3, range: 26, forward: 14, size: 0.5, keys: 1, color: 0xf0c048 },
-        gearWheel: { damage: 3, cooldown: 2.0, speed: 30, range: 34, radius: 0.9, height: 0.9, gears: 10, color: 0xd8a640, spin: 18 },
+        gearWheel: { damage: 3, cooldown: 2.0, speed: 30, range: 34, radius: 1.5, height: 0.9, gears: 4, color: 0xd8a640, spin: 18 },
       },
+      weaponImpact: { life: 0.28, flashRadius: 0.72, ringInner: 0.14, ringOuter: 0.24, sparks: 12, sparkRadius: 0.42, sparkSpeed: 3.6, sparkUp: 1.1, shake: 0.08, shakeTime: 0.18, push: 0.28, popupMargin: 32 },
       elixirs: [{ type: 'elixirHeal', s: 712, lat: 0 }, { type: 'elixirEnergy', s: 852, lat: 0 }],
       plaza: { from: 700, to: 860, braziers: 5 },
       // Section 2: scout robots (Leela) in groups of 2 run at the horse from the front and wide.
@@ -1084,7 +1085,10 @@ export const CONFIG = {
         aggro: 24, alert: 0.55, sidestep: 0.45, sidestepDist: 3.2, chargeSpeed: 11, chargeMax: 3.2, swingRange: 3.8, windup: 0.6, recover: 1.3,
         damage: 0.5, gemChance: 0.5, ringColor: 0xff3a1c, fade: 0.9, despawnBehind: 40,
       },
-      hit: { pad: 0.5 },      // slack on a foe's hit body for the Batarang / fire ball
+      hit: {
+        pad: 0.5, robotRadius: 1.5, robotFlash: 0.15,
+        guardianLegs: { side: 0.85, height: 1.15, radius: 0.6 },
+      }, // torso sphere for cog weapons; the Batarang / fire ball keep their padded body capsule
       // The Batarang in Part 2: 1 gem a throw, auto-aimed (the nearest foe, preferring ones ahead), out and back.
       batarang: { damage: 1, cooldown: 0.8, speed: 38, returnSpeed: 40, range: 30, forward: 16, release: 0.24, turn: 600, color: 0xffd23f, size: 0.4, prefer: 1.6 },
       // Fire Blast (the Fire Element's ability): a ball of fire in an arc, 3× the Batarang, burns for 3 s.
@@ -1114,6 +1118,7 @@ export const CONFIG = {
         // Fire Ball (longer range): he fires a ball of fire from the furnace at where AJ stands; a jump clears it; 1 heart.
         fireball: { min: 9, max: 26, windup: 0.9, speed: 15, damage: 1, radius: 1.1, clearHeight: 1.0, life: 3, cooldown: 5, size: 0.7 },
         charge: { min: 6, windup: 1.2, speed: 17, max: 30, stun: 3, stunDamage: 1.5, hitRadius: 2.6, damage: 1, knock: 6, cooldown: 5 },
+        wheelAvoid: { range: 6, lateral: 4.2, cooldown: 4, duration: 0.55, height: 1.3 },
         hurtFlash: 0.12, deathTime: 2.4,
       },
       // Tick calls out each attack's windup with small chirps.
@@ -1207,7 +1212,7 @@ export const CONFIG = {
       grind: {
         speed: 22, maxSpeed: 30,  // grinding speed (at least this, at most maxSpeed)
         ramp: 6,                  // low rails rise from the street over this length
-        capture: 1.5, above: 0.7, // landing on a rail: within this of its line (the landing assist), from up to this above it
+        capture: 1.5, above: 0.7, // landing on a rail: within this of its line
         switchTime: 0.32, switchArc: 0.9, switchStick: 0.55, // hopping across to the next rail
         hopOff: 7,                // the hop when leaving a rail (Jump or its end)
         radius: 0.11, color: 0xd8dde2, post: 0x5a4a3a, postEvery: 6, gantryEvery: 12, gantryHalf: 8.6,
@@ -2314,11 +2319,11 @@ export const DIALOGUE = {
       tick: { stomp: 'Stomp coming!', steam: 'Steam! Get clear!', charge: 'It is charging!', fireball: 'Fire ball!' },
       gate: { locked: (n) => `The cog gate needs ${n} cog keys`, open: 'The cog gate opens!' },
       chest: { elixirs: 'Chest: 2 elixirs! (+2 hearts, the horse rested)', gems: (n) => `Chest: ${n} gems!`, heart: 'Chest: +1 max heart!', gears: (n) => `Chest: a gear bundle, ${n} gears!` },
-      weapons: { hint: 'Cog Shot spends a cog key; Gear Wheel spends 10 gears', needGears: 'Needs 10 gears', needKey: 'Needs 1 cog key' },
+      weapons: { hint: 'Cog Shot spends a cog key; Gear Wheel spends 4 gears', needGears: 'Needs 4 gears', needKey: 'Needs 1 cog key' },
       scene: {
         one: 'That is one of five.',            // (Tick)
         others: 'Where are the others?',         // (AJ)
-        witch: 'Wherever the witch has not taken them yet.', // (Tick)
+        taken: 'Wherever she has not taken them yet.', // (Tick)
         watching: 'Someone is watching us.',     // (Tick, noticing the hooded figure on the distant tower)
         amy: 'Amy?',                             // (AJ)
         cannot: 'I cannot say.',                 // (Tick)
