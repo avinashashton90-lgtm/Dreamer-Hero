@@ -1032,7 +1032,9 @@ export const CONFIG = {
       accent: 0xff4a1c, accent2: 0xffa040, ember: 0x4a1608, // red-orange; the fog warms toward `ember` (`fogMix`)
       fogMix: 0.38, lightColor: 0xff7a2a,
       startAmmo: 8,           // Batarang ammo when the level starts (1 throw each; a blue gem gives 5)
-      fireBossHealth: 40,     // the Furnace Guardian's HP (45 → 40: the Batarang is limited now — about 3 of its hits, the rest from Fire Blast, the cogs and the wheel)
+      // The Furnace Guardian's HP. Tuned for auto-aim Batarangs (damage 1, capped ammo, ~100 throws a fight from the pillar gems and drops),
+      // the free Gear Wheel (3 every 12 s), Fire Ball reflects (8%) and the ×1.5 stagger: a competent player needs about 2 to 3 minutes.
+      fireBossHealth: 90,
       maxBatarangs: 12,       // the most Batarangs AJ can carry: blue gems are the only way to get more (nothing else ever refills them)
       // Overrides of CONFIG.part2.ride for this layout (merged in fire.js). The first 780 of the trail is
       // the first ride's shape (only one of them is ever drawn), then it carries on east and turns south
@@ -1127,8 +1129,9 @@ export const CONFIG = {
         pad: 0.5, robotRadius: 1.5, robotFlash: 0.15,
         guardianLegs: { side: 0.85, height: 1.15, radius: 0.6 },
       }, // torso sphere for cog weapons; the Batarang / fire ball keep their padded body capsule
-      // The Batarang in Part 2: 1 Batarang a throw (blue gems add them, up to `maxBatarangs`), straight the way AJ faces, out and back.
-      batarang: { damage: 1, cooldown: 0.8, speed: 38, returnSpeed: 40, range: 25, above: 1.6, forward: 16, release: 0.24, turn: 600, color: 0xffd23f, size: 0.4, prefer: 1.6 },
+      // The Batarang in Part 2: 1 Batarang a throw (blue gems add them, up to `maxBatarangs`), auto-aimed at the nearest foe in front, out and back.
+      batarang: { damage: 1, cooldown: 0.8, speed: 38, returnSpeed: 40, range: 25, above: 1.6, forward: 16, release: 0.24, turn: 600, color: 0xffd23f, size: 0.4, prefer: 1.6,
+        coneDeg: 70, homeTurn: 2.6 }, // AUTO-AIM: the nearest foe (or the Guardian) inside a forward cone of `coneDeg` within `range` — the Batarang curves toward it at `homeTurn` rad/s; nothing in the cone: straight on
       // Fire Blast (the Fire Element's ability, not before it): a ball of fire in an arc, burns for 3 s.
       fireBlast: {
         damage: 3, burn: { time: 3, dps: 1 }, cooldown: 10, speed: 24, arc: 2.6, range: 28, forward: 14, release: 0.24, size: 0.55,
@@ -1142,7 +1145,14 @@ export const CONFIG = {
         stayIn: 1.4,                                     // while the Guardian stands nobody leaves: AJ is kept this far inside the wall
         gate: { width: 9, close: 1.4, steam: 40 },       // the steam barrier at the entrance (z+): closes when the Guardian notices AJ
         notice: 22,                                      // the Guardian notices AJ within this
-        gems: { marks: [0.75, 0.5, 0.25], count: 1, ring: 19, ammo: 3 }, // three blue-gem pickups in all (one at each mark), +3 Batarangs each
+        // AJ has no melee, so he never runs dry: 3 blue gems (+`arenaGemAmmo` Batarangs each) lie by the pillars at the start and a new one
+        // appears at a random pillar every `arenaGemRespawn` s (at most `arenaGems` on the floor at once); the Gear Wheel recharges for free
+        // in the plaza (`arenaGearWheelCooldown` s, no gears); a perfect block drops one more gem (`staggerDrop`, up to 4 a fight) and
+        // at `potionMark` of the Guardian's health a green potion appears.
+        arenaGems: 3, arenaGemRespawn: 12, arenaGemAmmo: 5, arenaGemOffset: 2.2,
+        arenaGearWheelCooldown: 12,
+        staggerDrop: { max: 4, ahead: 4 },
+        potionMark: 0.5,
         ammoMin: 6, ammoMax: 10,                         // entering the plaza: the ammo kept from the ride, topped up to at least 6 and held to at most 10
         protection: 3, reviveRecover: 0.5, reviveAmmo: 6, retreat: { speed: 7, far: 0.8 },
         openTime: 1.6, pedestalTime: 2.2,
@@ -1158,7 +1168,9 @@ export const CONFIG = {
         steam: { min: 3, max: 13, windup: 1.1, duration: 1.4, length: 12, angle: 0.8, damage: 0.5, cooldown: 4 },
         // Furnace Charge: head down, a pause, a straight rush; into a pillar it stuns itself (taking extra damage).
         // Fire Ball (longer range): he fires a ball of fire from the furnace at where AJ stands; a jump clears it; 1 heart.
-        fireball: { min: 9, max: 26, windup: 0.9, speed: 15, damage: 1, radius: 1.1, clearHeight: 1.0, life: 3, cooldown: 5, size: 0.7 },
+        fireball: { min: 9, max: 26, windup: 0.9, speed: 15, damage: 1, radius: 1.1, clearHeight: 1.0, life: 3, cooldown: 5, size: 0.7,
+          splashRadius: 2.0, pillarPad: 0.25,     // bursts on a pillar or wall; AJ is only hurt inside the splash with a clear line to him
+          shieldReflectDamage: 0.08, reflectSpeed: 1.4 }, // a PERFECT block sends it back at the Guardian: 8% of his max health, then he is staggered
         charge: { min: 6, windup: 1.2, speed: 17, max: 30, stun: 3, stunDamage: 1.5, hitRadius: 2.6, damage: 1, knock: 6, cooldown: 5 },
         wheelAvoid: { range: 6, lateral: 4.2, cooldown: 4, duration: 0.55, height: 1.3 },
         hurtFlash: 0.12, deathTime: 2.4,
@@ -1253,7 +1265,7 @@ export const CONFIG = {
       grind: {
         speed: 22, maxSpeed: 30,  // grinding speed (at least this, at most maxSpeed)
         ramp: 6,                  // low rails rise from the street over this length
-        capture: 1.5, above: 0.7, // landing on a rail: within this of its line
+        capture: 2.2, above: 0.7, // landing on a rail: within this of its line
         switchTime: 0.32, switchArc: 0.9, switchStick: 0.55, // hopping across to the next rail
         hopOff: 7,                // the hop when leaving a rail (Jump or its end)
         radius: 0.11, color: 0xd8dde2, post: 0x5a4a3a, postEvery: 6, gantryEvery: 12, gantryHalf: 8.6,
@@ -1292,7 +1304,14 @@ export const CONFIG = {
       lamps: { every: 30, lat: 8.1, height: 4.2, head: 0.28, halo: 1.1, clear: 4 },
       // Steam vents on the street: stepping on one launches the horse high (a puff, a whoosh).
       vents: [{ s: 50, lat: 0 }, { s: 350, lat: 0 }, { s: 580, lat: -3 }], // (the first on the centre line, 8 before the belt deck)
-      vent: { radius: 1.6, launch: 16, cooldown: 1, catchHeight: 2.2, glow: 0xfff0d0, puff: 14, stackPuff: 5 }, // (catchHeight: a horse hopping over it up to this high is launched too; stackPuff: puffs from each of its pipe stacks)
+      // The ride's steering feel (the horse's `steering` override, only on this ride): a stick mostly pushed up never steers
+      // (`steerAngleDeadzone`: sideways must exceed this × the forward push, and `steerDeadzone` 0.15), past it steering eases in with a low
+      // `turnGain` and `steerSmoothing`, and with the stick centred it straightens back to the track at once (`straighten`, `assistBoost`× path assist).
+      steering: { steerDeadzone: 0.15, steerAngleDeadzone: 0.45, steerSmoothing: 5, straighten: 10, turnGain: 0.8, assistBoost: 2.5 },
+      // Pickups on the ride: collected within `rideMagnetRadius` of the rider; one lying within that of his lane (and up to `rideMagnetAhead` ahead,
+      // `rideMagnetBehind` back) drifts toward the lane at `rideMagnetPull` a second, so he never needs to turn round for it.
+      rideMagnetRadius: 3, rideMagnetAhead: 9, rideMagnetBehind: 1.5, rideMagnetPull: 4,
+      vent: { radius: 2.6, align: { range: 3.4, rate: 4, look: 130 }, launch: 16, cooldown: 1, catchHeight: 2.2, glow: 0xfff0d0, puff: 14, stackPuff: 5 }, // (catchHeight: a horse hopping over it up to this high is launched too; stackPuff: puffs from each of its pipe stacks)
       steam: { puffs: 70, life: 1.6, rise: 3.2, size: [0.6, 1.6], idleEvery: 1.3 }, // (warm white, lit: the look's `steam`)
       // The belt deck: a conveyor belt hanging 4 up, wall to wall (`width`), 8 past the first
       // steam vent — reached from it at any speed (a launch lands at ~66 riding, ~83 galloping,
@@ -2358,6 +2377,7 @@ export const DIALOGUE = {
       got: { shield: 'Shield unlocked!', cogKey: 'Cog key!', elixirHeal: (n) => `Green potion: +${n} heart${n > 1 ? 's' : ''}`, elixirEnergy: 'Blue potion: the horse is rested', gem: (n) => `+${n} gem${n > 1 ? 's' : ''}`, heartContainer: 'Heart container: +1 max heart!', gearBundle: (n) => `+${n} gears`, runeStone: 'Rune stone', wandPiece: 'Wand piece' },
       keysLabel: 'Cog keys', keyIcon: '🗝',
       blastUnlocked: 'Fire Blast unlocked!', blastHint: 'Tap Fire to throw a fireball — it burns!', // (only after the Fire Element is his)
+      potionAppears: 'A green potion appeared by a pillar!',
       shieldHint: 'Tap Shield just before a hit lands — a perfect block staggers the Guardian!', shieldChestHint: 'Something is locked in the chests… keep an eye out for a shield.',
       ammoOut: 'Out of gems!',
       gateSealed: 'The furnace gate is sealed!', gateOpen: 'The way out is open.',

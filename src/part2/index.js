@@ -552,6 +552,7 @@ class Part2 {
     this.horseSaved = { route: horse.route, checkpoints: horse.checkpoints, last: horse.lastCheckpoint, onCheckpoint: horse.onCheckpoint, onRespawn: horse.onRespawn };
     const track = this.rideWorld.track;
     horse.setRoute(track, rc.checkpoints.map((s) => s / track.length));
+    horse.steering = rc.steering; // (the ride's own steering feel: a dead zone, low gain, straightening back to the track)
     horse.onCheckpoint = (i) => {
       this.rideParts.flags[i - 1]?.userData.flag.material.color.setHex(CONFIG.checkpoints.reachedColor);
       ui.toast(DIALOGUE.checkpoint);
@@ -583,6 +584,7 @@ class Part2 {
 
   /** Out of the ride (to a stub, the courtyard, anywhere): back to Gearhaven's floors and sky. */
   leaveRide({ keepFire = false } = {}) {
+    this.horse.steering = null;
     const shown = !!this.rideParts?.root.visible;
     if (!keepFire && this.fire?.stage) {
       this.fire.leave(); // (out of the Fire level: its models and tints put away)

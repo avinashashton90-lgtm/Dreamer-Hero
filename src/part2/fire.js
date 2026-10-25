@@ -146,7 +146,8 @@ export class FireLevel {
     this.guardian.centre.copy(C);
     this.guardian.pillars = this.arena.userData.pillars;
     this.guardian.onNotice = () => this.#sealArena();
-    this.guardian.onMark = (i) => this.#gemRing(i);
+    this.guardian.onMark = () => this.#potion();
+    this.guardian.onStagger = () => this.#staggerDrop();
     this.guardian.onShake = (k) => p.cam.shake?.(k, 0.3);
     this.guardian.onDefeat = () => this.#defeated();
     this.#element();
@@ -288,6 +289,7 @@ export class FireLevel {
     this.guardian.group.visible = false;
     this.guardian.hide();
     this.cinematicDone = false;
+    this.arsenal.arenaMode = false;
     this.arsenal.levelOn = true; // (Cog Shot and Gear Wheel are his for the level; Fire Blast and the Shield are not until he earns them)
     if (fresh) {
       this.arsenal.shieldUnlocked = false; // (the chests are shut again)
@@ -338,6 +340,7 @@ export class FireLevel {
     if (!this.built) return;
     this.stage = null;
     this.arsenal.levelOn = false;
+    this.arsenal.arenaMode = false;
     this.ride.stop();
     this.parts.root.visible = false;
     this.arena.visible = false;
@@ -420,8 +423,9 @@ export class FireLevel {
     const p = this.p;
     const kind = this.arsenal?.shieldBlock(from, opts?.source);
     if (kind) {
-      if (kind === 'perfect' && fromGuardian && this.guardian?.alive) this.guardian.stagger(F.shield.staggerTime);
-      return false;
+      // (a Fire Ball perfectly blocked is sent back by the Guardian's own code and staggers him when it lands)
+      if (kind === 'perfect' && fromGuardian && opts?.source !== 'fireball' && this.guardian?.alive) this.guardian.stagger(F.shield.staggerTime);
+      return kind;
     }
     return p.damageHero?.(dmg, from.x, from.z, opts);
   }
@@ -554,15 +558,60 @@ export class FireLevel {
     items.add('gem', pos.clone().setY(0), { id: `drop${this.stats.drops}`, temp: true });
   }
 
-  /** A ring of gems round the plaza when the Guardian drops below one of the marks. */
-  #gemRing(i) {
-    const G = A.gems;
+  /** Where a pillar's supply gem lies: just inside it, toward the middle of the plaza. */
+  #pillarSpot(k) {
     const C = this.centre;
-    for (let k = 0; k < G.count; k++) {
-      const a = (k / G.count) * Math.PI * 2 + i * 0.4;
-      this.arenaItems.add('gem', new THREE.Vector3(C.x + Math.sin(a) * G.ring, 0, C.z + Math.cos(a) * G.ring), { id: `ring${i}_${k}`, temp: true, ammo: G.ammo });
+    const q = this.arena.userData.pillars[k % this.arena.userData.pillars.length];
+    const d = Math.hypot(q.x, q.z) || 1;
+    const off = q.r + A.arenaGemOffset;
+    return new THREE.Vector3(C.x + q.x - (q.x / d) * off, 0, C.z + q.z - (q.z / d) * off);
+  }
+
+  /** Blue gems on the floor that came from the arena's supply (the cap is `arenaGems` at once). */
+  #supplyOnFloor() {
+    return this.arenaItems.entries.filter((e) => e.type === 'gem' && e.id.startsWith('supply') && !e.taken).length;
+  }
+
+  /** One blue gem (+`arenaGemAmmo` Batarangs) at a pillar that has none yet (else any). */
+  #supplyGem() {
+    const n = this.arena.userData.pillars.length;
+    const used = new Set(this.arenaItems.entries.filter((e) => e.id.startsWith('supply') && !e.taken).map((e) => e.pillar));
+    const free = [...Array(n).keys()].filter((k) => !used.has(k));
+    const pool = free.length ? free : [...Array(n).keys()];
+    const k = pool[Math.floor(Math.random() * pool.length)];
+    this.stats.supplyGems = (this.stats.supplyGems ?? 0) + 1;
+    this.arenaItems.add('gem', this.#pillarSpot(k), { id: `supply${this.stats.supplyGems}`, temp: true, ammo: A.arenaGemAmmo }).then((e) => { e.pillar = k; });
+  }
+
+  /** The start of the fight: `arenaGems` gems by the pillars; the timer for the next one. */
+  startSupply() {
+    this.supplyT = 0;
+    this.stats.staggerDrops = 0;
+    for (let k = 0; k < A.arenaGems; k++) {
+      this.stats.supplyGems = (this.stats.supplyGems ?? 0) + 1;
+      this.arenaItems.add('gem', this.#pillarSpot(k), { id: `supply${this.stats.supplyGems}`, temp: true, ammo: A.arenaGemAmmo }).then((e) => { e.pillar = k; });
     }
-    this.p.ui.toast(FD.got.gem(G.count));
+  }
+
+  /** A perfect block opens the Guardian up: one more blue gem lands in front of AJ (up to `staggerDrop.max` a fight). */
+  #staggerDrop() {
+    const D = A.staggerDrop;
+    if ((this.stats.staggerDrops ?? 0) >= D.max || this.stage !== 'boss') return;
+    this.stats.staggerDrops = (this.stats.staggerDrops ?? 0) + 1;
+    const h = this.p.hero.position;
+    const g = this.guardian.position;
+    const dir = new THREE.Vector3(g.x - h.x, 0, g.z - h.z).normalize();
+    this.stats.supplyGems = (this.stats.supplyGems ?? 0) + 1;
+    this.arenaItems.add('gem', new THREE.Vector3(h.x + dir.x * D.ahead, 0, h.z + dir.z * D.ahead), { id: `stagger${this.stats.staggerDrops}`, temp: true, ammo: A.arenaGemAmmo });
+  }
+
+  /** At the half-way mark a green potion (+1 heart) appears at a pillar. */
+  #potion() {
+    const C = this.centre;
+    const n = this.arena.userData.pillars.length;
+    this.arenaItems.add('elixirHeal', this.#pillarSpot(Math.floor(Math.random() * n)), { id: 'arenaPotion', temp: true });
+    this.p.ui.toast(FD.potionAppears);
+    void C;
   }
 
   // --- ?debug ---------------------------------------------------------------------------------
@@ -676,6 +725,8 @@ export class FireLevel {
     horse.speed = 0;
     this.arenaItems.clear();
     this.guardian.centre.copy(C);
+    this.arsenal.arenaMode = true; // (the Gear Wheel recharges free in here)
+    this.startSupply();
     this.guardian.reset();
     this.barrier = { state: 'open', k: 0 };
     this.arena.userData.barrier.material.opacity = 0;
@@ -823,7 +874,7 @@ export class FireLevel {
     this.#animateOrb(live ? dt : 0);
     if (this.stage === 'ride') {
       this.#animateDecor(live ? dt : 0);
-      this.items.update(live && playing ? dt : 0, playing ? { pos: this.#riderPoint() } : null);
+      this.items.update(live && playing ? dt : 0, playing ? { pos: this.#riderPoint(), heading: p.horse.heading, ride: p.horse.mounted ? this.cfg : null } : null);
       this.foes.update(live ? dt : 0, { playing });
       this.#updateGate(live ? dt : 0);
       if (playing && live) {
@@ -845,6 +896,14 @@ export class FireLevel {
     const p = this.p;
     const g = this.guardian;
     this.arenaItems.update(dt > 0 && playing ? dt : 0, playing ? { pos: p.hero.position.clone().setY(p.hero.position.y + 0.9) } : null);
+    if (this.stage === 'boss' && playing && dt > 0 && !this.bossDown && this.guardian.alive && p.hero.life === 'alive') {
+      // (the supply: a new blue gem at a random pillar every `arenaGemRespawn` s, at most `arenaGems` on the floor)
+      this.supplyT = (this.supplyT ?? 0) + dt;
+      if (this.supplyT >= A.arenaGemRespawn) {
+        this.supplyT = 0;
+        if (this.#supplyOnFloor() < A.arenaGems) this.#supplyGem();
+      }
+    }
     this.foes.update(0, { playing: false });
     g.update(dt > 0 ? dt : 0, playing);
     // the steam barrier

@@ -315,13 +315,24 @@ const place = (s, lat = 0, { speed = CONFIG.horse.maxSpeed, y = 0, vy = 0 } = {}
     check(caught, `${name} into the vent before the upper rail: it lands on the rail and grinds`);
     ride.stop();
   }
+  // Soft alignment: a roughly aligned approach (2.4 off the vent's line, inside its widened catch zone) is eased onto the rail in the air
+  {
+    ride.stop();
+    ride.stats.aligned = 0;
+    place(v1.s - 12, v1.lat + 2.4);
+    held = { moveX: 0, moveY: 1, jumpPressed: false, gallop: false };
+    let caught = false;
+    for (let i = 0; i < 300 && !caught; i++) { await frame(); caught = ride.grinding && ride.grind.rail === u; }
+    check(caught && R.vent.radius >= 2.5 && R.grind.capture >= 2 && (ride.stats.aligned ?? 0) > 0, `steam push-ups: 2.4 off the vent's line (catch zone ${R.vent.radius}, rail capture ${R.grind.capture}) it still lands on the rail — eased across in the air for ${(ride.stats.aligned ?? 0).toFixed(2)} s`);
+    ride.stop();
+  }
   // Missing it (launched off to the side): down on the street, no harm — and the street is slower.
   const h0 = lives.hearts;
   place(v1.s - 3, v1.lat, { y: 0 });
   held = { moveX: 0, moveY: 1, jumpPressed: false, gallop: false };
   await frame(); await frame();
   // (the launch has happened: shove it sideways out from under the rail while it's in the air)
-  for (let i = 0; i < 12; i++) { const n = near(); horse.position.x += -n.tz * 0.25; horse.position.z += n.tx * 0.25; await frame(); }
+  for (let i = 0; i < 16; i++) { const n = near(); horse.position.x += -n.tz * 0.4; horse.position.z += n.tx * 0.4; await frame(); } // (well past the soft alignment's reach)
   let landedStreet = false, caught = false;
   for (let i = 0; i < 200 && !landedStreet; i++) { await frame(); if (ride.grinding) caught = true; landedStreet = horse.grounded && horse.position.y < 0.05; }
   await run(1);
@@ -541,6 +552,45 @@ const place = (s, lat = 0, { speed = CONFIG.horse.maxSpeed, y = 0, vy = 0 } = {}
   check(!parts.rails.userData.kit && parts.rails.userData.rails.length === R.rails.length && !parts.factory.userData.kit && parts.conveyors.every((c) => !c.model.userData.kit) && parts.decks.every((d) => !d.model.userData.kit) && !parts.pickups.userData.kit && !parts.skyline.userData.kit && parts.saws.length === R.saws.length,
     'the kit files failing: the placeholder rails (tubes), conveyors, deck, gears and skyline blocks instead — nothing missing');
   forgetKits();
+}
+
+// The ride's steering feel and pickup assist (the horse's `steering` override, rideMagnet*): both only on the ride.
+{
+  await levels.load('part2', { start: 'ride' });
+  await run(0.5);
+  check(horse.steering === R.steering && R.steering.steerDeadzone === 0.15, 'on the ride the horse steers with the ride\'s own feel (dead zone 0.15, low gain, straightens back)');
+  // a thumb drifting sideways while pushing up never steers: no wobble
+  place(8, 0);
+  let maxSteer = 0;
+  held = { moveX: 0, moveY: 1, jumpPressed: false, gallop: true };
+  for (let i = 0; i < 120; i++) { held.moveX = 0.12 * Math.sin(i / 7) + 0.18 * (i % 40 < 20 ? 1 : -1); await frame(); maxSteer = Math.max(maxSteer, Math.abs(horse.steer)); }
+  check(maxSteer < 0.01, `a gallop with the thumb wobbling sideways (up to 0.3) never steers (${maxSteer.toFixed(3)})`);
+  // a real push steers, softly (gain), and letting go straightens it back to the track
+  place(8, 0);
+  held = { moveX: 1, moveY: 0.3, jumpPressed: false, gallop: false };
+  let peak = 0;
+  for (let i = 0; i < 40; i++) { await frame(); peak = Math.max(peak, horse.steer); }
+  held = { moveX: 0, moveY: 1, jumpPressed: false, gallop: false };
+  let settled = Infinity;
+  for (let i = 0; i < 90; i++) { await frame(); if (Math.abs(horse.steer) < 0.05) { settled = i * dt; break; } }
+  check(peak > 0.3 && peak <= R.steering.turnGain + 0.01 && settled < 0.8, `a real push steers (peak ${peak.toFixed(2)} ≤ gain ${R.steering.turnGain}) and with the stick centred it straightens within ${settled.toFixed(2)} s`);
+  // pickups: collected within rideMagnetRadius of the lane, and drawn toward it
+  ride.reset();
+  const lane = (g) => track.nearest(g.pos.x, g.pos.z, 20);
+  const row = ride.gears.filter((g) => lane(g).s >= R.gears.rows[0][0] - 1 && lane(g).s <= R.gears.rows[0][1] + 1 && Math.abs(lane(g).lateral) < 0.5);
+  const g1 = row[0], g2 = row[row.length - 1];
+  const n1 = lane(g1);
+  place(n1.s - 14, 2.6);
+  held = { moveX: 0, moveY: 1, jumpPressed: false, gallop: false };
+  const x0 = g1.pos.x, z0 = g1.pos.z;
+  let drawn = 0;
+  for (let i = 0; i < 160 && !g1.taken; i++) { await frame(); drawn = Math.max(drawn, Math.hypot(g1.pos.x - x0, g1.pos.z - z0)); }
+  check(g1.taken && R.rideMagnetRadius === 3 && R.gears.reach < 3, `a gear 2.6 to the side of the rider's lane (beyond its old ${R.gears.reach} reach) is drawn toward it (${drawn.toFixed(1)}) and collected`);
+  const n2 = lane(g2);
+  place(n2.s - 14, 3.9);
+  const x2 = g2.pos.x, z2 = g2.pos.z;
+  for (let i = 0; i < 80; i++) await frame();
+  check(!g2.taken && Math.hypot(g2.pos.x - x2, g2.pos.z - z2) < 0.01, 'one 3.9 away from his lane (outside the 3 unit radius) is left alone');
 }
 
 console.log(failed ? 'RIDE TEST FAILED' : 'ride test passed');

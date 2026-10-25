@@ -18,6 +18,7 @@ const F = CONFIG.part2.fire;
 const BT = F.batarang;
 const FB = F.fireBlast;
 const SH = F.shield;
+const A = F.arena;
 const CS = F.weapons.cogShot;
 const GW = F.weapons.gearWheel;
 const TH = CONFIG.abilities.throw;
@@ -141,6 +142,7 @@ export class Arsenal {
     this.shieldRemaining = 0; // s of the raised shield left
     this.shieldAge = 0; // s since it was raised (the perfect-block window)
     this.levelOn = false; // (in the Fire level: Cog Shot and Gear Wheel are his)
+    this.arenaMode = false; // (in the Guardian's plaza: the Gear Wheel is free and recharges on a long cooldown)
     this.keys = () => 0; // (the cog keys on hand: set by the level)
     this.spendKey = () => {};
     this.gearStock = 0; // (brass gears on hand for Gear Wheel shots; the level's gear counter, for the rewards, is separate)
@@ -201,7 +203,7 @@ export class Arsenal {
   usesLeft(name) {
     if (name === 'batarang') return this.ammo;
     if (name === 'cogShot') return Math.floor(this.keys() / CS.keys);
-    if (name === 'gearWheel') return Math.floor(this.gearStock / GW.gears);
+    if (name === 'gearWheel') return this.arenaMode ? null : Math.floor(this.gearStock / GW.gears);
     return null;
   }
 
@@ -210,13 +212,14 @@ export class Arsenal {
     if (name === 'fireBlast') return this.cooldowns.fireBlast / FB.cooldown;
     if (name === 'shield') return this.shieldRemaining > 0 ? 0 : this.cooldowns.shield / SH.cooldown;
     if (name === 'cogShot') return this.cog?.phase === 'fly' ? 1 : this.cooldowns.cogShot / CS.cooldown;
-    if (name === 'gearWheel') return this.wheel ? 1 : this.cooldowns.gearWheel / GW.cooldown;
+    if (name === 'gearWheel') return this.wheel ? 1 : this.cooldowns.gearWheel / this.#wheelCooldown();
     return 0;
   }
 
   canAfford(name) {
     if (this.hero.life && this.hero.life !== 'alive') return false;
     if (name === 'batarang') return this.ammo > 0;
+    if (name === 'gearWheel' && this.arenaMode) return this.levelOn;
     if (name === 'cogShot' || name === 'gearWheel') return this.usesLeft(name) > 0;
     return this.has(name);
   }
@@ -238,7 +241,7 @@ export class Arsenal {
     if (this.cooldowns[name] > 0) return 'cooldown';
     if (name === 'batarang' && this.ammo <= 0) return 'gems';
     if (name === 'cogShot' && this.usesLeft(name) <= 0) return 'keys';
-    if (name === 'gearWheel' && this.usesLeft(name) <= 0) return 'gears';
+    if (name === 'gearWheel' && !this.arenaMode && this.usesLeft(name) <= 0) return 'gears';
     return null;
   }
 
@@ -268,14 +271,19 @@ export class Arsenal {
     }
     if (name === 'batarang') this.ammo--;
     else if (name === 'cogShot') this.spendKey(CS.keys);
-    else if (name === 'gearWheel') this.gearStock -= GW.gears;
-    this.cooldowns[name] = { batarang: BT.cooldown, fireBlast: FB.cooldown, cogShot: CS.cooldown, gearWheel: GW.cooldown }[name];
+    else if (name === 'gearWheel' && !this.arenaMode) this.gearStock -= GW.gears;
+    this.cooldowns[name] = { batarang: BT.cooldown, fireBlast: FB.cooldown, cogShot: CS.cooldown, gearWheel: this.#wheelCooldown() }[name];
     // (the Batarang is not aimed: it flies straight the way AJ faces; the rest still lock on to the nearest foe)
     this.pending = { name, t: 0, target: name === 'batarang' ? null : this.pick() };
     this.hero.throwAnim = { kind: 'throw', t: 0 };
     this.#face(this.pending.target);
     this.onEvent?.('use', { name });
     return true;
+  }
+
+  /** The Gear Wheel's cooldown: short on the ride (it costs gears), long in the Guardian's plaza (it costs nothing there). */
+  #wheelCooldown() {
+    return this.arenaMode ? A.arenaGearWheelCooldown : GW.cooldown;
   }
 
   /** A new game or a respawn: nothing in flight, cooldowns clear (the unlock and the gems stay). */
@@ -313,6 +321,29 @@ export class Arsenal {
   #live() {
     const list = this.targets?.() ?? [];
     return list.filter((t) => t && t.position);
+  }
+
+  /**
+   * The Batarang's auto-aim: the nearest living foe (or the Guardian) inside a forward cone of `coneDeg` degrees within `range` of its
+   * edge — null when nothing is in the cone (the throw then flies straight).
+   */
+  #coneTarget() {
+    const { at, fwd } = this.#origin();
+    const half = (BT.coneDeg * Math.PI) / 360;
+    const cos = Math.cos(half);
+    let best = null;
+    let bd = Infinity;
+    for (const t of this.#live()) {
+      if (!this.#valid(t)) continue;
+      const dx = t.position.x - at.x;
+      const dz = t.position.z - at.z;
+      const flat = Math.hypot(dx, dz);
+      if (flat < 1e-3) continue;
+      if ((dx * fwd.x + dz * fwd.z) / flat < cos) continue;
+      const d = Math.max(0, flat - t.radius);
+      if (d <= BT.range && d < bd) (bd = d), (best = t);
+    }
+    return best;
   }
 
   /** The nearest living foe within range in any direction, preferring ones ahead (one behind counts `prefer`× as far). */
@@ -439,7 +470,7 @@ export class Arsenal {
   #throwBatarang(hand) {
     const { fwd } = this.#origin();
     const dir = fwd.clone();
-    this.proj = { phase: 'out', pos: hand.clone(), dir, target: null, age: 0, travelled: 0, hit: new Set(), back: new Set() };
+    this.proj = { phase: 'out', pos: hand.clone(), dir, target: this.#coneTarget(), age: 0, travelled: 0, hit: new Set(), back: new Set() };
     this.stats.throws++;
     if (this.model) {
       this.model.visible = true;
@@ -454,6 +485,15 @@ export class Arsenal {
     const rider = this.horse.mounted ? Math.abs(this.horse.speed) : this.hero.moveSpeed ?? 0;
     if (b.phase === 'out') {
       const step = (BT.speed + rider * 0.3) * dt;
+      // (auto-aim: it curves a little toward the foe it picked at the throw; with none it flies straight on)
+      if (this.#valid(b.target)) {
+        const want = this.#centre(b.target).sub(b.pos);
+        if (want.lengthSq() > 1e-4) {
+          want.normalize();
+          const turn = Math.min(1, (BT.homeTurn * dt) / Math.max(1e-3, Math.acos(Math.min(1, Math.max(-1, b.dir.dot(want))))));
+          b.dir.lerp(want, turn).normalize();
+        }
+      }
       this.#sweep(b, step, b.hit, () => (b.phase = 'back'));
       b.travelled += step;
       if (b.phase === 'out' && b.travelled >= BT.range) b.phase = 'back';

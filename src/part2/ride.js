@@ -7,6 +7,7 @@ import {
   trackPoint, railHeight,
 } from './rideModel.js';
 import { loadSawModel, spinGearDecor } from './props.js';
+import { lanePull } from './magnet.js';
 import { loadClockTowerModel } from './clockTower.js';
 import { loadSkylineModel, trailSpots } from './skyline.js';
 
@@ -298,6 +299,7 @@ export class Ride {
     this.push = null;
     this.hzPrev = null; // where the horse was last frame (the hazards' swept test)
     this.finished = false;
+    this.alignRail = null;
     this.count = 0;
     this.stickHeld = false;
     this.sparks = [];
@@ -309,7 +311,7 @@ export class Ride {
     this.world.coyote = null;
     this.streak = { n: 0, at: -Infinity }; // gears picked up in a quick row: each a little higher
     this.loopsNow = new Set(); // (the loops kept running this frame: tests)
-    this.gears = this.parts.gearSpots.map((p) => ({ pos: p.clone(), taken: false, pop: 0 }));
+    this.gears = this.parts.gearSpots.map((p) => ({ pos: p.clone(), home: p.clone(), taken: false, pop: 0 }));
     for (const v of this.parts.vents) v.wait = 0;
     for (const h of this.parts.hammers) h.wait = 0;
     for (const sw of this.parts.saws) sw.wait = 0;
@@ -382,11 +384,14 @@ export class Ride {
     this.stats.maxY = Math.max(this.stats.maxY, horse.position.y);
     if (!this.grind) this.#deckLanding();
     if (!this.grind) this.#tryRail();
-    if (!this.grind) this.#vents(dt);
+    if (!this.grind) {
+      this.#vents(dt);
+      this.#alignFlight(dt);
+    }
     this.#hammers(dt);
     this.#saws(dt);
     this.hzPrev = horse.position.clone();
-    this.#gears();
+    this.#gears(dt);
     this.#machineLoops();
     if (!this.finished && this.s >= R.door.s - R.door.reach) {
       this.finished = true;
@@ -537,11 +542,44 @@ export class Ride {
       horse.velocity.y = R.vent.launch;
       horse.grounded = false;
       this.stats.launches++;
+      this.#pickRailToAlign();
       this.sound?.play('steam_vent', { position: v.at });
       this.sound?.play('steam_launch', { position: v.at });
       this.#puff(v.at, R.vent.puff, 1.6);
       for (const top of this.parts.factory.userData.ventStacks[this.parts.vents.indexOf(v)] ?? []) this.#puff(top, R.vent.stackPuff, 0.4);
     }
+  }
+
+  /** After a launch: the upper rail ahead (if there is one within `vent.align.look`) that the flight is gently steered toward. */
+  #pickRailToAlign() {
+    const n = this.track.nearest(this.horse.position.x, this.horse.position.z, R.wall.offset + 4);
+    this.alignRail = null;
+    if (!n) return;
+    const AL = R.vent.align;
+    this.alignRail = R.rails.find((r) => r.upper && r.s[0] - n.s > -2 && r.s[0] - n.s <= AL.look) ?? null;
+  }
+
+  /** In the air after a steam launch: a soft sideways pull toward the upper rail's line (within `align.range` of it), so a roughly aligned approach lands on it. */
+  #alignFlight(dt) {
+    const { horse } = this;
+    const rail = this.alignRail;
+    if (!rail) return;
+    if (horse.grounded || horse.mode !== 'riding' || dt <= 0) {
+      if (horse.grounded && horse.position.y < 0.5) this.alignRail = null;
+      return;
+    }
+    const n = this.track.nearest(horse.position.x, horse.position.z, R.wall.offset + 4);
+    if (!n || n.s > rail.s[1]) {
+      this.alignRail = null;
+      return;
+    }
+    const AL = R.vent.align;
+    const d = rail.lat - n.lateral;
+    if (Math.abs(d) > AL.range || n.s < rail.s[0] - AL.look) return;
+    const move = Math.sign(d) * Math.min(Math.abs(d), AL.rate * dt);
+    horse.position.x += -n.tz * move; // (the trail's lateral axis: + = to the left of its direction)
+    horse.position.z += n.tx * move;
+    this.stats.aligned = (this.stats.aligned ?? 0) + dt;
   }
 
   /**
@@ -654,9 +692,16 @@ export class Ride {
 
   // --- gears ---------------------------------------------------------------------
 
-  #gears() {
+  #gears(dt) {
     const p = this.horse.collectPoint;
-    for (const g of this.gears) if (!g.taken && g.pos.distanceTo(p) <= R.gears.reach) this.#take(g);
+    const riding = this.horse.mode === 'riding' && dt > 0;
+    // (on the ride a gear in the rider's lane drifts toward it; he picks it up within `rideMagnetRadius`)
+    const reach = riding ? Math.max(R.gears.reach, R.rideMagnetRadius) : R.gears.reach;
+    for (const g of this.gears) {
+      if (g.taken) continue;
+      if (riding && g.pos.distanceTo(p) < R.rideMagnetRadius * 3) lanePull(g.pos, p, this.horse.heading, R, dt);
+      if (g.pos.distanceTo(p) <= reach) this.#take(g);
+    }
   }
 
   #take(g) {

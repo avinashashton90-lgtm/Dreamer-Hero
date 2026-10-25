@@ -220,11 +220,9 @@ export class Guardian {
       }
     }
     this.stats.hits++;
-    for (const [i, share] of A.gems.marks.entries()) {
-      if (!this.marksDone.has(i) && this.hp / this.maxHp <= share) {
-        this.marksDone.add(i);
-        this.onMark?.(i);
-      }
+    if (!this.marksDone.has(0) && this.hp / this.maxHp <= A.potionMark) {
+      this.marksDone.add(0);
+      this.onMark?.(0); // (the green potion at the half-way mark)
     }
     if (this.hp <= 0) this.#die();
     return dmg;
@@ -239,6 +237,7 @@ export class Guardian {
     this.lane.visible = false;
     this.anim?.play('hit', { once: true, restart: true });
     this.stats.parries = (this.stats.parries ?? 0) + 1;
+    this.onStagger?.();
     return true;
   }
 
@@ -413,7 +412,7 @@ export class Guardian {
           const sp = 7 + Math.random() * 5;
           this.fx.emit(this.position.clone().setY(B.height * 0.62).addScaledVector(new THREE.Vector3(Math.sin(this.heading), 0, Math.cos(this.heading)), 1.5), new THREE.Vector3(Math.sin(a) * sp, 0.4 + Math.random(), Math.cos(a) * sp), { life: 0.9, size: 0.55, color: 0xffe2c4, g: -0.5 });
         }
-        if (!this.steamHit && this.#inCone(hero.position)) {
+        if (!this.steamHit && this.#inCone(hero.position) && !this.#blockedByPillar(this.position, hero.position)) { // (a pillar between them stops the steam)
           this.steamHit = true;
           this.hitHero?.(S.damage, this.position, { source: 'steam', knockback: false });
         }
@@ -641,27 +640,96 @@ export class Guardian {
     this.sound?.play('fire_blast_cast', { position: from });
   }
 
-  /** The fire balls in flight: they hit AJ on the ground-level (a jump clears them), or burst on the floor / wall. */
+  /** The first pillar between `a` and `b` (a 2D line of sight; the pillars are tall), or null. */
+  #blockedByPillar(a, b, pad = 0) {
+    for (const p of this.pillars) {
+      const cx = this.centre.x + p.x;
+      const cz = this.centre.z + p.z;
+      const dx = b.x - a.x;
+      const dz = b.z - a.z;
+      const len2 = dx * dx + dz * dz;
+      const t = len2 > 1e-6 ? Math.max(0, Math.min(1, ((cx - a.x) * dx + (cz - a.z) * dz) / len2)) : 0;
+      if (Math.hypot(a.x + dx * t - cx, a.z + dz * t - cz) < p.r + pad && Math.min(a.y, b.y) < p.top) return { x: cx, z: cz, r: p.r };
+    }
+    return null;
+  }
+
+  /** A fire ball bursts: sparks, a sound and — when `splash` — a small blast that hurts AJ only with a clear line to him. */
+  #burstBall(b, at, splash = true) {
+    const F2 = B.fireball;
+    this.fx.burst(at, 14, { speed: 4, life: 0.5, size: 0.16, up: 1.5 });
+    this.sound?.play('fire_blast_hit', { position: at });
+    b.mesh.visible = false;
+    if (!splash || b.reflected) return;
+    const hero = this.hero;
+    const chest = hero.position.clone().setY(hero.position.y + 0.9);
+    const clear = !this.#blockedByPillar(at, chest);
+    if (clear && Math.hypot(at.x - hero.position.x, at.z - hero.position.z) < F2.splashRadius && hero.position.y < F2.clearHeight + 0.2) {
+      this.hitHero?.(F2.damage, at, { source: 'fireball' });
+    }
+  }
+
+  /**
+   * The fire balls in flight: they hit AJ at ground level (a jump clears them) when nothing stands between; burst on a pillar, the wall or
+   * the floor; a perfectly blocked one flies back (`reflected`) and hits the Guardian.
+   */
   #updateBalls(dt) {
     const F2 = B.fireball;
     const hero = this.hero;
     for (let i = this.balls.length - 1; i >= 0; i--) {
       const b = this.balls[i];
+      const prev = b.pos.clone();
       b.age += dt;
       b.pos.addScaledVector(b.vel, dt);
       b.mesh.position.copy(b.pos);
       this.fx.flame(b.pos, 0.5);
+      const out = b.age > F2.life || b.pos.y < 0.05 || Math.hypot(b.pos.x - this.centre.x, b.pos.z - this.centre.z) > A.wall;
+      // a pillar on the way (swept, so a fast ball never skips it): it bursts against it
+      const pillar = this.#blockedByPillar(prev, b.pos, F2.size * 0.5 + F2.pillarPad);
+      if (pillar) {
+        const away = new THREE.Vector3(prev.x - pillar.x, 0, prev.z - pillar.z).normalize();
+        const at = new THREE.Vector3(pillar.x + away.x * (pillar.r + F2.pillarPad), Math.min(b.pos.y, B.height), pillar.z + away.z * (pillar.r + F2.pillarPad));
+        this.stats.pillarBursts = (this.stats.pillarBursts ?? 0) + 1;
+        this.#burstBall(b, at);
+        this.balls.splice(i, 1);
+        continue;
+      }
+      if (b.reflected) {
+        // back at the Guardian: his body is the target
+        const d = Math.hypot(b.pos.x - this.position.x, b.pos.z - this.position.z);
+        if (d < B.radius + F2.size && b.pos.y < B.height) {
+          this.stats.reflected = (this.stats.reflected ?? 0) + 1;
+          this.takeHit(this.maxHp * F2.shieldReflectDamage, 'reflect');
+          this.stagger(CONFIG.part2.fire.shield.staggerTime);
+          this.#burstBall(b, b.pos.clone(), false);
+          this.balls.splice(i, 1);
+          continue;
+        }
+        if (out) {
+          this.#burstBall(b, b.pos.clone(), false);
+          this.balls.splice(i, 1);
+        }
+        continue;
+      }
       const chest = hero.position.y + 0.9;
       const near = Math.hypot(b.pos.x - hero.position.x, b.pos.z - hero.position.z) < F2.radius;
-      const hit = near && Math.abs(b.pos.y - chest) < F2.clearHeight && hero.position.y < F2.clearHeight + 0.2;
-      const out = b.age > F2.life || b.pos.y < 0.05 || Math.hypot(b.pos.x - this.centre.x, b.pos.z - this.centre.z) > A.wall;
+      const hit = near && Math.abs(b.pos.y - chest) < F2.clearHeight && hero.position.y < F2.clearHeight + 0.2
+        && !this.#blockedByPillar(b.pos, new THREE.Vector3(hero.position.x, chest, hero.position.z));
       if (hit) {
-        this.hitHero?.(F2.damage, b.pos, { source: 'fireball' });
+        const res = this.hitHero?.(F2.damage, b.pos, { source: 'fireball' });
         this.sound?.play('fire_blast_hit', { position: b.pos });
+        if (res === 'perfect') {
+          // a perfect block: it flies straight back at the Guardian's chest
+          b.reflected = true;
+          b.age = 0;
+          const to = new THREE.Vector3(this.position.x, B.height * B.glow.furnace.up, this.position.z).sub(b.pos).normalize();
+          b.vel = to.multiplyScalar(F2.speed * F2.reflectSpeed);
+          this.fx.burst(b.pos, 22, { speed: 6, life: 0.4, size: 0.2, color: 0xfff2c0, up: 1 }); // (the clash flash)
+          continue;
+        }
       }
       if (hit || out) {
-        this.fx.burst(b.pos, 14, { speed: 4, life: 0.5, size: 0.16, up: 1.5 });
-        b.mesh.visible = false;
+        this.#burstBall(b, b.pos.clone(), false);
         this.balls.splice(i, 1);
       }
     }

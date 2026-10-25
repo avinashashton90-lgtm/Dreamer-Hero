@@ -472,7 +472,7 @@ const items0 = () => { fire.items.restore(null); fire.arsenal.clear(); fire.arse
   const ar = fire.arsenal, f = fire.foes, GW = F.weapons.gearWheel;
   const loops = [];
   p2.sound.manager = { setLoop: (key, name, o) => loops.push({ key, name, ...o }), playSound() {} };
-  check(GW.gears === 6 && F.weapons.cogShot.keys === 1 && F.fireBlast.cooldown === 10 && F.fireBossHealth === 40 && F.maxBatarangs === 12, `the numbers: Gear Wheel ${GW.gears} gears, Cog Shot 1 key, Fire Blast ${F.fireBlast.cooldown} s, the Guardian ${F.fireBossHealth} HP`);
+  check(GW.gears === 6 && F.weapons.cogShot.keys === 1 && F.fireBlast.cooldown === 10 && F.fireBossHealth === 90 && F.maxBatarangs === 12, `the numbers: Gear Wheel ${GW.gears} gears, Cog Shot 1 key, Fire Blast ${F.fireBlast.cooldown} s, the Guardian ${F.fireBossHealth} HP`);
   // the gear counter: only the count, no fraction; ticks as marks on a bar
   await run(0.3);
   check(ui.gears && ui.gears.showTotal === false && ui.gears.total === ride.total && ui.gears.tiers.length === 3 && ride.total >= 24 && ride.total <= 40, `the gear counter shows only the count (${ui.gears?.count}); the bar scales to the level's ${ride.total} gears with ${ui.gears?.tiers.length} reward marks`);
@@ -716,7 +716,7 @@ const rel = (v) => new THREE.Vector3(C.x + v[0], 0, C.z + v[1]);
   await run(1);
   check(p2.at === 'fireBoss' && fire.stage === 'boss' && !hero.riding && horse.mode === 'idle' && hero.world === p2.world && fire.arena.visible && !fire.parts.root.visible && state.is(STATES.PLAY) && ui.quest === FD.questBoss,
     `the furnace gate leads into the plaza: AJ on foot, the horse waiting, "${ui.quest}"`);
-  check(Math.abs(hero.position.x - C.x - A.spawn[0]) < 1 && Math.abs(hero.position.z - C.z - A.spawn[1]) < 1 && G.alive && G.state === 'idle' && G.hp === F.fireBossHealth && F.fireBossHealth === 40, `AJ enters at the plaza's edge; the Guardian waits in the middle with ${G.hp} HP (fireBossHealth)`);
+  check(Math.abs(hero.position.x - C.x - A.spawn[0]) < 1 && Math.abs(hero.position.z - C.z - A.spawn[1]) < 1 && G.alive && G.state === 'idle' && G.hp === F.fireBossHealth && F.fireBossHealth === 90, `AJ enters at the plaza's edge; the Guardian waits in the middle with ${G.hp} HP (fireBossHealth)`);
   const gm = G.model;
   const box = new THREE.Box3().setFromObject(gm, true);
   check(Math.abs(box.max.y - box.min.y - B.height) < B.height * 0.1 && G.mats.length > 0 && G.mats.every((m) => m.emissive && m.emissive.r > m.emissive.g && m.emissive.g > m.emissive.b && m.emissiveIntensity > 0) && !!G.furnace.parent, `the Guardian: George, ${(box.max.y - box.min.y).toFixed(1)} tall, tinted hot red-orange (${G.mats.length} materials of his own) with a glowing chest furnace`);
@@ -794,8 +794,8 @@ const rel = (v) => new THREE.Vector3(C.x + v[0], 0, C.z + v[1]);
     wheelImpact ||= ar.fx.impacts.length > 0;
     return wheelStarted && !ar.wheel;
   });
-  check(wheelUsed && wheelStarted && G.hp <= hpWheel - F.weapons.gearWheel.damage && wheelStopped && !wheelBounced && ar.gearStock === 0 && (G.stats.wheelDodges ?? 0) === dodgesBefore + 1,
-    `the Gear Wheel hits the Guardian at its legs/body, damages it, then drops and stops (no bounce); the Guardian makes one timely dodge`);
+  check(wheelUsed && wheelStarted && G.hp <= hpWheel - F.weapons.gearWheel.damage && wheelStopped && !wheelBounced && ar.gearStock === F.weapons.gearWheel.gears && (G.stats.wheelDodges ?? 0) === dodgesBefore + 1,
+    `the Gear Wheel hits the Guardian at its legs/body, damages it, then drops and stops (no bounce; free in the plaza, the gears stay); the Guardian makes one timely dodge`);
   check(wheelImpact && ui.numbers.slice(numbersBeforeWheel).some((n) => n.text === '-3'),
     'the boss impact shows a "-3" damage popup');
   ar.clear();
@@ -901,24 +901,57 @@ const rel = (v) => new THREE.Vector3(C.x + v[0], 0, C.z + v[1]);
   check(unchanged && G.regenerating && Math.abs(regen - expect) < 0.12 && ui.boss?.regen, `he regenerates only after ${AR.bossRegenDelay} s without a hit, ${AR.bossRegenPercentPerSec}% of his health a second (+${regen.toFixed(2)} in 1 s), the bar pulsing`);
   G.takeHit(1);
   check(!G.regenerating && G.sinceHit === 0, 'any hit stops it at once');
-  // Gem rings at the HP marks
-  await run(0.1); // (the earlier rings' pickups finish loading)
-  prep(); guardAt([0, -7]); heroAt([0, 14]); G.state = 'recover'; G.t = -999;
-  const rings0 = fire.arenaItems.entries.filter((e) => e.temp).length;
-  G.hp = G.maxHp * A.gems.marks[0] + 0.5;
+  // The arena's supply: 3 blue gems by the pillars, a new one every 12 s (max 3 on the floor), the free Gear Wheel, the stagger drops, the potion at 50%
+  fire.arenaItems.clear();
+  fire.stats.supplyGems = 0;
+  fire.startSupply();
+  await run(0.4);
+  G.state = 'recover'; G.t = -9999; G.cool = { stomp: 99, steam: 99, charge: 99, fireball: 99 }; G.marksDone.clear(); G.hp = G.maxHp;
+  hero.puppet(rel([0, 16]), Math.PI, 0); hero.resetStatus?.();
+  const sup = () => fire.arenaItems.entries.filter((e) => e.id.startsWith('supply') && !e.taken);
+  const pils = fire.guardian.pillars;
+  const nearPillar = (e) => pils.some((q) => Math.hypot(e.pos.x - (C.x + q.x), e.pos.z - (C.z + q.z)) <= q.r + A.arenaGemOffset + 0.5);
+  check(sup().length === A.arenaGems && A.arenaGems === 3 && sup().every((e) => e.ammo === A.arenaGemAmmo && A.arenaGemAmmo === 5 && nearPillar(e)), `the fight starts with ${sup().length} blue gems by the pillars, +${A.arenaGemAmmo} Batarangs each`);
+  fire.arsenal.ammo = 4;
+  const gem1 = sup()[0];
+  hero.puppet(gem1.pos.clone().add(new THREE.Vector3(1.8, 0, 0)), 0, 0);
+  await run(1);
+  const stays = !gem1.taken;
+  hero.puppet(gem1.pos.clone(), 0, 0);
+  await run(0.3);
+  check(stays && gem1.taken && fire.arsenal.ammo === 9, `a supply gem stays put until AJ walks into it, then +5 (4 → ${fire.arsenal.ammo})`);
+  hero.puppet(rel([0, 16]), Math.PI, 0);
+  check(sup().length === 2, 'two are left on the floor');
+  fire.supplyT = 0;
+  await run(A.arenaGemRespawn + 0.6);
+  check(sup().length === 3, `${A.arenaGemRespawn} s later a new one appears at a random pillar (3 on the floor)`);
+  await run(A.arenaGemRespawn * 2 + 0.6);
+  check(sup().length === 3, 'never more than 3 on the floor at once');
+  // the Gear Wheel recharges free in the plaza
+  const arA = fire.arsenal;
+  arA.gearStock = 0; arA.cooldowns.gearWheel = 0; arA.clear();
+  const wheelFree = arA.canAfford('gearWheel') && arA.usesLeft('gearWheel') === null && arA.use('gearWheel');
+  await run(0.5);
+  check(wheelFree && arA.gearStock === 0 && arA.cooldowns.gearWheel > A.arenaGearWheelCooldown - 1.5 && A.arenaGearWheelCooldown === 12, `the Gear Wheel is free in the plaza (no gears) and recharges in ${A.arenaGearWheelCooldown} s (${arA.cooldowns.gearWheel.toFixed(1)} left)`);
+  arA.clear();
+  // a staggered Guardian drops a gem (up to 4 a fight)
+  for (let k = 0; k < 6; k++) { G.state = 'recover'; G.stagger(2); }
+  await run(0.2);
+  const drops = fire.arenaItems.entries.filter((e) => e.id.startsWith('stagger'));
+  check(drops.length === A.staggerDrop.max && A.staggerDrop.max === 4 && drops.every((e) => e.ammo === A.arenaGemAmmo), `a stagger drops a blue gem, up to ${A.staggerDrop.max} in a fight (${drops.length} after six)`);
+  // the green potion at half health
+  G.state = 'recover'; G.t = -9999;
+  fire.arenaItems.entries.filter((e) => e.id === 'arenaPotion').forEach((e) => { e.taken = true; e.model.visible = false; }); // (an earlier one, if any)
+  hero.puppet(rel([0, 16]), Math.PI, 0);
+  lives.setHearts(3);
+  G.hp = G.maxHp * A.potionMark + 0.5;
   G.takeHit(1);
   await run(0.1);
-  check(fire.arenaItems.entries.filter((e) => e.temp).length === rings0 + A.gems.count && fire.arsenal.ammo > 0, `a ring of ${A.gems.count} gems appears round the plaza as he drops below ${A.gems.marks[0] * 100}%`);
-  const ringGem = fire.arenaItems.entries.find((e) => e.temp && !e.taken);
-  fire.arsenal.ammo = 4;
-  const am1 = fire.arsenal.ammo;
-  // nothing pulls it in: 1.8 away it stays put, however long AJ stands there; walking into it (within 1.5) takes it
-  hero.puppet(ringGem.pos.clone().add(new THREE.Vector3(1.8, -0.0, 0)), 0, 0);
-  await run(1.5);
-  const stayed = !ringGem.taken && ringGem.model.visible && fire.arsenal.ammo === am1;
-  hero.puppet(ringGem.pos.clone(), 0, 0);
-  await run(0.3);
-  check(stayed && ringGem.taken && fire.arsenal.ammo === am1 + A.gems.ammo, `a plaza gem stays where it is until AJ walks into it (nothing at 1.8 away), then +${A.gems.ammo} Batarangs (${am1} → ${fire.arsenal.ammo})`);
+  const potion = fire.arenaItems.entries.filter((e) => e.id === 'arenaPotion').at(-1);
+  check(!!potion && !potion.taken && nearPillar(potion), 'a green potion appears by a pillar when he drops to half health');
+  for (let k = 0; k < 20 && !potion.taken; k++) { hero.puppet(potion.pos.clone(), 0, 0); await frame(); }
+  check(potion.taken && lives.hearts === 3 + F.greenPotionHearts, `...and heals ${F.greenPotionHearts} heart (3 → ${lives.hearts})`);
+  G.hp = G.maxHp; G.marksDone.clear();
 }
 
 // 6b) The Shield in the plaza: jumps beat the Stomp (the Shield doesn't stop it), blocks stop the rest, a perfect block staggers him.
@@ -973,6 +1006,41 @@ const rel = (v) => new THREE.Vector3(C.x + v[0], 0, C.z + v[1]);
   tap();
   await seconds(3, () => !G.balls.length);
   check(!hurts.some((h) => h.source === 'fireball'), 'a raised Shield stops the Fire Ball');
+  // PILLARS: a Fire Ball bursts on a pillar and a pillar shields AJ standing behind it (also from the steam)
+  const PL = fire.guardian.pillars[0]; // (9.2, 9.2) from the middle
+  prep(); guardAt([PL.x, -3], 0); heroAt([PL.x, PL.z + 4]);
+  const burst0 = G.stats.pillarBursts ?? 0;
+  G.startAttack('fireball');
+  await seconds(4, () => G.state === 'recover');
+  await run(1.5);
+  check((G.stats.pillarBursts ?? 0) === burst0 + 1 && !hurts.some((h) => h.source === 'fireball') && G.balls.length === 0, 'a Fire Ball aimed at AJ behind a pillar bursts on the pillar and never touches him');
+  prep(); guardAt([PL.x, 3.5], 0); heroAt([PL.x, PL.z + 3.5]);
+  G.startAttack('steam');
+  await seconds(4, () => G.state === 'recover');
+  check(!hurts.some((h) => h.source === 'steam'), 'the Steam Burst does not reach AJ behind a pillar either');
+  prep(); guardAt([PL.x, 3.5], 0); heroAt([PL.x + 4, PL.z + 3.5]); // (the same, but out from behind it: in the cone and clear)
+  G.startAttack('steam');
+  await seconds(4, () => G.state === 'recover');
+  check(hurts.filter((h) => h.source === 'steam').length === 1, '...and with a clear line it does');
+  // REFLECT: a perfect block sends the Fire Ball back — 8% of his health and a stagger; a plain block just stops it
+  prep(); guardAt([0, -7], 0); heroAt([0, 11]);
+  G.startAttack('fireball');
+  await seconds(4, () => G.balls.length > 0);
+  tap(); // (raised as it leaves him: a plain block by the time it lands)
+  const refl0 = G.stats.reflected ?? 0;
+  await seconds(3, () => !G.balls.length);
+  check((G.stats.reflected ?? 0) === refl0 && !hurts.some((h) => h.source === 'fireball') && G.state !== 'staggered', 'a plain block just negates the Fire Ball (no reflect, no stagger)');
+  prep(); guardAt([0, -7], 0); heroAt([0, 11]); ar12.shieldRemaining = 0; ar12.cooldowns.shield = 0;
+  G.startAttack('fireball');
+  await seconds(4, () => G.balls.length > 0);
+  const ball0 = G.balls[0];
+  await seconds(3, () => Math.hypot(ball0.pos.x - hero.position.x, ball0.pos.z - hero.position.z) < 3.2);
+  const hpR = G.hp;
+  tap();
+  await seconds(3, () => ball0.reflected);
+  check(ball0.reflected && !hurts.some((h) => h.source === 'fireball'), 'a perfect block (raised within 0.3 s of the hit) sends the Fire Ball back at the Guardian: AJ takes nothing');
+  await seconds(3, () => (G.stats.reflected ?? 0) === refl0 + 1);
+  check((G.stats.reflected ?? 0) === refl0 + 1 && G.state === 'staggered' && Math.abs((hpR - G.hp) - G.maxHp * B.fireball.shieldReflectDamage) < 0.05 && B.fireball.shieldReflectDamage === 0.08, `it hits him for ${(B.fireball.shieldReflectDamage * 100).toFixed(0)}% of his health (${(hpR - G.hp).toFixed(1)} of ${G.maxHp}) and staggers him (×${B.staggerDamage} for ${F.shield.staggerTime} s)`);
   // a PERFECT block: tapped just as it lands → he is staggered and takes extra
   prep(); guardAt([0, -7], 0); heroAt([0, 3]);
   G.startAttack('steam');
@@ -1213,7 +1281,7 @@ const rel = (v) => new THREE.Vector3(C.x + v[0], 0, C.z + v[1]);
   horse.position.copy(gemE.pos.clone().setY(0));
   await run(0.3);
   check(gemE.taken && ar.ammo === F.maxBatarangs, `a blue gem tops it up to the cap (10 → ${ar.ammo}), no further`);
-  // straight, no auto-aim; a miss is wasted; short range
+  // auto-aim inside a 70° forward cone, straight otherwise; a miss is wasted; short range
   fo.reset(0); fo.clear();
   place(430, 0, { speed: CONFIG.horse.maxSpeed });
   held.moveY = 1;
@@ -1223,6 +1291,7 @@ const rel = (v) => new THREE.Vector3(C.x + v[0], 0, C.z + v[1]);
   await seconds(3, () => { const t = ar.pick(); return t && Math.hypot(t.position.x - horse.position.x, t.position.z - horse.position.z) < 10; });
   const tg = alive(fo.scouts)[0];
   alive(fo.scouts).forEach((x) => { x.active = false; }); // (held still)
+  alive(fo.scouts).filter((x) => x !== tg).forEach((x) => x.position.add(new THREE.Vector3(400, 0, 400))); // (any partner far away: it must be the one aimed at)
   const toT = Math.atan2(tg.position.x - horse.position.x, tg.position.z - horse.position.z);
   horse.heading = toT + Math.PI * 0.75; // facing away: the throw goes away from it
   ar.ammo = 8; ar.cooldowns.batarang = 0;
@@ -1230,14 +1299,30 @@ const rel = (v) => new THREE.Vector3(C.x + v[0], 0, C.z + v[1]);
   const c00 = ar.stats.catches;
   ar.use('batarang');
   await seconds(4, () => ar.stats.catches > c00 && !ar.proj);
-  check(ar.ammo === 7 && tg.hp === hpT, 'thrown the wrong way the Batarang misses (no auto-aim): a Batarang wasted, the robot untouched');
+  check(ar.ammo === 7 && tg.hp === hpT, 'thrown the wrong way (nothing in the cone) the Batarang flies straight and misses: a Batarang wasted, the robot untouched');
+  // AUTO-AIM: a foe 25° off the line is inside the 70° cone — the Batarang curves to it and hits; 50° off is outside the cone — a miss
+  ar.ammo = 8; ar.cooldowns.batarang = 0;
+  horse.heading = toT + (25 * Math.PI) / 180;
+  const hpA = tg.hp;
+  const cA = ar.stats.catches;
+  ar.use('batarang');
+  await seconds(4, () => ar.stats.catches > cA && !ar.proj);
+  check(tg.hp < hpA && ar.ammo === 7, `auto-aim: a foe 25° off to the side (inside the ${P.fire.batarang.coneDeg}° cone) is hit — the Batarang curves to it (${hpA} → ${tg.hp})`);
+  ar.cooldowns.batarang = 0;
+  horse.heading = toT + (50 * Math.PI) / 180;
+  const hpB = tg.hp;
+  const cB = ar.stats.catches;
+  ar.use('batarang');
+  await seconds(4, () => ar.stats.catches > cB && !ar.proj);
+  check(tg.hp === hpB && ar.ammo === 6, '50° off (outside the cone) it flies straight and misses: a Batarang wasted');
+  ar.ammo = 6;
   horse.heading = toT;
   ar.cooldowns.batarang = 0;
   const catches0 = ar.stats.catches;
   let maxOut = 0;
   ar.use('batarang');
   await seconds(3, () => { if (ar.proj) maxOut = Math.max(maxOut, ar.proj.travelled); return ar.stats.catches > catches0 && !ar.proj; });
-  check(tg.hp < hpT && ar.ammo === 6 && maxOut <= P.fire.batarang.range + 2, `facing it, it hits (${hpT} → ${tg.hp}); it never flies further than ${P.fire.batarang.range} (${maxOut.toFixed(0)}), ammo ${ar.ammo}`);
+  check(tg.hp < hpT && ar.ammo === 5 && maxOut <= P.fire.batarang.range + 2, `facing it, it hits (${hpT} → ${tg.hp}); it never flies further than ${P.fire.batarang.range} (${maxOut.toFixed(0)}), ammo ${ar.ammo}`);
   // the button shows the count
   check(input.combat.ab.usesLeft('batarang') === ar.ammo, `the Batarang button's badge shows the ammo (${ar.ammo})`);
   // entering the plaza: the kept ammo, at least 6 and at most 10
@@ -1252,7 +1337,7 @@ const rel = (v) => new THREE.Vector3(C.x + v[0], 0, C.z + v[1]);
     await run(0.3);
   }
   // the plaza holds exactly three gem pickups (one at each mark, +3 each); the Guardian's batarang damage is 1
-  check(F.arena.gems.marks.length * F.arena.gems.count === 3 && F.arena.gems.ammo === 3 && F.batarang.damage === 1, 'the plaza has three blue-gem pickups in all (+3 each); a Batarang that hits the Guardian does 1');
+  check(F.arena.arenaGems === 3 && F.arena.arenaGemAmmo === 5 && F.arena.arenaGemRespawn === 12 && F.batarang.damage === 1, 'the plaza supplies 3 blue gems (+5 each, a new one every 12 s); a Batarang that hits the Guardian does 1');
   // a cog key is a beacon, bigger than a gear, spinning slowly; collected with a sparkle sound
   const key0 = f3.items.find('key0');
   const U = key0.model.userData;
@@ -1296,6 +1381,31 @@ const rel = (v) => new THREE.Vector3(C.x + v[0], 0, C.z + v[1]);
   rd.after(1 / 60);
   check(horse.stumbles === st0 + 1 && count('saw_hit') === fl0 + 1 && hero.riderFlinch > 0 && sw0.wait === P.ride.hitCooldown && P.ride.hitCooldown === 1, `a saw hit: the horse flinches (stagger + a jolt), sparks and a clang, a 1 s cooldown for that blade — protection timers on AJ change nothing`);
   hero.resetStatus();
+}
+
+// 12) Pickup assist on the fire ride: gems / potions / keys within 3 of the lane are drawn in; further ones are left alone.
+{
+  await levels.load('part2', { start: 'fire' });
+  await run(0.5);
+  const f4 = p2.fire;
+  const RM = f4.cfg;
+  const gem = f4.items.entries.find((e) => e.type === 'gem' && !e.taken && !e.temp);
+  const gs = track.nearest(gem.pos.x, gem.pos.z, 30);
+  const x0 = gem.model.position.x, z0 = gem.model.position.z;
+  place(gs.s - 14, gs.lateral + 2.6);
+  held.moveY = 1;
+  let pulled = 0;
+  for (let i = 0; i < 200 && !gem.taken; i++) { await frame(); pulled = Math.max(pulled, Math.hypot(gem.model.position.x - x0, gem.model.position.z - z0)); }
+  held.moveY = 0;
+  check(gem.taken && RM.rideMagnetRadius === 3 && pulled > 0.3, `a gem 2.6 to the side of the lane (the plain reach is ${CONFIG.part2.items.pickupMagnetRadius}) is drawn in (${pulled.toFixed(1)}) and collected on the ride`);
+  const gem2 = f4.items.entries.find((e) => e.type === 'gem' && !e.taken && !e.temp && e !== gem && Math.abs(track.nearest(e.pos.x, e.pos.z, 30).s - gs.s) > 60);
+  const g2s = track.nearest(gem2.pos.x, gem2.pos.z, 30);
+  const px = gem2.model.position.x, pz = gem2.model.position.z;
+  place(g2s.s - 14, g2s.lateral + 3.9);
+  held.moveY = 1;
+  await run(2.5);
+  held.moveY = 0;
+  check(!gem2.taken && Math.hypot(gem2.model.position.x - px, gem2.model.position.z - pz) < 0.01, 'a gem 3.9 away from the lane is left alone');
 }
 
 console.log(failed ? '\nFIRE TEST FAILED' : '\nFIRE TEST PASSED');

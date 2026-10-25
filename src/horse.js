@@ -257,6 +257,7 @@ export class Horse {
     this.onStumble = null;
     this.legPrev = [0, 0, 0, 0];
     this.steer = 0; // smoothed steering, -1 (left) … 1 (right)
+    this.steering = null; // (Part 2's ride sets its own steering feel here — dead zone, smoothing, gain; null: this file's `CONFIG.horse`, Part 1 as it was)
     this.yawRate = 0; // rad/s, for the lean
     this.lean = 0;
     this.trackS = 0; // progress along the track (nearest point)
@@ -536,8 +537,15 @@ export class Horse {
   #ride(dt, input, cameraYaw, hero) {
     const mag = Math.min(1, Math.hypot(input.moveX, input.moveY));
     const braking = input.moveY < HC.brakeStick && Math.abs(input.moveX) < -input.moveY;
-    const stick = braking || Math.abs(input.moveX) < HC.steerDeadzone ? 0 : input.moveX;
-    const k = 1 - Math.exp(-(stick === 0 ? HC.straighten : HC.steerSmoothing) * dt);
+    const SC = this.steering ?? HC;
+    let stick = braking || Math.abs(input.moveX) < SC.steerDeadzone ? 0 : input.moveX;
+    if (this.steering && stick !== 0) {
+      // (the ride: a stick pushed mostly up is straight ahead — a small sideways drift of the thumb never steers — and past the dead zone it eases in)
+      const x = Math.abs(stick);
+      if (x < Math.abs(input.moveY) * SC.steerAngleDeadzone) stick = 0;
+      else stick = Math.sign(stick) * Math.min(1, (x - SC.steerDeadzone) / (1 - SC.steerDeadzone)) * SC.turnGain;
+    }
+    const k = 1 - Math.exp(-(stick === 0 ? SC.straighten : SC.steerSmoothing) * dt);
     this.steer += (stick - this.steer) * k;
 
     // Gallop (held) while stamina lasts; stamina refills slowly after a short pause. Never while
@@ -591,7 +599,7 @@ export class Horse {
       // Path assist: with the stick (nearly) centred, ease the heading along the trail.
       const A = TR.assist;
       const free = 1 - Math.min(1, Math.abs(this.steer) / A.deadzone);
-      if (free > 0 && Math.abs(diff) < A.maxAngle) this.heading += diff * (1 - Math.exp(-A.rate * free * dt));
+      if (free > 0 && Math.abs(diff) < A.maxAngle) this.heading += diff * (1 - Math.exp(-A.rate * (this.steering?.assistBoost ?? 1) * free * dt));
       // Soft edge: past `start` from the centre, turn back toward the trail (stronger further out).
       const E = TR.softEdge;
       const out = Math.abs(near.lateral) - E.start;

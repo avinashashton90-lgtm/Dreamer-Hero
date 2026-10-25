@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { CONFIG } from '../config.js';
+import { lanePull } from './magnet.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { gearGeometry } from '../portal.js';
 
@@ -284,7 +285,7 @@ export class Items {
     const model = await loadItemModel(type);
     const chest = type === 'chest' || type === 'chestBig';
     if (chest && cost !== null) model.userData.cost = cost;
-    const e = { id, type, chest, contents, temp, popup, ammo, pos: position.clone(), model, taken: false, state: 'closed', t: 0, redT: 0, content: null, lift, phase: Math.random() * 6.28 };
+    const e = { id, type, chest, contents, temp, popup, ammo, pos: position.clone(), home: position.clone(), model, taken: false, state: 'closed', t: 0, redT: 0, content: null, lift, phase: Math.random() * 6.28 };
     model.position.copy(position);
     if (!chest) model.position.y += IT.types[type].height + lift;
     this.group.add(model);
@@ -334,7 +335,14 @@ export class Items {
         u.beam.material.opacity = B.beamOpacity * (0.75 + 0.25 * Math.sin(this.time * 3.1 + e.phase));
       }
       if (rider && dt > 0) {
-        const reach = Math.min(T.reach, this.maxReach);
+        // (on the ride, pickups in the rider's lane drift toward it and are collected within `rideMagnetRadius`; on foot: the plain radius)
+        if (rider.ride && rider.heading !== undefined && e.model.position.distanceTo(rider.pos) < rider.ride.rideMagnetRadius * 3) {
+          const before = e.model.position.clone();
+          lanePull(e.model.position, rider.pos, rider.heading, rider.ride, dt);
+          e.pos.x += e.model.position.x - before.x;
+          e.pos.z += e.model.position.z - before.z;
+        }
+        const reach = rider.ride ? Math.max(Math.min(T.reach, this.maxReach), rider.ride.rideMagnetRadius) : Math.min(T.reach, this.maxReach);
         const direct = rider.pos.distanceTo(e.model.position) <= reach;
         const swept = e.type === 'cogKey' && this.lastRiderPos
           && segmentDistanceSquared(e.model.position, this.lastRiderPos, rider.pos) <= reach * reach;
@@ -447,6 +455,13 @@ export class Items {
     for (const e of this.entries) {
       for (const m of e.contentList ?? []) m.removeFromParent();
       e.contentList = null;
+      if (!e.chest && e.home) {
+        // (a pickup the ride's magnet had drawn sideways goes back to where it lay)
+        e.pos.x = e.home.x;
+        e.pos.z = e.home.z;
+        e.model.position.x = e.home.x;
+        e.model.position.z = e.home.z;
+      }
       if (e.chest) {
         const u = e.model.userData;
         const open = !!snap?.opened.includes(e.id);
