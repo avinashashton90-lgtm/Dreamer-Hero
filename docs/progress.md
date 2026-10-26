@@ -1,0 +1,45 @@
+# Progress checklist
+
+## Progress
+- [x] Foundation: state machine, capsule hero on terrain, follow camera, joystick, jump, rotate message, keyboard fallback, intro slides.
+- [x] Map: terrain, sky, river, town, tree canopy, forest, cave arena, empty desert
+- [x] Rooftops level
+- [x] Tree leaping
+- [x] Quest text (rooftops → trees → find the horse)
+- [x] Horse & river: mount/dismount, riding, dust, checkpoints
+- [x] Forest ride + gems (3 colours, unlocks recorded; abilities themselves not built yet)
+- [x] Ride polish: close camera, gallop + stamina, obstacles, ford + splashes, scattered/air/side-trail gems, giant cave
+- [x] Trail spline rebuild: 14-wide trail ≥1500 long, 22-wide tree-free corridor, invisible side walls, continuous bush/boulder edge, spline-sampled trees/gems/obstacles, 60 gems, no hurdles near the cave
+- [x] Long flowing forest track: ~1480-long trail (~90 s), wide curves, hills, ford at half way, 6 fair obstacles, gem rows/arcs, smooth horse-relative steering with path assist, checkpoints every 25%
+- [x] Forest walls: 4 low brick walls (jump) + 4 high stone walls with a gap left / centre / right (side-wall funnel, safe line, path assist), warning lanterns, gems through the gaps
+- [x] Minions: forest bats, the boss's crack slimes, desert skeletons after the pit (Quaternius monster pack, lazy loading, placeholder fallback), gem drops, `scheduleBats` windows
+- [x] Forest hurdles: an obstacle director (giant walls with a power jump, sliding thorn bushes, stones) replacing the logs and low brick walls, mixed with the bats (`scheduleBats` trail windows, never at the same time)
+- [x] Sealed boss arena: rock barrier closing behind AJ until the boss is dead, boss leashed to `arenaRadius`, respawn inside, Amy watching, the horse inside (burnt by the fire, flees at 0, comes back), Flash costs no hearts in the arena; a revive there gives full hearts, refilled abilities and 3 s of protection while the boss (regaining only half the damage) backs off, with Amy's golden glow; the boss regenerates slowly (1.5%/s) after 4 s without a hit, the bar pulsing green with a "+"
+- [x] Horse energy: a bar under the hearts, drained by galloping (and slowly by trotting), a tired walk at 0 (never stuck), forest potions, grass patches and desert oases
+- [x] Sound system: Web Audio AudioManager (unlock on the first touch, pause when hidden, three volume groups + mute saved in localStorage, the HUD speaker panel, 3D distance / pan, 24-voice limit, throttling, ducking), every named effect / loop / voice effort synthesized with drop-in files (`public/audio/README.md`), 8 looping music sections with crossfades and layers, voice blips per character, the soundscape wiring, the ?debug audio test panel
+- [x] Fixes: the giant wall down to 4 layers (gallop + jump clears it comfortably), forest obstacles never cost hearts (a stumble / stop instead, `obstacleHeartDamage` 0), a soft river sound (no drum beat) and softer hooves / steps / heartbeat, the horse's voice (gallop calls, moments, heavy breathing), the test menu by holding the speaker button 3 s (saved) with a thumb-sized TEST button
+- [x] Part 2 start: level manager (Part 2 in `src/part2/`, its own chunk), the castle courtyard + portal scene ending Part 1, the Gearhaven arrival (Tick, the horse's brass key and plates), the courtyard with the first objective, stub element levels + Amy's final fight, the Part 2 ending, Part 2 test-menu section
+- [x] Part 2 polish: AJ named "AJ" in every Part 2 line; the portal scene set inside the castle gate (inner gates shutting behind them, torches, sand, the dusk sky) with a close wide → close-up (her eyes glowing violet in a white-violet halo) → close wide camera; the arrival framed from in front (the horse right of AJ, three-quarter on, its head and key in view, Tick between them)
+- [x] Part 2 models: Tick (Quaternius Animated Robot) and the four Animated Mech Pack robots (scout, two sword robots, the armoured mech boss) as meshopt glb in their own colours with brass / copper accents and glowing eyes, clips by role, placeholder fallbacks, the ?debug Robots test
+- [x] Gearhaven ride: the first playable section (brass city on the trail system, rails to grind and switch between, steam vents, a gear deck, swinging hammers, cog platforms, conveyors — staggers, never hearts —, 42 brass gears, checkpoints, the Fire Element's door → its stub), ?debug "Gearhaven ride", `npm run test:ride`
+- [x] Gearhaven kits: the gear props and Factory Kit cogs turning on walls, floors and in the sky (instanced, brass / copper), the spiky gear as a spinning saw (staggers, never a heart), the Quaternius collectible gear (slow spin, a pickup sparkle), Factory Kit conveyors / pipes and stacks by the vents / the deck's catwalk / decoration, Coaster Kit Monorail (brass) and Steel (copper) rails on bronze supports, a code-built clock tower (skyline + the Time Element's place), the brass skyline (Castle Kit), Part 1's castle in the Castle Kit (same framing and gates), the Credits screen, the ?debug Props test
+- [x] Gearhaven looks: three switchable looks (Verdigris Dusk, Midnight Clockwork, Sunrise Brass; `gearhavenLook`, the ?debug Look button) — sky dome, fog, lights and every colour by role; a polished silver engraved floor in every look with a marked path (darker centre strip, brass / gold / teal edge lines); lamp posts with amber point lights, glowing windows and clock faces; warm-white lit steam; steel / brass conveyors; per-level accent colours
+- [x] Gearhaven fixes: Tick's two flat sky-blue eyes (no glow); the first vent launches onto a reachable wall-to-wall belt deck with a solid top, a landing snap, coyote time and a belt carrying the horse sideways (riding, galloping and jump landings tested; the upper rail too); gear rewards (+1 heart, the horse's armour, a bonus charge + Tick's glow) with a banner, a chime and tier marks on the gear counter, kept across Part 2, ?debug "Give 14 gears"
+- [x] Part 2 opening fixes: the portal scene with no glow on Amy (nothing revealed), the portal tearing open mid-line ("Whoa... what's this place?" → "What's happening?!" as it pulls → Amy's trailing "No......"); the arrival's new lines (no "witch") with each line framing its speaker (AJ left, Tick right, the horse behind), AJ looking up at the Dream Clock, Tick's blips from where he floats
+- [x] Part 2 sounds and music: 11 synthesized music sections (portal, Gearhaven + its chase, five element themes, Amy's theme, the final fight, the ending), ~50 soft effects / loops (portal, ambience, rails, vents, hazards, gears, the horse's armour, Tick, robots, elements, Amy, the clock, the Fire level's), Tick's chirp blips and Amy's hushed Part 2 voice, the wiring (`part2/sound.js`, ride.js), drop-in files listed in `public/audio/README.md`
+- [x] The Fire Element's level: the furnace city ride, chests and cog keys (the reusable item system), scout and sword robots, the Batarang with gem ammo and Fire Blast, the Furnace Guardian, the Fire Element scene with Amy's cameo, the Elements row
+- [ ] Part 2 element levels (Lightning, Steam, Magnet, Time) and Amy's final fight — stubs today (read STORY.md); the robots don't fight yet
+- [ ] Recorded sounds and music (drop files into public/audio/; synthesized fallbacks play today)
+- [x] Mixamo girl Amy (`girl.glb`, ~0.4 MB, converted from the 28 MB `girl.fbx` by `scripts/girl-to-glb.mjs`; `girl.fbx` is git-ignored): scared / talk / point / walk / kneel / happy / ride clips, witch hint eye glow + wall shadow, `girlWitchForm` hook, placeholder fallback
+- [x] Hero combat: new outfit/rig, 3-hit combo, dodge, soft lock-on, hit feedback
+- [x] Abilities: Batarang, Smoke Bomb, Flash Mode
+- [x] Lives: 5 hearts + 3 respawns, respawn on the horse, Game Over → Retry the ride
+- [x] Cave + boss: arena, auto-dismount, monster fight (slam, charge, stun, enrage, paralysis), Victory, girl appears
+- [x] Girl/witch cutscene (reusable cinematic player, witch hint, Skip)
+- [x] Desert ride (dunes, cacti, sunset, castle, own trail with walls)
+- [x] Exhaustion on 1 heart + the Lazarus Pit ("Stop." scene, heal hearts only)
+- [x] "To be continued... Part 2" ending, summary, Play Again full reset
+- [x] Sandstorm chase after the pit (storm with a clear trail corridor, skeletons from behind and the sides, never below half a heart, checkpoint after the pit) + castle-gate cinematic (skeleton line thrown aside, gates open and slam shut); abilities from the saddle
+- [x] Mixamo boss Warrok (`boss.glb` ~0.5 MB from the 12 MB `boss.fbx`): idle / walk / jumpattack / roar / run / hit / death by state, fire from the mouth, placeholder fallback
+- [x] glTF horse (gaits blended by speed, faster gallop, jump clip, saddle on the back bone, AJ riding astride, the girl behind; placeholder fallback)
+- [x] Mixamo hero (AJ as he comes, 13 clips retargeted, crossfades, loading bar, placeholder fallback); code-built costume kept behind `heroCostume` (off)

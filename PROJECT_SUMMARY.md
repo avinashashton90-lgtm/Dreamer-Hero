@@ -1,6 +1,6 @@
 # Dreamer Hero — Project Summary (handoff)
 
-Use this as the starting brief for a project folder. The full rules live in `CLAUDE.md` (the spec, kept current) and the story in `STORY.md`. Read both first in every new session.
+Use this as the starting brief for a project folder. `CLAUDE.md` is now a short core file; detailed rules are split into `docs/` (part1, part2, architecture, debug-and-tests, progress) and are read only when needed. Story is in `STORY.md`.
 
 ## What it is
 A Three.js + Vite browser game for **phones in landscape** (keyboard/mouse fallback on desktop), hosted on **GitHub Pages** (`base: './'`, output `dist/`, deployed by pushing to `main`). A bored schoolboy, **AJ** (cap, hoodie, Mixamo model), falls asleep and dreams he is a superhero. Repo: `avinashashton90-lgtm/dreamer-hero`.
