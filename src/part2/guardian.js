@@ -18,7 +18,7 @@ const F = CONFIG.part2.fire;
 const B = F.boss;
 const A = F.arena;
 const AR = CONFIG.arena;
-const RG = AR.bossRegenPercentPerSec / 100;
+const RG = A.bossRegenPercentPerSec / 100;
 const WHITE = new THREE.Color(0xffffff);
 
 /** The plaza: a silver floor ringed by a low brass wall, a furnace glow at its foot, pillars, the entrance arch and its steam barrier. */
@@ -312,7 +312,7 @@ export class Guardian {
     // Regeneration: once nothing has hurt him for a while, a slow heal (any hit stops it at once).
     if (this.alive && this.state !== 'idle') {
       this.sinceHit += dt;
-      this.regenerating = this.sinceHit >= AR.bossRegenDelay && this.hp < this.maxHp;
+      this.regenerating = this.sinceHit >= A.bossRegenDelay && this.hp < this.maxHp;
       if (this.regenerating) this.hp = Math.min(this.maxHp, this.hp + this.maxHp * RG * dt);
     }
     this.#updateBalls(dt);

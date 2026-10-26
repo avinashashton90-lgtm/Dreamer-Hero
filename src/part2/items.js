@@ -281,11 +281,11 @@ export class Items {
    * Place an item. `type` a pickup type, or 'chest' / 'chestBig' (`contents`: { type, n } inside it).
    * `lift`: extra height. Returns the entry.
    */
-  async add(type, position, { id = `${type}${this.entries.length}`, contents = null, lift = 0, temp = false, popup = null, cost = null, ammo = null } = {}) {
+  async add(type, position, { id = `${type}${this.entries.length}`, contents = null, lift = 0, temp = false, popup = null, cost = null, ammo = null, gears = null } = {}) {
     const model = await loadItemModel(type);
     const chest = type === 'chest' || type === 'chestBig';
     if (chest && cost !== null) model.userData.cost = cost;
-    const e = { id, type, chest, contents, temp, popup, ammo, pos: position.clone(), home: position.clone(), model, taken: false, state: 'closed', t: 0, redT: 0, content: null, lift, phase: Math.random() * 6.28 };
+    const e = { id, type, chest, contents, temp, popup, ammo, gears, pos: position.clone(), home: position.clone(), model, taken: false, state: 'closed', t: 0, redT: 0, content: null, lift, phase: Math.random() * 6.28 };
     model.position.copy(position);
     if (!chest) model.position.y += IT.types[type].height + lift;
     this.group.add(model);

@@ -477,7 +477,7 @@ const items0 = () => { fire.items.restore(null); fire.arsenal.clear(); fire.arse
   const ar = fire.arsenal, f = fire.foes, GW = F.weapons.gearWheel;
   const loops = [];
   p2.sound.manager = { setLoop: (key, name, o) => loops.push({ key, name, ...o }), playSound() {} };
-  check(GW.gears === 6 && F.weapons.cogShot.keys === 1 && F.fireBlast.cooldown === 10 && F.fireBossHealth === 90 && F.maxBatarangs === 12, `the numbers: Gear Wheel ${GW.gears} gears, Cog Shot 1 key, Fire Blast ${F.fireBlast.cooldown} s, the Guardian ${F.fireBossHealth} HP`);
+  check(GW.gears === 3 && F.weapons.cogShot.keys === 1 && F.fireBlast.cooldown === 10 && F.fireBossHealth === 68 && F.maxBatarangs === 12, `the numbers: Gear Wheel ${GW.gears} gears, Cog Shot 1 key, Fire Blast ${F.fireBlast.cooldown} s, the Guardian ${F.fireBossHealth} HP`);
   // the gear counter: only the count, no fraction; ticks as marks on a bar
   await run(0.3);
   check(ui.gears && ui.gears.showTotal === false && ui.gears.total === ride.total && ui.gears.tiers.length === 3 && ride.total >= 24 && ride.total <= 40, `the gear counter shows only the count (${ui.gears?.count}); the bar scales to the level's ${ride.total} gears with ${ui.gears?.tiers.length} reward marks`);
@@ -721,7 +721,7 @@ const rel = (v) => new THREE.Vector3(C.x + v[0], 0, C.z + v[1]);
   await run(1);
   check(p2.at === 'fireBoss' && fire.stage === 'boss' && !hero.riding && horse.mode === 'idle' && hero.world === p2.world && fire.arena.visible && !fire.parts.root.visible && state.is(STATES.PLAY) && ui.quest === FD.questBoss,
     `the furnace gate leads into the plaza: AJ on foot, the horse waiting, "${ui.quest}"`);
-  check(Math.abs(hero.position.x - C.x - A.spawn[0]) < 1 && Math.abs(hero.position.z - C.z - A.spawn[1]) < 1 && G.alive && G.state === 'idle' && G.hp === F.fireBossHealth && F.fireBossHealth === 90, `AJ enters at the plaza's edge; the Guardian waits in the middle with ${G.hp} HP (fireBossHealth)`);
+  check(Math.abs(hero.position.x - C.x - A.spawn[0]) < 1 && Math.abs(hero.position.z - C.z - A.spawn[1]) < 1 && G.alive && G.state === 'idle' && G.hp === F.fireBossHealth && F.fireBossHealth === 68, `AJ enters at the plaza's edge; the Guardian waits in the middle with ${G.hp} HP (fireBossHealth)`);
   const gm = G.model;
   const box = new THREE.Box3().setFromObject(gm, true);
   check(Math.abs(box.max.y - box.min.y - B.height) < B.height * 0.1 && G.mats.length > 0 && G.mats.every((m) => m.emissive && m.emissive.r > m.emissive.g && m.emissive.g > m.emissive.b && m.emissiveIntensity > 0) && !!G.furnace.parent, `the Guardian: George, ${(box.max.y - box.min.y).toFixed(1)} tall, tinted hot red-orange (${G.mats.length} materials of his own) with a glowing chest furnace`);
@@ -799,8 +799,8 @@ const rel = (v) => new THREE.Vector3(C.x + v[0], 0, C.z + v[1]);
     wheelImpact ||= ar.fx.impacts.length > 0;
     return wheelStarted && !ar.wheel;
   });
-  check(wheelUsed && wheelStarted && G.hp <= hpWheel - F.weapons.gearWheel.damage && wheelStopped && !wheelBounced && ar.gearStock === F.weapons.gearWheel.gears && (G.stats.wheelDodges ?? 0) === dodgesBefore + 1,
-    `the Gear Wheel hits the Guardian at its legs/body, damages it, then drops and stops (no bounce; free in the plaza, the gears stay); the Guardian makes one timely dodge`);
+  check(wheelUsed && wheelStarted && G.hp <= hpWheel - F.weapons.gearWheel.damage && wheelStopped && !wheelBounced && ar.gearStock === 0 && (G.stats.wheelDodges ?? 0) === dodgesBefore + 1,
+    `the Gear Wheel hits the Guardian at its legs/body, damages it, then drops and stops (no bounce; it costs its gears in the plaza too); the Guardian makes one timely dodge`);
   check(wheelImpact && ui.numbers.slice(numbersBeforeWheel).some((n) => n.text === '-3'),
     'the boss impact shows a "-3" damage popup');
   ar.clear();
@@ -897,7 +897,7 @@ const rel = (v) => new THREE.Vector3(C.x + v[0], 0, C.z + v[1]);
   // Regeneration (only once AJ stops hitting him)
   prep(); guardAt([0, -7]); heroAt([0, 14]); G.state = 'recover'; G.t = -999;
   G.hp = 15; G.sinceHit = 0;
-  const AR = CONFIG.arena;
+  const AR = A;
   await run(AR.bossRegenDelay - 0.5);
   const unchanged = G.hp === 15 && !G.regenerating;
   await run(1.5); // (a second of healing)
@@ -932,12 +932,23 @@ const rel = (v) => new THREE.Vector3(C.x + v[0], 0, C.z + v[1]);
   check(sup().length === 3, `${A.arenaGemRespawn} s later a new one appears at a random pillar (3 on the floor)`);
   await run(A.arenaGemRespawn * 2 + 0.6);
   check(sup().length === 3, 'never more than 3 on the floor at once');
-  // the Gear Wheel recharges free in the plaza
+  // the Gear Wheel costs gears in the plaza too, and recharges in 12 s
   const arA = fire.arsenal;
-  arA.gearStock = 0; arA.cooldowns.gearWheel = 0; arA.clear();
-  const wheelFree = arA.canAfford('gearWheel') && arA.usesLeft('gearWheel') === null && arA.use('gearWheel');
+  arA.gearStock = F.weapons.gearWheel.gears; arA.cooldowns.gearWheel = 0; arA.clear();
+  const wheelPaid = arA.canAfford('gearWheel') && arA.usesLeft('gearWheel') === 1 && arA.use('gearWheel');
   await run(0.5);
-  check(wheelFree && arA.gearStock === 0 && arA.cooldowns.gearWheel > A.arenaGearWheelCooldown - 1.5 && A.arenaGearWheelCooldown === 12, `the Gear Wheel is free in the plaza (no gears) and recharges in ${A.arenaGearWheelCooldown} s (${arA.cooldowns.gearWheel.toFixed(1)} left)`);
+  check(wheelPaid && arA.gearStock === 0 && arA.cooldowns.gearWheel > A.arenaGearWheelCooldown - 1.5 && A.arenaGearWheelCooldown === 12 && F.weapons.gearWheel.gears === 3, `the Gear Wheel costs 3 gears in the plaza and recharges in ${A.arenaGearWheelCooldown} s (${arA.cooldowns.gearWheel.toFixed(1)} left)`);
+  // resupply: brass gears every 10 s (max 4), a cog key every 25 s (max 2)
+  const onFloor = (k) => fire.arenaItems.entries.filter((e) => e.id.startsWith(k) && !e.taken).length;
+  fire.gearT = 0; fire.keyT = 0;
+  await run(A.arenaGearRespawn * 6 + 0.6);
+  check(onFloor('gear') === A.arenaGearMax && onFloor('key') === A.arenaKeyMax && A.arenaGearRespawn === 10 && A.arenaKeyRespawn === 25, `brass gears every ${A.arenaGearRespawn} s (${onFloor('gear')} on the floor, max ${A.arenaGearMax}) and cog keys every ${A.arenaKeyRespawn} s (${onFloor('key')}, max ${A.arenaKeyMax})`);
+  const gEntry = fire.arenaItems.entries.find((e) => e.id.startsWith('gear') && !e.taken);
+  const kEntry = fire.arenaItems.entries.find((e) => e.id.startsWith('key') && !e.taken);
+  const gs0 = arA.gearStock, ks0 = fire.items.keys;
+  hero.puppet(gEntry.pos.clone(), 0, 0); await run(0.3);
+  hero.puppet(kEntry.pos.clone(), 0, 0); await run(0.3);
+  check(gEntry.taken && kEntry.taken && arA.gearStock >= gs0 + A.arenaGearValue && fire.items.keys >= ks0 + 1, 'walking into a plaza gear adds to the Gear Wheel stock and a cog key to the Cog Shot');
   arA.clear();
   // a staggered Guardian drops a gem (up to 4 a fight)
   for (let k = 0; k < 6; k++) { G.state = 'recover'; G.stagger(2); }
@@ -1056,6 +1067,15 @@ const rel = (v) => new THREE.Vector3(C.x + v[0], 0, C.z + v[1]);
   tap(); // (raised right before the burst's first hit lands: inside the perfect window)
   await seconds(4, () => G.state === 'staggered');
   check((ar12.stats.perfects ?? 0) === pp0 + 1 && G.state === 'staggered' && !hurts.some((h) => h.source === 'steam'), `a perfect block (tapped within ${SH.perfectWindow} s of the hit): no damage, and the Guardian is staggered`);
+  // the Shield now blocks the Stomp wave (on the ground, facing it); a perfect block staggers him
+  prep(); guardAt([0, -7], 0); heroAt([0, 3]);
+  G.startAttack('stomp');
+  await seconds(4, () => G.state === 'stompRing' && G.waveR >= 8);
+  const sp0 = ar12.stats.perfects ?? 0;
+  ar12.cooldowns.shield = 0; ar12.shieldRemaining = 0;
+  tap();
+  await seconds(4, () => G.state === 'staggered' || G.state === 'recover');
+  check((ar12.stats.perfects ?? 0) === sp0 + 1 && G.state === 'staggered' && !hurts.some((h) => h.source === 'stomp') && SH.blocks.includes('stomp'), 'a perfect block of the Stomp wave: no damage, the Guardian staggered');
   const hpS = G.hp;
   G.takeHit(1, 'batarang');
   check(Math.abs((hpS - G.hp) - B.staggerDamage) < 0.01, `while staggered he takes ×${B.staggerDamage} (1 → ${(hpS - G.hp).toFixed(2)})`);
@@ -1342,7 +1362,7 @@ const rel = (v) => new THREE.Vector3(C.x + v[0], 0, C.z + v[1]);
     await run(0.3);
   }
   // the plaza holds exactly three gem pickups (one at each mark, +3 each); the Guardian's batarang damage is 1
-  check(F.arena.arenaGems === 3 && F.arena.arenaGemAmmo === 5 && F.arena.arenaGemRespawn === 12 && F.batarang.damage === 1, 'the plaza supplies 3 blue gems (+5 each, a new one every 12 s); a Batarang that hits the Guardian does 1');
+  check(F.arena.arenaGems === 3 && F.arena.arenaGemAmmo === 5 && F.arena.arenaGemRespawn === 12 && F.batarang.damage === 1.5, 'the plaza supplies 3 blue gems (+5 each, a new one every 12 s); a Batarang that hits the Guardian does 1.5');
   // a cog key is a beacon, bigger than a gear, spinning slowly; collected with a sparkle sound
   const key0 = f3.items.find('key0');
   const U = key0.model.userData;

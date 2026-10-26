@@ -1047,7 +1047,7 @@ export const CONFIG = {
       startAmmo: 8,           // Batarang ammo when the level starts (1 throw each; a blue gem gives 5)
       // The Furnace Guardian's HP. Tuned for auto-aim Batarangs (damage 1, capped ammo, ~100 throws a fight from the pillar gems and drops),
       // the free Gear Wheel (3 every 12 s), Fire Ball reflects (8%) and the ×1.5 stagger: a competent player needs about 2 to 3 minutes.
-      fireBossHealth: 90,
+      fireBossHealth: 68,
       maxBatarangs: 12,       // the most Batarangs AJ can carry: blue gems are the only way to get more (nothing else ever refills them)
       // Overrides of CONFIG.part2.ride for this layout (merged in fire.js). The first 780 of the trail is
       // the first ride's shape (only one of them is ever drawn), then it carries on east and turns south
@@ -1088,7 +1088,7 @@ export const CONFIG = {
       cogKeyRecallRadius: 25, cogKeyRecallSpeed: 38,
       shield: {
         color: 0x6ec6ff, duration: 1.3, perfectWindow: 0.3, cooldown: 2.2, frontDot: 0.1, staggerTime: 2.0,
-        blocks: ['steam', 'fireball', 'charge', 'sword', 'scout'],
+        blocks: ['steam', 'fireball', 'charge', 'sword', 'scout', 'stomp'],
         disc: { radius: 1.05, height: 1.0, ahead: 1.1, opacity: 0.45, perfect: 0xfff2c0, pulse: 0.25 },
       },
       // Seven cog keys; two lie on the main line and five sit close enough to collect from the saddle.
@@ -1117,7 +1117,7 @@ export const CONFIG = {
       // the ground, 3 damage, spends 4 brass gears): the level's two extra weapons; Fire Blast is not: it comes with the Fire Element.
       weapons: {
         cogShot: { damage: 2, cooldown: 1.2, speed: 26, arc: 3, range: 26, forward: 14, size: 0.5, keys: 1, color: 0xf0c048, roll: { flySpin: 0.6, speed: 11, decel: 4.5, fallSpeed: 2.5, gravity: 18, landBounce: 2.2, wobble: 0.6, wobbleRate: 22, wobbleAmp: 0.4, fall: 0.35, fade: 0.5 } }, // (an upright coin: thrown in an arc, one bounce, rolls on its edge slowing down, wobbles and falls flat, fades)
-        gearWheel: { damage: 3, cooldown: 2.0, speed: 30, range: 34, radius: 1.5, height: 0.9, gears: 6, color: 0xd8a640, roll: 'gear_roll', maxBounces: 4, wheelSpeedKeepOnHit: 0.25, wheelWallBounceKeep: 0.6, hitPop: 2.6, wallPop: 1.6, gravity: 18, stopSpeed: 3, fade: 0.5, throwArc: { time: 0.32, height: 0.9, landBounce: 2.2 }, lean: { max: 0.3, rate: 1.5, ease: 8 } }, // (an upright wheel: thrown in a small arc, a little bounce, rolls spinning round its axle; a robot hit keeps `wheelSpeedKeepOnHit` of its speed and pops it up — it rolls on the same way; a wall keeps `wheelWallBounceKeep`; the Guardian stops it)
+        gearWheel: { damage: 3, cooldown: 2.0, speed: 30, range: 34, radius: 1.5, height: 0.9, gears: 3, color: 0xd8a640, roll: 'gear_roll', maxBounces: 4, wheelSpeedKeepOnHit: 0.25, wheelWallBounceKeep: 0.6, hitPop: 2.6, wallPop: 1.6, gravity: 18, stopSpeed: 3, fade: 0.5, throwArc: { time: 0.32, height: 0.9, landBounce: 2.2 }, lean: { max: 0.3, rate: 1.5, ease: 8 } }, // (an upright wheel: thrown in a small arc, a little bounce, rolls spinning round its axle; a robot hit keeps `wheelSpeedKeepOnHit` of its speed and pops it up — it rolls on the same way; a wall keeps `wheelWallBounceKeep`; the Guardian stops it)
       },
       weaponImpact: { life: 0.28, flashRadius: 0.72, ringInner: 0.14, ringOuter: 0.24, sparks: 12, sparkRadius: 0.42, sparkSpeed: 3.6, sparkUp: 1.1, shake: 0.08, shakeTime: 0.18, push: 0.28, popupMargin: 32 },
       // Potions along the road: 3 green and 3 blue on the ride, 2 green in the plaza. [s, lat] — off the gem line (±1.6).
@@ -1147,7 +1147,7 @@ export const CONFIG = {
         guardianLegs: { side: 0.85, height: 1.15, radius: 0.6 },
       }, // torso sphere for cog weapons; the Batarang / fire ball keep their padded body capsule
       // The Batarang in Part 2: 1 Batarang a throw (blue gems add them, up to `maxBatarangs`), auto-aimed at the nearest foe in front, out and back.
-      batarang: { damage: 1, cooldown: 0.8, speed: 38, returnSpeed: 40, range: 25, above: 1.6, forward: 16, release: 0.24, turn: 600, color: 0xffd23f, size: 0.4, prefer: 1.6,
+      batarang: { damage: 1.5, cooldown: 0.8, speed: 38, returnSpeed: 40, range: 25, above: 1.6, forward: 16, release: 0.24, turn: 600, color: 0xffd23f, size: 0.4, prefer: 1.6,
         coneDeg: 70, homeTurn: 2.6 }, // AUTO-AIM: the nearest foe (or the Guardian) inside a forward cone of `coneDeg` within `range` — the Batarang curves toward it at `homeTurn` rad/s; nothing in the cone: straight on
       // Fire Blast (the Fire Element's ability, not before it): a ball of fire in an arc, burns for 3 s.
       fireBlast: {
@@ -1166,7 +1166,7 @@ export const CONFIG = {
         // appears at a random pillar every `arenaGemRespawn` s (at most `arenaGems` on the floor at once); the Gear Wheel recharges for free
         // in the plaza (`arenaGearWheelCooldown` s, no gears); a perfect block drops one more gem (`staggerDrop`, up to 4 a fight) and
         // at `potionMark` of the Guardian's health a green potion appears.
-        arenaGems: 3, arenaGemRespawn: 12, arenaGemAmmo: 5, arenaGemOffset: 2.2,
+        arenaGems: 3, arenaGemRespawn: 12, arenaGearRespawn: 10, arenaGearMax: 4, arenaGearValue: 1, arenaKeyRespawn: 25, arenaKeyMax: 2, arenaItemSpread: 1.2, bossRegenDelay: 8, bossRegenPercentPerSec: 1, arenaGemAmmo: 5, arenaGemOffset: 2.2,
         arenaGearWheelCooldown: 12,
         staggerDrop: { max: 4, ahead: 4 },
         potionMark: 0.5,

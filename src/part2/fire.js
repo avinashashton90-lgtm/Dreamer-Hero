@@ -400,6 +400,9 @@ export class FireLevel {
       this.#sparkle(horse.position, 0x6ec6ff, 1.0);
       p.sound?.play('river_splash', { position: horse.position, volume: 0.7 });
       this.stats.bluePotions = (this.stats.bluePotions ?? 0) + 1;
+    } else if (type === 'gearBundle' && entry?.gears) {
+      this.arsenal.gearStock += entry.gears * n; // (the plaza's brass gears feed the Gear Wheel only)
+      msg = null;
     } else if (type === 'gem') {
       this.arsenal.ammo += n * (entry?.ammo ?? T.ammo); // (capped at `maxBatarangs`; the plaza's three gems give +3 each)
       this.stats.gemsFound += n;
@@ -573,8 +576,19 @@ export class FireLevel {
   }
 
   /** Blue gems on the floor that came from the arena's supply (the cap is `arenaGems` at once). */
-  #supplyOnFloor() {
-    return this.arenaItems.entries.filter((e) => e.type === 'gem' && e.id.startsWith('supply') && !e.taken).length;
+  #supplyOnFloor(kind = 'supply') {
+    return this.arenaItems.entries.filter((e) => e.id.startsWith(kind) && !e.taken).length;
+  }
+
+  /** A gear or a cog key at a random pillar (spread out like the gems). */
+  #supplyItem(type, kind, extra) {
+    const n = this.arena.userData.pillars.length;
+    this.stats[`${kind}Supply`] = (this.stats[`${kind}Supply`] ?? 0) + 1;
+    const k = Math.floor(Math.random() * n);
+    const side = (this.stats[`${kind}Supply`] % 2 ? 1 : -1) * A.arenaItemSpread;
+    const at = this.#pillarSpot(k);
+    at.x += side;
+    return this.arenaItems.add(type, at, { id: `${kind}${this.stats[`${kind}Supply`]}`, temp: true, ...extra });
   }
 
   /** One blue gem (+`arenaGemAmmo` Batarangs) at a pillar that has none yet (else any). */
@@ -591,6 +605,8 @@ export class FireLevel {
   /** The start of the fight: `arenaGems` gems by the pillars; the timer for the next one. */
   startSupply() {
     this.supplyT = 0;
+    this.gearT = 0;
+    this.keyT = 0;
     this.stats.staggerDrops = 0;
     for (let k = 0; k < A.arenaGems; k++) {
       this.stats.supplyGems = (this.stats.supplyGems ?? 0) + 1;
@@ -909,6 +925,17 @@ export class FireLevel {
       if (this.supplyT >= A.arenaGemRespawn) {
         this.supplyT = 0;
         if (this.#supplyOnFloor() < A.arenaGems) this.#supplyGem();
+      }
+      // (brass gears for the Gear Wheel and cog keys for the Cog Shot, each on its own timer)
+      this.gearT = (this.gearT ?? 0) + dt;
+      if (this.gearT >= A.arenaGearRespawn) {
+        this.gearT = 0;
+        if (this.#supplyOnFloor('gear') < A.arenaGearMax) this.#supplyItem('gearBundle', 'gear', { gears: A.arenaGearValue });
+      }
+      this.keyT = (this.keyT ?? 0) + dt;
+      if (this.keyT >= A.arenaKeyRespawn) {
+        this.keyT = 0;
+        if (this.#supplyOnFloor('key') < A.arenaKeyMax) this.#supplyItem('cogKey', 'key', {});
       }
     }
     this.foes.update(0, { playing: false });

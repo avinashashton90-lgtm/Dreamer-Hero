@@ -205,7 +205,7 @@ export class Arsenal {
   usesLeft(name) {
     if (name === 'batarang') return this.ammo;
     if (name === 'cogShot') return Math.floor(this.keys() / CS.keys);
-    if (name === 'gearWheel') return this.arenaMode ? null : Math.floor(this.gearStock / GW.gears);
+    if (name === 'gearWheel') return Math.floor(this.gearStock / GW.gears);
     return null;
   }
 
@@ -221,7 +221,6 @@ export class Arsenal {
   canAfford(name) {
     if (this.hero.life && this.hero.life !== 'alive') return false;
     if (name === 'batarang') return this.ammo > 0;
-    if (name === 'gearWheel' && this.arenaMode) return this.levelOn;
     if (name === 'cogShot' || name === 'gearWheel') return this.usesLeft(name) > 0;
     return this.has(name);
   }
@@ -243,7 +242,7 @@ export class Arsenal {
     if (this.cooldowns[name] > 0) return 'cooldown';
     if (name === 'batarang' && this.ammo <= 0) return 'gems';
     if (name === 'cogShot' && this.usesLeft(name) <= 0) return 'keys';
-    if (name === 'gearWheel' && !this.arenaMode && this.usesLeft(name) <= 0) return 'gears';
+    if (name === 'gearWheel' && this.usesLeft(name) <= 0) return 'gears';
     return null;
   }
 
@@ -278,7 +277,7 @@ export class Arsenal {
     }
     if (name === 'batarang') this.ammo--;
     else if (name === 'cogShot') this.spendKey(CS.keys);
-    else if (name === 'gearWheel' && !this.arenaMode) this.gearStock -= GW.gears;
+    else if (name === 'gearWheel') this.gearStock -= GW.gears;
     this.cooldowns[name] = { batarang: BT.cooldown, fireBlast: FB.cooldown, cogShot: CS.cooldown, gearWheel: this.#wheelCooldown() }[name];
     // (the Batarang is not aimed: it flies straight the way AJ faces; the rest still lock on to the nearest foe)
     this.pending = { name, t: 0, target: name === 'batarang' ? null : this.pick() };
