@@ -141,6 +141,8 @@ export class Arsenal {
     this.shieldUnlocked = false; // (the Shield chest opened)
     this.shieldRemaining = 0; // s of the raised shield left
     this.shieldAge = 0; // s since it was raised (the perfect-block window)
+    this.capBonus = 0; // (level-up: Batarangs carried above `maxBatarangs`)
+    this.damageScale = 1; // (level-up: Batarang and Gear Wheel damage ×)
     this.levelOn = false; // (in the Fire level: Cog Shot and Gear Wheel are his)
     this.arenaMode = false; // (in the Guardian's plaza: the Gear Wheel is free and recharges on a long cooldown)
     this.keys = () => 0; // (the cog keys on hand: set by the level)
@@ -250,8 +252,13 @@ export class Arsenal {
     return this._ammo;
   }
 
+  /** How many Batarangs can be carried: `maxBatarangs` plus the level-up bonus (`capBonus`), never above the table's cap. */
+  get ammoCap() {
+    return Math.min(CONFIG.part2.levelUpCaps.batarangCap, F.maxBatarangs + (this.capBonus ?? 0));
+  }
+
   set ammo(v) {
-    this._ammo = Math.max(0, Math.min(F.maxBatarangs, Math.floor(v)));
+    this._ammo = Math.max(0, Math.min(this.ammoCap, Math.floor(v)));
   }
 
   /** Use an ability (button / key). True if it fired. */
@@ -529,7 +536,7 @@ export class Arsenal {
       if (t) {
         hits.add(t);
         this.stats.hits++;
-        if (t.takeHit(BT.damage, 'batarang') !== false) this.sound?.play('batarang_hit', { position: b.pos });
+        if (t.takeHit(BT.damage * this.damageScale, 'batarang') !== false) this.sound?.play('batarang_hit', { position: b.pos });
         this.fx.burst(b.pos, 5, { speed: 3, life: 0.35, size: 0.1, color: BT.color, up: 1 });
         if (onHit) {
           onHit();
@@ -776,7 +783,7 @@ export class Arsenal {
       const t = this.#wheelAt(w.pos, w.hit);
       if (t) {
         w.hit.add(t); // (once per robot per throw)
-        if (this.#impact(t, w.pos.clone(), GW.damage, 'wheel', w.dir)) this.stats.hits++; // (the impact flash, the number popup and the shake)
+        if (this.#impact(t, w.pos.clone(), GW.damage * this.damageScale, 'wheel', w.dir)) this.stats.hits++; // (the impact flash, the number popup and the shake)
         if (t.isBoss) {
           w.speed = 0; // (the Guardian: it drops and stops)
           w.stopped = true;

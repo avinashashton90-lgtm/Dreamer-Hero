@@ -300,6 +300,7 @@ export class Ride {
     this.hzPrev = null; // where the horse was last frame (the hazards' swept test)
     this.finished = false;
     this.alignRail = null;
+    this.#surfacePrev = null;
     this.count = 0;
     this.stickHeld = false;
     this.sparks = [];
@@ -335,6 +336,7 @@ export class Ride {
     this.loopsNow.clear();
     this.airborne = !horse.grounded;
     if (this.world.coyote) this.world.coyote.t -= dt;
+    this.#surfaceNote = null;
     if (this.grind) this.#grindStep(dt, input);
     else if (horse.mode === 'riding' && dt > 0) {
       const onStreet = horse.grounded && horse.position.y < 0.5;
@@ -345,6 +347,7 @@ export class Ride {
           horse.position.x += -n.tz * c.dir * R.conveyor.speed * dt;
           horse.position.z += n.tx * c.dir * R.conveyor.speed * dt;
           this.stats.conveyed += dt;
+          this.#surfaceNote = 'belt';
         }
         for (const c of this.parts.cogs) {
           // (cog platforms: on the street)
@@ -364,6 +367,7 @@ export class Ride {
         horse.position.x += -n.tz * d.belt * R.conveyor.speed * dt;
         horse.position.z += n.tx * d.belt * R.conveyor.speed * dt;
         this.stats.belted += dt;
+        this.#surfaceNote = 'belt';
       }
       if (this.push) {
         const k = this.push.t / this.push.time;
@@ -374,9 +378,23 @@ export class Ride {
     }
   }
 
+  /** The surface he is on this frame ('rail' | 'belt' | null); when it ends `onLeaveSurface(kind)` fires (the Fire level recalls missed cog keys). */
+  #surfaceNote = null;
+  #surfacePrev = null;
+
+  #noteSurface() {
+    const now = this.grind ? 'rail' : this.#surfaceNote;
+    if (this.#surfacePrev && !now) {
+      this.stats.surfaceLeaves = (this.stats.surfaceLeaves ?? 0) + 1;
+      this.onLeaveSurface?.(this.#surfacePrev);
+    }
+    this.#surfacePrev = now;
+  }
+
   /** After the horse's update: rails to land on, vents, hammers, gears, the door. */
   after(dt) {
     const { horse } = this;
+    this.#noteSurface();
     if (horse.mode !== 'riding') {
       this.hzPrev = null;
       return;

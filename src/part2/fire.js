@@ -169,6 +169,10 @@ export class FireLevel {
       this.items.keys = Math.max(0, this.items.keys - k);
       this.#hud(true);
     };
+    // A rail, the belt deck or a conveyor left behind: cog keys he missed there (within `cogKeyRecallRadius`) fly to him.
+    this.ride.onLeaveSurface = () => {
+      if (this.stage === 'ride' && this.items.recallKeys(this.#riderPoint(), F.cogKeyRecallRadius, F.cogKeyRecallSpeed)) this.p.sound?.play('cog_key_sparkle', { position: this.#riderPoint(), volume: 0.5 });
+    };
     this.ride.onGear = () => {
       p.gears = (p.gears ?? 0) + 1;
       this.arsenal.gearStock++; // (each brass gear also feeds the Gear Wheel)
@@ -289,6 +293,7 @@ export class FireLevel {
     this.guardian.group.visible = false;
     this.guardian.hide();
     this.cinematicDone = false;
+    p.applyRewards(); // (the level-up bonuses on the new Arsenal)
     this.arsenal.arenaMode = false;
     this.arsenal.levelOn = true; // (Cog Shot and Gear Wheel are his for the level; Fire Blast and the Shield are not until he earns them)
     if (fresh) {
@@ -389,7 +394,7 @@ export class FireLevel {
     } else if (type === 'elixirEnergy') {
       // the BLUE potion: +bluePotionEnergy of the horse's energy (and its health, if it has one and was hurt), a splash and a blue sparkle on it
       const horse = p.horse;
-      const max = CONFIG.energy.horseEnergyMax;
+      const max = p.horseEnergyMax();
       horse.energy = Math.min(max, (horse.energy ?? max) + F.bluePotionEnergy);
       if (horse.health != null && horse.maxHealth != null) horse.health = horse.maxHealth;
       this.#sparkle(horse.position, 0x6ec6ff, 1.0);

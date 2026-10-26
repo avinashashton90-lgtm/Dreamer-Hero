@@ -48,7 +48,7 @@ class Part2 {
     this.id = 'part2';
     this.at = null; // 'arrival' | 'courtyard' | a level id | 'final' | 'ending'
     this.tweens = [];
-    this.stats = { arrivals: 0, stubs: {} };
+    this.stats = { arrivals: 0, stubs: {}, level: 1 };
     this.rewards = new GearRewards(); // (kept between sections; a new game resets them)
     this.banners = []; // gear-reward banners waiting to show (one after another)
     this.bannerT = 0;
@@ -187,6 +187,7 @@ class Part2 {
     this.#clearDown();
     this.leaveRide();
     this.ui.setElements?.([], false);
+    this.ui.setLevel?.(null);
     this.ui.setCogKeys?.(0, false);
     if (this.saved) {
       hero.world = this.saved.heroWorld;
@@ -220,6 +221,7 @@ class Part2 {
     this.elements = [];
     this.extraHearts = 0;
     this.shieldUnlocked = false;
+    this.stats.level = 1;
     this.fire?.newGame();
     this.banners.length = 0;
     if (this.saved) this.applyRewards();
@@ -246,7 +248,14 @@ class Part2 {
   applyRewards() {
     const GR = P2.gearRewards;
     const rw = this.rewards;
-    this.lives?.setBonusHearts?.(rw.bonusHearts + this.extraHearts);
+    const lv = this.levelBonus();
+    // (the heart bonuses together never take AJ above the table's cap)
+    this.lives?.setBonusHearts?.(Math.min(rw.bonusHearts + this.extraHearts + lv.hearts, P2.levelUpCaps.hearts - CONFIG.lives.hearts));
+    if (this.fire?.arsenal) {
+      this.fire.arsenal.capBonus = lv.batarangCap;
+      this.fire.arsenal.damageScale = 1 + lv.damagePct / 100;
+    }
+    this.ui.setLevel?.(D2.levelUp.tag(this.level));
     const armour = rw.has('armour');
     this.horse.damageScale = armour ? GR.armourDamage : 1;
     this.horse.stumbleScale = armour ? GR.armourStumble : 1;
@@ -1039,10 +1048,51 @@ class Part2 {
     return this.toCourtyard();
   }
 
-  /** An Element recovered: the HUD row; the courtyard's next objective is the next element. */
+  /** An Element recovered: the HUD row; the courtyard's next objective is the next element; AJ levels up. */
   addElement(id) {
-    if (!this.elements.includes(id)) this.elements.push(id);
+    const fresh = !this.elements.includes(id);
+    if (fresh) this.elements.push(id);
     this.ui.setElements?.(this.elements, true, id);
+    if (fresh) this.#levelUp();
+  }
+
+  /** AJ's level: 1 at the start of Part 2, +1 with each Element (up to the table's last level). */
+  get level() {
+    const last = Math.max(...Object.keys(P2.levelUpBonuses).map(Number));
+    return Math.min(1 + this.elements.length, last);
+  }
+
+  /** The cumulative level-up bonuses (the table `levelUpBonuses` summed over the levels reached), within `levelUpCaps`. */
+  levelBonus(level = this.level) {
+    const sum = { hearts: 0, horseEnergyPct: 0, batarangCap: 0, damagePct: 0 };
+    for (const [n, b] of Object.entries(P2.levelUpBonuses)) {
+      if (Number(n) > level) continue;
+      for (const k of Object.keys(sum)) sum[k] += b[k] ?? 0;
+    }
+    const caps = P2.levelUpCaps;
+    sum.hearts = Math.min(sum.hearts, caps.hearts - CONFIG.lives.hearts);
+    sum.batarangCap = Math.min(sum.batarangCap, caps.batarangCap - CONFIG.part2.fire.maxBatarangs);
+    return sum;
+  }
+
+  /** The horse's energy maximum (the level-up raises it; the Fire level's blue potions fill to it). */
+  horseEnergyMax() {
+    return CONFIG.energy.horseEnergyMax * (1 + this.levelBonus().horseEnergyPct / 100);
+  }
+
+  /** A new level: the bonuses are applied, a banner (after the Element's own) lists them, a full heal for the new heart. */
+  #levelUp() {
+    const L = D2.levelUp;
+    const was = this.stats.level ?? 1;
+    this.applyRewards();
+    this.stats.level = this.level;
+    if (this.level <= was) return;
+    const b = P2.levelUpBonuses[this.level] ?? {};
+    const parts = ['hearts', 'horseEnergyPct', 'batarangCap', 'damagePct'].filter((k) => b[k]).map((k) => L[k]);
+    this.banners.push(`${L.banner(this.level)}  ${parts.join(' · ')}`);
+    this.bannerT = Math.max(this.bannerT, P2.levelUp.bannerDelay);
+    this.lives?.setHearts?.(this.lives.maxHearts);
+    this.stats.levelUps = (this.stats.levelUps ?? 0) + 1;
   }
 
   giveShield() {

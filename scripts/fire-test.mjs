@@ -42,6 +42,7 @@ const ui = {
   setBossBar(on, frac, name, regen) { this.boss = { on, frac, name, regen }; },
   setCogKeys(n, show) { this.keys = { n, show }; },
   setElements(list, show) { this.elements = [...list]; this.elementsShown = show; },
+  setLevel(t) { this.levelText = t; },
 };
 let held = { moveX: 0, moveY: 0, jumpPressed: false, gallop: false, ability: null };
 const input = {
@@ -78,9 +79,9 @@ const track = fire.world.track;
 const near = () => track.nearest(horse.position.x, horse.position.z, 20);
 const lastToast = () => ui.toasts.at(-1);
 /** Put the horse at `s`, `lat`, riding at `speed` along the trail. */
-const place = (s, lat = 0, { speed = 0 } = {}) => {
+const place = (s, lat = 0, { speed = 0, y = 0 } = {}) => {
   ride.stop();
-  const pt = trackPoint(track, s, lat, 0);
+  const pt = trackPoint(track, s, lat, y);
   horse.position.copy(pt.pos);
   horse.heading = pt.heading;
   horse.speed = speed;
@@ -97,6 +98,10 @@ const toastsSince = (n) => ui.toasts.slice(n);
 const count = (name) => played.filter((x) => x.name === name).length;
 const seconds = async (t, fn) => { for (let x = 0; x < t; x += dt) { await frame(); if (fn?.()) return true; } return false; };
 await run(1);
+// (teleports in these tests leave rails and belts all the time: the cog keys are only recalled when a test asks for it)
+let recallOn = false;
+const realLeave = fire.ride.onLeaveSurface;
+fire.ride.onLeaveSurface = (kind) => { if (recallOn) realLeave?.(kind); };
 {
   const D = F.debug;
   check(fire.items.keys === D.startKeys && fire.arsenal.ammo === Math.min(F.maxBatarangs, D.startGems) && fire.arsenal.gearStock === D.startGears && fire.arsenal.usesLeft('cogShot') === D.startKeys && fire.arsenal.usesLeft('gearWheel') === Math.floor(D.startGears / F.weapons.gearWheel.gears),
@@ -123,7 +128,7 @@ check(p2.at === 'fire' && fire.built && fire.stage === 'ride' && state.is(STATES
     `${keys.length} cog keys and 4 chests (costs ${costs.join(', ')}; one holds the Shield) + the cog gate (${F.gate.keys}): six keys cover every cost, one may be missed`);
   const lat = (e) => Math.abs(track.nearest(e.pos.x, e.pos.z, 30).lateral);
   const mainKeys = keys.filter((k) => lat(k) < 0.1);
-  check(mainKeys.length === 2 && keys.every((k) => lat(k) <= 4), `two keys sit on the fixed main line; the other ${keys.length - mainKeys.length} are within 4 units`);
+  check(mainKeys.length === 3 && keys.every((k) => lat(k) <= 4), `three keys sit on the fixed main line (one on the belt deck's top, one on the upper rail's line); the other ${keys.length - mainKeys.length} are within 4 units`);
   const keyProgress = keys.map((k) => track.nearest(k.pos.x, k.pos.z, 30).s);
   check(keyProgress.every((s, i) => i === 0 || s > keyProgress[i - 1]) && P2.items.types.cogKey.reach <= P2.items.pickupMagnetRadius && P2.items.pickupMagnetRadius === 2, 'keys are only placed ahead along the trail and use at most the 2-unit pickup radius (pickupMagnetRadius)');
   const plaza = F.plaza;
@@ -213,7 +218,7 @@ check(p2.at === 'fire' && fire.built && fire.stage === 'ride' && state.is(STATES
   const items = fire.items;
   const key = items.find('key0');
   place(near()?.s ?? 4, 0);
-  horse.position.copy(key.pos.clone().setY(0));
+  horse.position.copy(key.pos.clone());
   const c0 = count('cog_key_collect');
   await run(0.3);
   check(key.taken && items.keys === 1 && ui.keys.n === 1 && count('cog_key_collect') === c0 + 1 && ui.toasts.at(-1) === FD.got.cogKey, 'a cog key floats (bobbing, spinning) and is collected by riding up to it: the counter 1, a chime');
@@ -1269,7 +1274,7 @@ const rel = (v) => new THREE.Vector3(C.x + v[0], 0, C.z + v[1]);
   const P = CONFIG.part2;
   // the cap: gems (and a heap of them) never carry more than maxBatarangs; no other ability gives any back
   ar.ammo = 100;
-  check(ar.ammo === F.maxBatarangs && F.maxBatarangs === 12, `Batarangs are capped at maxBatarangs (${ar.ammo})`);
+  check(ar.ammo === ar.ammoCap && ar.ammoCap === Math.min(P.levelUpCaps.batarangCap, F.maxBatarangs + p2.levelBonus().batarangCap) && F.maxBatarangs === 12, `Batarangs are capped at maxBatarangs + the level-up bonus (${ar.ammo}; Lv ${p2.level})`);
   ar.ammo = 10;
   f3.items.keys = 3; ar.gearStock = F.weapons.gearWheel.gears * 2; ar.unlockFire?.();
   for (const n of ['fireBlast', 'cogShot', 'gearWheel']) { ar.cooldowns[n] = 0; ar.use(n); await run(0.4); }
@@ -1280,7 +1285,7 @@ const rel = (v) => new THREE.Vector3(C.x + v[0], 0, C.z + v[1]);
   place(track.nearest(gemE.pos.x, gemE.pos.z, 30).s, 0);
   horse.position.copy(gemE.pos.clone().setY(0));
   await run(0.3);
-  check(gemE.taken && ar.ammo === F.maxBatarangs, `a blue gem tops it up to the cap (10 → ${ar.ammo}), no further`);
+  check(gemE.taken && ar.ammo === ar.ammoCap, `a blue gem tops it up to the cap (10 → ${ar.ammo}), no further`);
   // auto-aim inside a 70° forward cone, straight otherwise; a miss is wasted; short range
   fo.reset(0); fo.clear();
   place(430, 0, { speed: CONFIG.horse.maxSpeed });
@@ -1346,7 +1351,7 @@ const rel = (v) => new THREE.Vector3(C.x + v[0], 0, C.z + v[1]);
     `a cog key has a pulsing ring and a ${P.items.cogKeyBeacon.beamHeight}-high beam (unfogged), its cog ${(P.items.types.cogKey.size / gearR).toFixed(1)}× a gear, turning and bobbing`);
   const sp0 = count('cog_key_sparkle');
   place(track.nearest(key0.pos.x, key0.pos.z, 30).s, 0);
-  horse.position.copy(key0.pos.clone().setY(0));
+  horse.position.copy(key0.pos.clone());
   await run(0.3);
   check(key0.taken && count('cog_key_sparkle') === sp0 + 1, 'collecting it plays the little cog-sparkle sound');
   // every spike gear hits, every time: the whole body along its swept path, even crossing in a single frame
@@ -1406,6 +1411,75 @@ const rel = (v) => new THREE.Vector3(C.x + v[0], 0, C.z + v[1]);
   await run(2.5);
   held.moveY = 0;
   check(!gem2.taken && Math.hypot(gem2.model.position.x - px, gem2.model.position.z - pz) < 0.01, 'a gem 3.9 away from the lane is left alone');
+  // the plaza at a normal ride (no gallop, the stick straight up, no turning back): every plaza gem and potion is collected
+  f4.items.restore(null);
+  const plazaItems = f4.items.entries.filter((e) => !e.chest && e.type !== 'cogKey' && !e.temp && track.nearest(e.pos.x, e.pos.z, 30).s >= F.plaza.from && track.nearest(e.pos.x, e.pos.z, 30).s <= F.plaza.to + 2);
+  place(F.plaza.from - 10, 0, { speed: CONFIG.horse.maxSpeed });
+  held = { moveX: 0, moveY: 1, jumpPressed: false, gallop: false };
+  for (let i = 0; i < 60 * 14 && near().s < F.plaza.to + 6; i++) await frame();
+  held.moveY = 0;
+  const got = plazaItems.filter((e) => e.taken).length;
+  check(plazaItems.length >= 10 && got === plazaItems.length, `riding the plaza at a normal pace with the stick straight up: ${got} of ${plazaItems.length} gems and potions collected (the side ones drawn in), none missed`);
+}
+
+// 13) Cog keys: none under a rail or the belt deck; the ones missed there fly to AJ when he leaves it (25 units, cog keys only).
+{
+  await levels.load('part2', { start: 'fire' });
+  await run(0.5);
+  const f5 = p2.fire;
+  const R5 = f5.cfg;
+  const keys5 = f5.items.entries.filter((e) => e.type === 'cogKey');
+  const under = keys5.filter((k) => {
+    const n = track.nearest(k.pos.x, k.pos.z, 30);
+    const deck = R5.decks.some((d) => n.s >= d.s[0] && n.s <= d.s[1] && Math.abs(n.lateral - d.lat) <= d.width / 2 && k.pos.y < d.top - 0.01);
+    const rail = R5.rails.some((r) => n.s >= r.s[0] && n.s <= r.s[1] && Math.abs(n.lateral - r.lat) <= R5.grind.capture + 0.5 && k.pos.y < r.h - 0.01);
+    const belt = f5.parts.conveyors.some((c) => n.s >= c.s[0] && n.s <= c.s[1]);
+    return deck || rail || belt;
+  });
+  check(keys5.length === 7 && under.length === 0, `no cog key lies under a rail, the belt deck or a conveyor belt (${under.length} of ${keys5.length}); two are lifted onto the deck's top and the upper rail's line`);
+  // leaving the deck: the key left there flies to him
+  f5.items.restore(null);
+  recallOn = true;
+  const key0b = f5.items.find('key0'), farKey = f5.items.find('key1');
+  place(100, 0, { speed: 0, y: R5.decks[0].top });
+  await run(0.6);
+  check(f5.ride.stats.belted > 0, 'AJ stands on the belt deck (it carries him)');
+  const r0 = f5.items.stats.recalled ?? 0;
+  const got0 = f5.items.keys;
+  place(139, 0, { speed: 0 }); // (off its end, onto the street)
+  await run(0.1);
+  check((f5.items.stats.recalled ?? 0) === r0 + 1 && !!key0b.recall, `leaving the deck calls the missed cog key (within ${F.cogKeyRecallRadius}) — and only that one`);
+  await run(1.5);
+  check(key0b.taken && f5.items.keys === got0 + 1 && !farKey.taken && !farKey.recall, 'it flies to him and is collected; the cog key 70 away stays where it is (only cog keys are recalled)');
+  recallOn = false;
+  f5.items.restore(null);
+}
+
+// 14) AJ levels up with the Fire Element (a config table, cumulative, capped), shown beside the hearts; reset on a fresh game.
+{
+  const L5 = DIALOGUE.part2.levelUp;
+  p2.elements = [];
+  p2.stats.level = 1;
+  p2.banners.length = 0;
+  p2.applyRewards();
+  check(p2.level === 1 && ui.levelText === L5.tag(1) && fire.arsenal.capBonus === 0 && fire.arsenal.damageScale === 1 && p2.horseEnergyMax() === CONFIG.energy.horseEnergyMax, `Lv 1 at the start of Part 2 ("${ui.levelText}" beside the hearts), no bonuses`);
+  const hearts1 = lives.maxHearts;
+  const ups = P2.levelUpBonuses[2];
+  p2.addElement('fire');
+  await run(P2.levelUp.bannerDelay + 1);
+  const lvBanner = ui.banners.find((b) => b.startsWith('LEVEL UP'));
+  check(p2.level === 2 && ui.levelText === L5.tag(2) && !!lvBanner && lvBanner.includes('Lv 2') && p2.stats.levelUps >= 1, `the Fire Element gives Lv 2: banner "${lvBanner}"`);
+  check(lives.maxHearts === hearts1 + ups.hearts && fire.arsenal.ammoCap === F.maxBatarangs + ups.batarangCap && Math.abs(fire.arsenal.damageScale - (1 + ups.damagePct / 100)) < 1e-9 && Math.abs(p2.horseEnergyMax() - CONFIG.energy.horseEnergyMax * 1.1) < 1e-9,
+    `Lv 2: +${ups.hearts} max heart (${hearts1} → ${lives.maxHearts}), +${ups.horseEnergyPct}% horse energy (${p2.horseEnergyMax()}), +${ups.batarangCap} Batarang carried (${fire.arsenal.ammoCap}), +${ups.damagePct}% damage (×${fire.arsenal.damageScale})`);
+  fire.arsenal.ammo = 99;
+  check(fire.arsenal.ammo === F.maxBatarangs + ups.batarangCap, `the Batarang cap really is ${fire.arsenal.ammo}`);
+  // the caps: hearts 10 in all, Batarangs 16 — and later levels read the same table
+  const top = p2.levelBonus(99);
+  check(CONFIG.lives.hearts + top.hearts <= P2.levelUpCaps.hearts && F.maxBatarangs + top.batarangCap <= P2.levelUpCaps.batarangCap && top.hearts === 5 && top.batarangCap === 4 && P2.levelUpCaps.hearts === 10 && P2.levelUpCaps.batarangCap === 16, `the table is cumulative and capped: at the last level ${CONFIG.lives.hearts + top.hearts} hearts and ${F.maxBatarangs + top.batarangCap} Batarangs at most`);
+  p2.addElement('lightning');
+  check(p2.level === 3 && p2.levelBonus().damagePct === 20, 'a second Element: Lv 3, +20% damage in all');
+  p2.newGame();
+  check(p2.level === 1 && ui.levelText === L5.tag(1) && fire.arsenal.capBonus === 0 && fire.arsenal.damageScale === 1 && p2.banners.length === 0, 'a fresh game starts at Lv 1 again');
 }
 
 console.log(failed ? '\nFIRE TEST FAILED' : '\nFIRE TEST PASSED');

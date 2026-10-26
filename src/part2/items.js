@@ -298,6 +298,22 @@ export class Items {
     this.keys += n;
   }
 
+  /**
+   * The cog keys not yet taken within `radius` of `from` fly to the rider at `speed` a second (cog keys only; the other pickups stay).
+   * Returns how many were called.
+   */
+  recallKeys(from, radius, speed) {
+    let n = 0;
+    for (const e of this.entries) {
+      if (e.type !== 'cogKey' || e.taken || e.recall) continue;
+      if (e.model.position.distanceTo(from) > radius) continue;
+      e.recall = speed;
+      n++;
+    }
+    this.stats.recalled = (this.stats.recalled ?? 0) + n;
+    return n;
+  }
+
   /** Face a chest toward `yaw` (its front). */
   face(entry, yaw) {
     entry.model.rotation.y = yaw;
@@ -334,6 +350,16 @@ export class Items {
         u.ring.material.opacity = 0.85 * (1 - k);
         u.beam.material.opacity = B.beamOpacity * (0.75 + 0.25 * Math.sin(this.time * 3.1 + e.phase));
       }
+      if (e.recall && rider && dt > 0) {
+        // (a cog key called back: it flies to the rider)
+        const want = rider.pos.clone().setY(rider.pos.y - T.height - e.lift);
+        const to = want.sub(e.pos);
+        const d = to.length();
+        if (d > 1e-3) e.pos.addScaledVector(to, Math.min(d, e.recall * dt) / d);
+        e.model.position.x = e.pos.x;
+        e.model.position.z = e.pos.z;
+        e.model.position.y = e.pos.y + T.height + e.lift;
+      }
       if (rider && dt > 0) {
         // (on the ride, pickups in the rider's lane drift toward it and are collected within `rideMagnetRadius`; on foot: the plain radius)
         if (rider.ride && rider.heading !== undefined && e.model.position.distanceTo(rider.pos) < rider.ride.rideMagnetRadius * 3) {
@@ -342,7 +368,7 @@ export class Items {
           e.pos.x += e.model.position.x - before.x;
           e.pos.z += e.model.position.z - before.z;
         }
-        const reach = rider.ride ? Math.max(Math.min(T.reach, this.maxReach), rider.ride.rideMagnetRadius) : Math.min(T.reach, this.maxReach);
+        const reach = e.recall || rider.ride ? Math.max(Math.min(T.reach, this.maxReach), rider.ride?.rideMagnetRadius ?? 0) : Math.min(T.reach, this.maxReach);
         const direct = rider.pos.distanceTo(e.model.position) <= reach;
         const swept = e.type === 'cogKey' && this.lastRiderPos
           && segmentDistanceSquared(e.model.position, this.lastRiderPos, rider.pos) <= reach * reach;
@@ -456,11 +482,11 @@ export class Items {
       for (const m of e.contentList ?? []) m.removeFromParent();
       e.contentList = null;
       if (!e.chest && e.home) {
-        // (a pickup the ride's magnet had drawn sideways goes back to where it lay)
-        e.pos.x = e.home.x;
-        e.pos.z = e.home.z;
+        // (a pickup the ride's magnet had drawn sideways, or a cog key called back, goes back to where it lay)
+        e.pos.copy(e.home);
         e.model.position.x = e.home.x;
         e.model.position.z = e.home.z;
+        e.recall = 0;
       }
       if (e.chest) {
         const u = e.model.userData;

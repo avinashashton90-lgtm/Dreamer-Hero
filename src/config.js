@@ -925,6 +925,19 @@ export const CONFIG = {
       clank: { minSpeed: 6, ref: 15, volume: 0.5 }, // the armoured horse's plates clinking (above a walk; rate by speed)
       robotStep: { small: 0.45, boss: 0.7 }, // s between a walking robot's / the mech boss's steps (the Robots test)
     },
+    // AJ levels up with each Element (Lv 1 at the start of Part 2, Lv 2 with the Fire Element, ...). `levelUpBonuses[level]` is what reaching that
+    // level adds; they stack (the cumulative sum is applied), and are capped (`levelUpCaps`: 10 hearts in all, 16 Batarangs carried).
+    // `horseEnergyPct` raises the horse's energy maximum (the Fire level's blue potions fill to it), `damagePct` the Batarang's and Gear Wheel's damage.
+    // Later levels read the same table (`Part2.level`, `levelBonus()`); a fresh game starts at Lv 1 again.
+    levelUp: { bannerDelay: 2.6, bannerMs: 3400 },
+    levelUpCaps: { hearts: 10, batarangCap: 16 },
+    levelUpBonuses: {
+      2: { hearts: 1, horseEnergyPct: 10, batarangCap: 1, damagePct: 10 },
+      3: { hearts: 1, horseEnergyPct: 10, batarangCap: 1, damagePct: 10 },
+      4: { hearts: 1, horseEnergyPct: 10, batarangCap: 1, damagePct: 10 },
+      5: { hearts: 1, horseEnergyPct: 10, batarangCap: 1, damagePct: 10 },
+      6: { hearts: 1, horseEnergyPct: 10, batarangCap: 1, damagePct: 10 },
+    },
     gearsInLevel: { ride: 42 },
     gearRewardTiers: [
       { at: 1 / 3, reward: 'heart' },  // +1 max heart and a full heal
@@ -1070,6 +1083,9 @@ export const CONFIG = {
       // that lands while it is up is blocked (no damage); one that lands in the first `perfectWindow` s is a PERFECT block — the Guardian
       // is staggered `staggerTime` s (and takes `boss.staggerDamage`× while he is). `blocks` lists the attack sources it stops: the
       // Stomp is not one of them (it is jumped). Then `cooldown` s before it comes up again.
+      // Cog keys missed on a rail, the belt deck or a conveyor belt fly to AJ when he leaves it: within `cogKeyRecallRadius` of him, at `cogKeyRecallSpeed`
+      // a second (cog keys only; every other pickup keeps the small pickup radius).
+      cogKeyRecallRadius: 25, cogKeyRecallSpeed: 38,
       shield: {
         color: 0x6ec6ff, duration: 1.3, perfectWindow: 0.3, cooldown: 2.2, frontDot: 0.1, staggerTime: 2.0,
         blocks: ['steam', 'fireball', 'charge', 'sword', 'scout'],
@@ -1077,7 +1093,8 @@ export const CONFIG = {
       },
       // Seven cog keys; two lie on the main line and five sit close enough to collect from the saddle.
       // [s, lat, height above the street]. The gate and all four chests (one holds the Shield) cost six keys in total.
-      keys: [[120, 0, 0], [212, 0, 0], [412, -2.2, 0], [730, -2.0, 0], [775, 2.0, 0], [835, -2.0, 0], [900, 2.2, 0]],
+      // (a key never lies under a rail or the belt deck: the one at s 120 is on the deck's top, the one at s 412 on the upper rail's line)
+      keys: [[120, 0, 4], [212, 0, 0], [412, 0, 3.2], [730, -2.0, 0], [775, 2.0, 0], [835, -2.0, 0], [900, 2.2, 0]],
       // Chest rewards: a small one gives 2 elixirs (a list: healing + energy) or 3 gems, the big one +1 max heart or a gear bundle (10 gears).
       chests: [
         { size: 'small', s: 735, lat: -5.2, cost: 1, contents: [{ type: 'elixirHeal', n: 1 }, { type: 'elixirEnergy', n: 1 }], popup: 'elixirs' },
@@ -2364,6 +2381,7 @@ export const DIALOGUE = {
     robotsTest: 'Robots test — Tick, Leela, Mike, Stan, George',
     propsTest: 'Props test — gears, saw, factory, rail, clock tower, castle gate',
     ride: { quest: 'Ride to the Fire Element', start: 'Grind the rails, ride the steam!', gears: '⚙' }, // the Gearhaven ride (ride.js)
+    levelUp: { banner: (n) => `LEVEL UP!  Lv ${n}`, tag: (n) => `Lv ${n}`, hearts: '+1 max heart', horseEnergyPct: '+10% horse energy', batarangCap: '+1 Batarang carried', damagePct: '+10% Batarang and Gear Wheel damage' },
     gearReward: {
       banner: (what) => `Gear reward unlocked: ${what}!`,
       heart: '+1 heart', armour: 'horse armour', charge: 'bonus ability charge',

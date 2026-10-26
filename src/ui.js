@@ -11,13 +11,14 @@ export class UI {
     this.hud.innerHTML = `
       <div class="quest" style="display:none"><span class="quest-text"></span><span class="quest-dist"></span></div>
       <div class="hud-hint">${DIALOGUE.controlsHint}</div>
-      <div class="vitals"><div class="hearts"></div><div class="lives"></div></div>
+      <div class="vitals"><div class="hearts"></div><b class="level-tag" style="display:none"></b><div class="lives"></div></div>
       <div class="horse-energy" style="display:none"><span>${DIALOGUE.energy.label}</span><b><i></i></b></div>
       <div class="gems" style="display:none"></div>
       <div class="boss-bar" style="display:none"><span class="boss-name"></span><div class="boss-hp"><i></i><b class="boss-regen"></b></div></div>
       <div class="banner"></div>
       <div class="toast"></div>`;
     this.heartsEl = this.hud.querySelector('.hearts');
+    this.levelEl = this.hud.querySelector('.level-tag');
     this.livesEl = this.hud.querySelector('.lives');
     this.energyEl = this.hud.querySelector('.horse-energy');
     this.energyFill = this.energyEl.querySelector('i');
@@ -295,6 +296,18 @@ export class UI {
       el.classList.remove('pulse');
       void el.offsetWidth;
       el.classList.add('pulse');
+    }
+  }
+
+  /** "Lv N" beside the hearts (Part 2); null hides it. */
+  setLevel(text) {
+    const show = text != null;
+    if (this.levelEl.style.display !== (show ? '' : 'none')) this.levelEl.style.display = show ? '' : 'none';
+    if (show && this.levelEl.textContent !== text) {
+      this.levelEl.textContent = text;
+      this.levelEl.classList.remove('pop');
+      void this.levelEl.offsetWidth;
+      this.levelEl.classList.add('pop');
     }
   }
 
