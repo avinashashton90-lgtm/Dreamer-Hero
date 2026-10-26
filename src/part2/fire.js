@@ -735,7 +735,9 @@ export class FireLevel {
     this.guardian.reset();
     this.barrier = { state: 'open', k: 0 };
     this.arena.userData.barrier.material.opacity = 0;
-    this.arsenal.clear();
+    this.arsenal.clear(); // (also readies the free Gear Wheel)
+    // one extra heart on entry if below full (once per fight; gears and Batarangs carry over from the ride)
+    p.lives?.setHearts?.(Math.min(p.lives.maxHearts, p.lives.hearts + A.entryHearts));
     // the Batarangs kept from the ride, topped up to at least `ammoMin` and held to at most `ammoMax`
     this.arsenal.ammo = Math.min(A.ammoMax, Math.max(A.ammoMin, this.arsenal.ammo));
     this.fx.list.length = 0;

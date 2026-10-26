@@ -349,9 +349,9 @@ export class Guardian {
         const k = Math.min(1, this.t / W);
         this.#face(dx, dz, dt * 0.3);
         this.tgStomp.visible = this.tgStompFill.visible = true;
-        this.tgStomp.scale.setScalar(B.stomp.maxRadius);
+        this.tgStomp.scale.setScalar(B.stomp.fireWaveMaxRadius);
         this.tgStomp.material.opacity = 0.5 + 0.4 * Math.sin(this.t * 12);
-        this.tgStompFill.scale.setScalar(Math.max(0.5, B.stomp.maxRadius * k));
+        this.tgStompFill.scale.setScalar(Math.max(0.5, B.stomp.fireWaveMaxRadius * k));
         if (!this.stompClip && this.t >= W - this.#clipLength('Jump', 1.0)) {
           this.stompClip = true;
           this.anim?.play('Jump', { once: true, restart: true });
@@ -371,13 +371,13 @@ export class Guardian {
       case 'stompRing': {
         this.waveR += B.stomp.speed * dt;
         this.wave.scale.setScalar(this.waveR);
-        this.wave.material.opacity = Math.max(0, 0.9 * (1 - this.waveR / B.stomp.maxRadius));
+        this.wave.material.opacity = Math.max(0, 0.9 * (1 - this.waveR / B.stomp.fireWaveMaxRadius));
         const d = Math.hypot(hero.position.x - this.position.x, hero.position.z - this.position.z);
-        if (!this.waveHit && Math.abs(d - this.waveR) < B.stomp.width / 2 + 0.35 && hero.position.y < B.stomp.jumpClear + this.groundY()) {
+        if (!this.waveHit && d < B.stomp.fireWaveMaxRadius - F.arena.pillars.radius && Math.abs(d - this.waveR) < B.stomp.width / 2 + 0.35 && hero.position.y < B.stomp.jumpClear + this.groundY()) {
           this.waveHit = true;
           this.hitHero?.(B.stomp.damage, this.position, { source: 'stomp' });
         }
-        if (this.waveR >= B.stomp.maxRadius) {
+        if (this.waveR >= B.stomp.fireWaveMaxRadius) {
           this.wave.visible = false;
           this.#toRecover();
         }
@@ -745,7 +745,7 @@ export class Guardian {
     this.wave.position.set(this.position.x, 0.1, this.position.z);
     this.wave.scale.setScalar(1);
     this.wave.material.opacity = 0.9;
-    this.cool.stomp = 3;
+    this.cool.stomp = B.stomp.fireWaveInterval;
     this.sound?.play('furnace_guardian_stomp', { position: this.position });
     this.fx.burst(this.position.clone().setY(0.3), 24, { speed: 8, life: 0.7, size: 0.22, up: 2 });
     this.onShake?.(B.stomp.shake);

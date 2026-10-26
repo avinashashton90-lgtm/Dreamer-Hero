@@ -1156,7 +1156,7 @@ export const CONFIG = {
       },
       // The Furnace Guardian (George, the big armoured mech): `fireBossHealth`, four attacks, a sealed plaza.
       arena: {
-        at: [300, 0, -60], radius: 24, wall: 23, pillars: { count: 4, ring: 13, radius: 1.3, height: 7 },
+        at: [300, 0, -60], radius: 24, wall: 23, pillars: { count: 4, ring: 13, radius: 1.3, height: 7 }, entryHearts: 1,
         spawn: [0, 17], horse: [0, 21], boss: [0, -7],   // [x, z] from the centre: AJ's entrance, the horse's place, the Guardian's
         entryProtection: 1,                              // entering the plaza clears every protection flag, then protects him this long at most (s)
         stayIn: 1.4,                                     // while the Guardian stands nobody leaves: AJ is kept this far inside the wall
@@ -1180,7 +1180,7 @@ export const CONFIG = {
         glow: { color: 0xff5a1c, tint: 0.5, furnace: { size: 0.9, up: 0.64, out: 0.7 } },
         recover: 1.4, recoverEnraged: 0.8,
         // Stomp: rears up, slams; a shockwave ring spreads — AJ must be off the ground when it passes (jump).
-        stomp: { range: 15, windup: 1.5, speed: 10, width: 1.5, maxRadius: 18, damage: 0.5, jumpClear: 0.55, shake: 0.35 }, // (a 1.5 s telegraph ring + a rising warning sound; a jump clears the ring; half a heart)
+        stomp: { range: 15, windup: 1.5, speed: 10, width: 1.5, maxRadius: 18, fireWaveMaxRadius: 13, fireWaveInterval: 4.2, damage: 0.5, jumpClear: 0.55, shake: 0.35 }, // (a 1.5 s telegraph ring + a rising warning sound; a jump clears the ring; half a heart)
         // Steam Burst: a cone of steam from the furnace (telegraphed on the floor), half a heart (once per burst).
         steam: { min: 3, max: 13, windup: 1.1, duration: 1.4, length: 12, angle: 0.8, damage: 0.5, cooldown: 4 },
         // Furnace Charge: head down, a pause, a straight rush; into a pillar it stuns itself (taking extra damage).
