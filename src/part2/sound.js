@@ -46,7 +46,7 @@ export class Part2Sound {
     if (p.at === 'ending') phase = 'part2End';
     else if (p.at === 'ride' && this.chaseT > 0) phase = 'gearhavenChase';
     else if (p.stubs?.[p.at]) phase = 'stub';
-    else if (p.at === 'fire' || p.at === 'fireBoss' || p.at === 'fireElement') phase = 'elementFire';
+    else if (p.at === 'fire' || p.at === 'fireBoss' || p.at === 'fireElement') phase = { lightning: 'elementLightning', steam: 'elementSteam' }[p.lvId] ?? 'elementFire';
     // the Fire theme builds once the Furnace Guardian has noticed AJ (its boss layer)
     const g = p.fire?.guardian;
     this.audio?.setMusicLayer?.('boss', p.at === 'fireBoss' && !!g && g.alive && g.state !== 'idle');

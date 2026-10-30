@@ -657,6 +657,7 @@ export class Horse {
       this.grounded = false;
     }
 
+    if (this.glideT > 0) this.glideT = Math.max(0, this.glideT - dt);
     // Move in small steps so a full gallop never tunnels through a trunk.
     const steps = Math.max(1, Math.ceil((this.speed * dt) / HC.substep));
     const h = dt / steps;
@@ -665,7 +666,7 @@ export class Horse {
     for (let i = 0; i < steps; i++) {
       this.velocity.x = Math.sin(this.heading) * this.speed;
       this.velocity.z = Math.cos(this.heading) * this.speed;
-      this.velocity.y -= HC.gravity * h;
+      this.velocity.y -= HC.gravity * h * (this.glideT > 0 ? this.glideGravity : 1); // (Part 2's Steam Gust: a glide)
       this.position.addScaledVector(this.velocity, h);
       this.position.x = clamp(this.position.x, W.xMin + 2, W.xMax - 2);
       this.position.z = clamp(this.position.z, W.zMin + 2, W.zMax - 2);

@@ -984,6 +984,67 @@ export const CONFIG = {
     // After the arrival: the courtyard; walk into the Fire door (the first level, a stub for now).
     courtyard: { spawn: [0, 0, 6], first: 'fire' },
     // The levels (each a stub "coming soon" platform until built), and Amy's final fight.
+    // The Lightning and Steam levels are the Fire level's machinery with these settings laid over `fire` (deep-merged in place while the level is
+    // active: elementLevels.js; arrays replace). `id` (the Element), `noBoss` (no Guardian: the Element is waiting), `amy` (the story beat).
+    elementLevels: {
+      lightning: {
+        element: 'lightning', amy: true,
+        fire: {
+          accent: 0x6f6bff, accent2: 0xffe85a, ember: 0x10103a, fogMix: 0.4, lightColor: 0x8a8cff,
+          fireBossHealth: 52, fireGemCount: 14, gate: { keys: 1 },
+          ride: {
+            saws: [], hammers: [], cogPlatforms: [], conveyors: [],
+            gears: { railRows: [['a', 0, 156, 170, 2], ['a', 1, 172, 184, 2]], deckRows: [[0, 72, 120, 2]], ventArc: [3, 8] },
+          },
+          tesla: { coils: [
+            { s: 215, lat: -2.5, phase: 0 }, { s: 245, lat: 2.5, phase: 1.7 }, { s: 275, lat: -2.5, phase: 0.8 }, { s: 305, lat: 2.5, phase: 2.5 },
+            { s: 905, lat: 2.5, phase: 0 }, { s: 935, lat: -2.5, phase: 1.7 }, { s: 1240, lat: 2.5, phase: 0.8 }, { s: 1270, lat: -2.5, phase: 2.5 },
+          ] },
+          keys: [[120, 0, 4], [412, 0, 3.2], [740, -2.0, 0]],
+          chests: [{ size: 'small', s: 760, lat: 5.2, cost: 1, contents: [{ type: 'gem', n: 3 }], popup: 'gems' }],
+          elixirs: [{ type: 'elixirHeal', s: 520, lat: -3.2 }, { type: 'elixirHeal', s: 1090, lat: 3.2 }, { type: 'elixirEnergy', s: 640, lat: 3.2 }],
+          gemLandings: [[84, 0, 4.0], [366, 0, 3.2]],
+          plazaGems: [[704, 2.5], [722, -2.5], [752, 2.5], [768, -2.5]],
+          scouts: { triggers: [452, 520, 590] },
+          swords: { spots: [{ kind: 'swordA', s: 1010, lat: -3 }, { kind: 'swordB', s: 1110, lat: 3 }] },
+          // the Tesla Guardian: George in blue-violet; Stomp, a Lightning Lane (the narrow cone) and Overcharge (the charge: a pillar stuns him 3 s); no fire ball
+          boss: {
+            glow: { color: 0x6a6cff },
+            steam: { min: 3, max: 20, windup: 1.2, duration: 0.5, length: 24, angle: 0.2, damage: 0.5, cooldown: 4 },
+            fireball: { min: 9999, max: 9999 },
+          },
+          element: { eyeColor: 0xfff06a },
+        },
+      },
+      steam: {
+        element: 'steam', noBoss: true,
+        fire: {
+          accent: 0xeaf8f5, accent2: 0x3fb8a8, ember: 0x1a3c42, fogMix: 0.32, lightColor: 0xbfeee8,
+          fireGemCount: 12, gate: { keys: 1 }, greenPotionHearts: 2,
+          ride: {
+            saws: [], hammers: [], cogPlatforms: [], conveyors: [],
+            vents: [{ s: 50, lat: 0 }, { s: 204, lat: 0 }, { s: 344, lat: 0 }, { s: 484, lat: 0 }, { s: 624, lat: 0 }, { s: 764, lat: 0 }, { s: 975, lat: 0 }], // (the last one launches into the wind current at the door)
+            checkpoints: [0, 205, 345, 490, 630, 770, 960],
+            rails: [
+              { group: 'u', s: [210, 290], lat: 0, h: 3.2, upper: true }, { group: 'u', s: [350, 430], lat: 0, h: 3.2, upper: true },
+              { group: 'u', s: [490, 570], lat: 0, h: 3.2, upper: true }, { group: 'u', s: [630, 710], lat: 0, h: 3.2, upper: true },
+              { group: 'u', s: [770, 850], lat: 0, h: 3.2, upper: true },
+            ],
+            gears: { rows: [[28, 44, 0, 3], [900, 960, 0, 3]], railRows: [], deckRows: [[0, 72, 120, 2]], ventArc: [3, 8] },
+            door: { s: 1010, scale: 2.4, reach: 4.5 },
+          },
+          skyBolts: { zones: [[150, 1000]] },
+          keys: [[120, 0, 4], [390, 0, 3.2], [660, 0, 3.2]],
+          chests: [{ size: 'small', s: 880, lat: -5.2, cost: 1, contents: [{ type: 'wandPiece', n: 1 }], popup: 'wand' }],
+          elixirs: [{ type: 'elixirHeal', s: 300, lat: 3.2 }, { type: 'elixirHeal', s: 560, lat: -3.2 }, { type: 'elixirHeal', s: 860, lat: 3.2 }],
+          gemLandings: [[84, 0, 4.0]],
+          plazaGems: [],
+          scouts: { triggers: [452, 520, 590, 700, 800, 900] },
+          swords: { spots: [] },
+          element: { eyeColor: 0xbff6ee },
+        },
+      },
+    },
     levels: {
       order: ['fire', 'lightning', 'steam', 'magnet', 'time'],
       // Each level's accent colours [main, second] (its door's glow, its crystal; the levels to
@@ -1154,6 +1215,18 @@ export const CONFIG = {
         damage: 3, burn: { time: 3, dps: 1 }, cooldown: 10, speed: 24, arc: 2.6, range: 28, forward: 14, release: 0.24, size: 0.55,
         color: 0xff6a1c, core: 0xffe08a, splash: 2.2, trail: 14, hint: true,
       },
+      // The later Elements' abilities (each only once that Element is his): Spark Chain jumps through up to `targets` foes within `range`
+      // (`hop` from one to the next); Steam Gust pushes foes in a cone back and lifts the horse into a `glide` s glide (gravity ×`glideGravity`).
+      sparkChain: { damage: 3, cooldown: 6, range: 18, hop: 9, targets: 3, time: 0.3, color: 0xa8b4ff, core: 0xfff4a0 },
+      steamGust: { cooldown: 8, range: 12, coneDeg: 80, push: 9, glide: 3, glideGravity: 0.25, lift: 6, color: 0xeaf8f5 },
+      // Tesla coils (the Lightning level): a pair of posts at `s` zaps the lane `lat` ± `halfWidth` across the road every `period` s — warning
+      // glow for `warn`, then the bolt for `hold` — half a heart if the horse is in it and not above `jumpClear`. `coils`: [{ s, lat, phase }].
+      tesla: { coils: [], period: 3.4, warn: 1.1, hold: 0.3, halfWidth: 3.0, depth: 1.4, damage: 0.5, jumpClear: 1.4, postHeight: 2.6, color: 0x9ab4ff, core: 0xffffff },
+      // Amy's violet bolts from the sky (the Steam level): inside `zones` ([[from s, to s]]) a bolt picks a spot `ahead` of the horse every `every` s, marks it
+      // for `warn`, then strikes (`hold`) — half a heart inside `radius`; the horse has to leave the spot (a jump does not help).
+      skyBolts: { zones: [], every: [2.6, 3.8], ahead: [14, 26], lat: 4.4, radius: 2.0, warn: 1.0, hold: 0.3, damage: 0.5, color: 0xa878ff, core: 0xf0e4ff, height: 40 },
+      // The Steam level's gliding finale: through the wind current the horse glides `dist` along the road in `time` s, up to `height`.
+      glide: { time: 5.5, dist: 120, height: 9, tilt: 0.25 },
       // The Furnace Guardian (George, the big armoured mech): `fireBossHealth`, four attacks, a sealed plaza.
       arena: {
         at: [300, 0, -60], radius: 24, wall: 23, pillars: { count: 4, ring: 13, radius: 1.3, height: 7 }, entryHearts: 1,
@@ -1197,7 +1270,7 @@ export const CONFIG = {
       element: {
         orb: { radius: 0.85, particles: 36, swirl: 1.8, height: 1.7, glow: 3.2 },
         pedestal: { radius: 1.5, height: 1.0, rise: 2.0 },
-        scene: { pull: 1.6, flash: 0.5, eyes: 0.9, tower: { at: [-26, 14, -30], scale: 2.4, vanish: 0.9 } }, // the hooded figure on a distant tower
+        scene: { pull: 1.6, flash: 0.5, eyes: 0.9, tower: { at: [-26, 14, -30], scale: 2.4, vanish: 0.9 }, amyAt: [-4.5, 0, -2.5], amyScale: 1.1, shardScale: 0.28 }, // the hooded figure on a distant tower; (Lightning: Amy near the orb, the orb left as a shard)
         shots: {
           orb: { dist: 5.2, up: 1.6, look: 1.2, duration: 1.4 },
           circle: { dist: 4.6, up: 1.5, look: 1.3, turns: 0.55, duration: 3.0 },
@@ -1798,8 +1871,8 @@ export const CONFIG = {
       },
       // Part 2's fighting levels (the Fire level): only the buttons they have — Jump / Gallop, the
       // Batarang and Fire Blast (in the spots Smoke Bomb and Flash have in Part 1).
-      foot2: { jump: [166, 60, 62], mount: [100, 135, 62], batarang: [230, 104, 58], fireBlast: [204, 190, 58], shield: [233, 24, 58], cogShot: [136, 208, 58], gearWheel: [60, 215, 58] },
-      ride2: { gallop: [66, 66, 80], jump: [166, 60, 62], batarang: [222, 130, 58], fireBlast: [140, 160, 58], shield: [233, 24, 58], cogShot: [60, 170, 58], gearWheel: [200, 214, 58] },
+      foot2: { jump: [60, 60, 62], mount: [100, 135, 62], batarang: [230, 104, 58], fireBlast: [204, 190, 58], shield: [233, 24, 58], cogShot: [136, 208, 58], gearWheel: [60, 215, 58], sparkChain: [15, 120, 58], steamGust: [120, 15, 58] },
+      ride2: { gallop: [66, 66, 80], jump: [166, 60, 62], batarang: [222, 130, 58], fireBlast: [140, 160, 58], shield: [233, 24, 58], cogShot: [60, 170, 58], gearWheel: [200, 214, 58], sparkChain: [24, 240, 58], steamGust: [111, 240, 58] },
       minGap: 12,                // px of clear space kept between the corner buttons
     },
     // Ability buttons: a badge with the uses left (gems on hand ÷ cost, rounded down), capped
@@ -2344,7 +2417,7 @@ export const DIALOGUE = {
     audio: 'Audio test',
     part1: 'Part 1', part2: 'Part 2',
     invulnerable: (on) => `Invulnerable: ${on ? 'yes' : 'no'}`, heroState: (s) => `Hero state: ${s}`,
-    portal: 'Portal scene', arrival: 'Gearhaven arrival', fire: 'Fire level (start)', fireBoss: 'Fire boss', firePlaza: 'Fire plaza chests', giveKeys: (n) => `Give ${n} cog keys`, giveShield: 'Toggle Shield', giveAllElements: 'Toggle all Elements', giveFireOnly: 'Toggle Fire Element only', lightning: 'Lightning level', steam: 'Steam level',
+    portal: 'Portal scene', arrival: 'Gearhaven arrival', fire: 'Fire level (start)', fireBoss: 'Fire boss', firePlaza: 'Fire plaza chests', giveKeys: (n) => `Give ${n} cog keys`, giveShield: 'Toggle Shield', giveAllElements: 'Toggle all Elements', giveFireOnly: 'Toggle Fire Element only', lightning: 'Lightning level', lightningBoss: 'Tesla boss', steam: 'Steam level', steamBoss: 'Steam finale (glide + Element)',
     magnet: 'Magnet level', time: 'Time level', final: "Amy's final fight", part2Ending: 'Part 2 ending', robots: 'Robots test', ride: 'Gearhaven ride', props: 'Props test', look: (name) => `Look: ${name}`, giveGears: (n) => `Give ${n} gears`,
     on: 'Test menu on', off: 'Test menu off',
   },
@@ -2413,6 +2486,24 @@ export const DIALOGUE = {
         cannot: 'I cannot say.',                 // (Tick)
       },
     },
+    // The Lightning and Steam levels' lines, laid over `fire` above while the level is active (Tick never says "witch").
+    elementLevels: {
+      lightning: {
+        quest: 'Ride to the tesla gate', start: 'Tesla city! Mind the coils — jump the bolt or steer round it.', questBoss: 'Defeat the Tesla Guardian', questElement: 'Take the Lightning Element',
+        bossName: 'Tesla Guardian', gateSealed: 'The tesla gate is sealed!', banner: 'Lightning Element recovered',
+        tick: { stomp: 'Stomp coming!', steam: 'Lightning lane! Get clear!', charge: 'Overcharge! Get behind a pillar!', fireball: 'Spark!' },
+        blastUnlocked: 'Spark Chain unlocked!', blastHint: 'Tap Spark to chain lightning through three foes!',
+        scene: { hurt: 'She... took it.', why: 'Why would she do this?', amyGone: 'Amy!', shard: 'One shard is yours.' },
+      },
+      steam: {
+        quest: 'Ride the sky rails', start: 'Sky rails! Steam-jump across the gaps.', questElement: 'Take the Steam Element', banner: 'Steam Element recovered',
+        tick: { stomp: 'Stomp coming!', steam: 'Steam!', charge: 'Charging!', fireball: 'Fire ball!' },
+        blastUnlocked: 'Steam Gust unlocked!', blastHint: 'Tap Gust to blow them back — and glide!',
+        skyWarn: 'Violet bolts from the sky! Move!', glideHint: 'Steam jump into the wind!', wand: (n) => `Wand piece ${n}/3`, wandIcon: '🪄',
+        got: { wandPiece: 'Wand piece!' }, chest: { wand: 'Chest: a golden wand piece!' },
+        scene: { one: 'That is three of five.', others: 'And the wand pieces?', taken: 'Amy will want them. We must be quicker.', watching: '', amy: '', cannot: '' },
+      },
+    },
     elements: { fire: 'Fire', lightning: 'Lightning', steam: 'Steam', magnet: 'Magnet', time: 'Time', label: 'Elements' },
     toBeContinued: 'To be continued... Part 3',
     summaryTitle: 'Part 2 complete',
@@ -2434,7 +2525,7 @@ export const DIALOGUE = {
   dismount: 'Dismount',
   checkpoint: 'Checkpoint!',
   gemNames: { yellow: 'Yellow', blue: 'Blue', pink: 'Pink' },
-  abilityNames: { batarang: 'Batarang', smokeBomb: 'Smoke Bomb', flashMode: 'Flash Mode', fireBlast: 'Fire Blast', shield: 'Shield', cogShot: 'Cog Shot', gearWheel: 'Gear Wheel' },
+  abilityNames: { batarang: 'Batarang', smokeBomb: 'Smoke Bomb', flashMode: 'Flash Mode', fireBlast: 'Fire Blast', sparkChain: 'Spark Chain', steamGust: 'Steam Gust', shield: 'Shield', cogShot: 'Cog Shot', gearWheel: 'Gear Wheel' },
   unlocked: (ability) => `${ability} Unlocked!`,
   smokeResisted: 'It shrugs off the smoke!',
   arenaGems: 'Gems at the arena edge!',
@@ -2457,7 +2548,7 @@ export const DIALOGUE = {
   attack: 'Attack',
   dodge: 'Dodge',
   jump: 'Jump',
-  abilityShort: { batarang: '★', smokeBomb: '☁', flashMode: '⚡', fireBlast: '🔥', shield: '🛡', cogShot: '⚙', gearWheel: '◎' },
+  abilityShort: { batarang: '★', smokeBomb: '☁', flashMode: '⚡', fireBlast: '🔥', sparkChain: '⚡', steamGust: '💨', shield: '🛡', cogShot: '⚙', gearWheel: '◎' },
   gameOverTitle: 'Game Over',
   retryRide: 'Retry',
   bossName: 'Cave Monster',

@@ -325,16 +325,16 @@ export class Input {
 
     // Abilities: small buttons in the arc (greyed out while locked).
     this.abilityBtns = {};
-    ['batarang', 'smokeBomb', 'flashMode', 'shield', 'fireBlast', 'cogShot', 'gearWheel'].forEach((name) => {
+    ['batarang', 'smokeBomb', 'flashMode', 'shield', 'fireBlast', 'cogShot', 'gearWheel', 'sparkChain', 'steamGust'].forEach((name) => {
       const b = button('ability-btn locked', DIALOGUE.abilityShort[name]);
       b.title = DIALOGUE.abilityNames[name];
       b.insertAdjacentHTML('beforeend', '<i class="cooldown"></i>' + (name === 'flashMode' ? '<span class="energy"><i></i></span>' : ''));
       // Uses-left badge, in the colour it spends (updated live in setCombatButtons).
       const color = Object.keys(CONFIG.gems.abilities).find((c) => CONFIG.gems.abilities[c] === name);
       b.insertAdjacentHTML('beforeend', '<b class="uses" style="display:none"></b>');
-      const hex = color ? CONFIG.gems.colors[color] : { shield: CONFIG.part2.fire.shield.color, cogShot: CONFIG.part2.fire.weapons.cogShot.color, gearWheel: CONFIG.part2.fire.weapons.gearWheel.color }[name] ?? CONFIG.part2.fire.accent;
+      const hex = color ? CONFIG.gems.colors[color] : { shield: CONFIG.part2.fire.shield.color, cogShot: CONFIG.part2.fire.weapons.cogShot.color, gearWheel: CONFIG.part2.fire.weapons.gearWheel.color, sparkChain: CONFIG.part2.fire.sparkChain.color, steamGust: CONFIG.part2.fire.steamGust.color }[name] ?? CONFIG.part2.fire.accent;
       b.style.setProperty('--gem', `#${hex.toString(16).padStart(6, '0')}`);
-      if (name === 'fireBlast') b.classList.add('fire');
+      if (name === 'fireBlast' || name === 'sparkChain' || name === 'steamGust') b.classList.add('fire', name);
       this.abilityBtns[name] = b;
     });
 
@@ -457,6 +457,8 @@ export class Input {
         if (e.code === 'Digit5') this.abilityQueued = 'cogShot';
         if (e.code === 'Digit6') this.abilityQueued = 'gearWheel';
         if (e.code === 'Digit7') this.abilityQueued = 'shield';
+        if (e.code === 'Digit8') this.abilityQueued = 'sparkChain';
+        if (e.code === 'Digit9') this.abilityQueued = 'steamGust';
         if (e.code === I.debugKeys.grantGems) this.debugQueued.grantGems = true;
         if (e.code === I.debugKeys.damageHero) this.debugQueued.damageHero = true;
         if (e.code === I.debugKeys.teleportArena) this.debugQueued.teleportArena = true;
@@ -512,7 +514,7 @@ export class Input {
     show(this.attackBtn, !!L.attack && !exhausted);
     show(this.dodgeBtn, !!L.dodge && !exhausted);
     for (const [name, b] of Object.entries(this.abilityBtns)) {
-      show(b, !!L[name] && !exhausted && (ab.visible ? ab.visible(name) : !['fireBlast', 'cogShot', 'gearWheel'].includes(name)));
+      show(b, !!L[name] && !exhausted && (ab.visible ? ab.visible(name) : !['fireBlast', 'cogShot', 'gearWheel', 'sparkChain', 'steamGust'].includes(name)));
       const unlocked = ab.has(name);
       b.classList.toggle('locked', !unlocked);
       // Uses left (live after every use and pickup), capped on screen; no badge at 0 or locked.

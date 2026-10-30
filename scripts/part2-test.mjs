@@ -239,9 +239,9 @@ const scale0 = horse.model.scale.x;
   check(p2.at === 'fire' && ui.quest === D2.fire.quest && horse.mode === 'riding' && hero.world === p2.fire.world && p2.fire.stage === 'ride',
     `at the ride's end the Fire Element's level begins (the furnace city, on the horse): "${ui.quest}"`);
   // (a level's stub: its door back leads to the courtyard)
-  await levels.load('part2', { start: 'lightning' });
+  await levels.load('part2', { start: 'magnet' });
   await frame();
-  hero.puppet(p2.stubs.lightning.door.clone(), 0, 0);
+  hero.puppet(p2.stubs.magnet.door.clone(), 0, 0);
   await frame(); await frame();
   check(p2.at === 'courtyard' && Math.hypot(hero.position.x, hero.position.z) < P2.gearhaven.floor.radius, 'a stub level\'s door back leads to the courtyard');
 }
@@ -249,12 +249,12 @@ const scale0 = horse.model.scale.x;
 // 3) Every level's stub, Amy's final fight and the Part 2 ending (the test menu's jumps).
 {
   const got = [];
-  for (const id of [...P2.levels.order.filter((l) => l !== 'fire'), 'final']) {
+  for (const id of [...P2.levels.order.filter((l) => !['fire', 'lightning', 'steam'].includes(l)), 'final']) {
     await levels.load('part2', { start: id });
     await frame();
     got.push(levels.current.at === id && ui.quest === D2.comingSoon(D2.levelNames[id]) && state.is(STATES.PLAY));
   }
-  check(got.every(Boolean), `each other level (Lightning, Steam, Magnet, Time) and Amy's final fight load as a "coming soon" stub (${got.filter(Boolean).length}/${got.length})`);
+  check(got.every(Boolean), `each other level (Magnet, Time) and Amy's final fight load as a "coming soon" stub (${got.filter(Boolean).length}/${got.length})`);
   check(soundscape.musicPhase === 'stub' && CONFIG.audio.music.phases.stub === 'gearhaven', 'a stub reuses the Gearhaven theme until its level exists');
   await levels.load('part2', { start: 'ending' });
   await frame();

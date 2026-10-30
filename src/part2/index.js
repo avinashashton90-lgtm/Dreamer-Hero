@@ -97,12 +97,38 @@ class Part2 {
     };
     this.ride.onFinish = () => this.travel(() => this.enterFire()); // (the end of the ride: the furnace city, the Fire Element's level)
     this.rides = { ride: { ride: this.ride, parts: this.rideParts, world: this.rideWorld, cfg: RD } };
-    this.fire = new FireLevel(this); // (built the first time it is entered)
+    // The element levels (Fire, Lightning, Steam): one class, the later two with their settings laid over Fire's (elementLevels.js). Each is built
+    // the first time it is entered; `fire` is the one in use.
+    this.shared = {}; // the Arsenal and its effects, shared by all three
+    this.levels = { fire: new FireLevel(this, 'fire'), lightning: new FireLevel(this, 'lightning'), steam: new FireLevel(this, 'steam') };
+    this.lvId = 'fire';
   }
 
-  /** Make the ride `key` ('ride' | 'fire') the one in use: its world, models, config (ride.js and rideModel.js read it). */
+  /** The element level in use (the last one entered). */
+  get fire() {
+    return this.levels[this.lvId];
+  }
+
+  /** `id` becomes the level in use: the one before is put away (its overlay off) and this one's laid over the shared config. */
+  useLevel(id) {
+    if (this.lvId !== id) this.fire.deactivate();
+    this.lvId = id;
+    this.fire.activate();
+  }
+
+  /** Which Elements' abilities the shared Arsenal has (the Elements row, the buttons). */
+  syncUnlocks() {
+    const a = this.shared?.arsenal;
+    if (!a) return;
+    a.fireUnlocked = this.elements.includes('fire');
+    a.sparkUnlocked = this.elements.includes('lightning');
+    a.steamUnlocked = this.elements.includes('steam');
+  }
+
+  /** Make the ride `key` ('ride' | an element level's id) the one in use: its world, models, config (ride.js and rideModel.js read it). */
   useRide(key) {
-    const r = key === 'fire' ? { ride: this.fire.ride, parts: this.fire.parts, world: this.fire.world, cfg: this.fire.cfg } : this.rides.ride;
+    const L = this.levels[key];
+    const r = L ? { ride: L.ride, parts: L.parts, world: L.world, cfg: L.cfg } : this.rides.ride;
     this.rideKey = key;
     this.ride = r.ride;
     this.rideParts = r.parts;
@@ -175,9 +201,13 @@ class Part2 {
     if (start === 'robots') return this.showRobots();
     if (start === 'props') return this.showProps();
     if (start === 'ride') return this.enterRide();
-    if (start === 'fire') return this.enterFire({ debug: true }); // (?debug "Fire level (start)": with 3 cog keys, 20 gems and 30 gears)
-    if (start === 'fireBoss') return this.fire.build().then(() => this.fire.debugBoss());
-    if (start === 'firePlaza') return this.fire.build().then(() => this.fire.debugPlaza());
+    if (start === 'fire') return this.enterFire({ debug: true, id: 'fire' }); // (?debug "Fire level (start)": with 3 cog keys, 20 gems and 30 gears)
+    const boss = /^(fire|lightning|steam)(Boss|Plaza)$/.exec(start); // (?debug: straight into a level's plaza / chests)
+    if (boss) {
+      this.leaveRide();
+      this.useLevel(boss[1]);
+      return this.fire.build().then(() => (boss[2] === 'Boss' ? this.fire.debugBoss() : this.fire.debugPlaza()));
+    }
     return this.enterLevel(start);
   }
 
@@ -222,7 +252,10 @@ class Part2 {
     this.extraHearts = 0;
     this.shieldUnlocked = false;
     this.stats.level = 1;
-    this.fire?.newGame();
+    for (const L of Object.values(this.levels)) L.newGame();
+    this.wandPieces = 0;
+    this.ui.setWand?.(0, null);
+    this.tick?.setDim?.(false);
     this.banners.length = 0;
     if (this.saved) this.applyRewards();
   }
@@ -231,9 +264,9 @@ class Part2 {
   gearProgress(pulse = false) {
     const { ride } = this;
     const total = ride.total;
-    const now = this.rewards.progress(this.rideKey, ride.count, total, 'fire');
+    const now = this.rewards.progress(this.rideKey, ride.count, total, this.rideKey === 'ride' ? 'fire' : this.rideKey);
     const tiers = gearTiers(total).map((t) => ({ at: t.at, reached: ride.count >= t.count }));
-    this.ui.setGears?.(ride.count, total, true, pulse, tiers, this.rideKey !== 'fire'); // (the Fire level shows only the count)
+    this.ui.setGears?.(ride.count, total, true, pulse, tiers, this.rideKey === 'ride'); // (the element levels show only the count)
     for (const r of now) {
       this.banners.push(D2.gearReward.banner(D2.gearReward[r]));
       if (r === 'heart') {
@@ -251,9 +284,9 @@ class Part2 {
     const lv = this.levelBonus();
     // (the heart bonuses together never take AJ above the table's cap)
     this.lives?.setBonusHearts?.(Math.min(rw.bonusHearts + this.extraHearts + lv.hearts, P2.levelUpCaps.hearts - CONFIG.lives.hearts));
-    if (this.fire?.arsenal) {
-      this.fire.arsenal.capBonus = lv.batarangCap;
-      this.fire.arsenal.damageScale = 1 + lv.damagePct / 100;
+    if (this.shared.arsenal) {
+      this.shared.arsenal.capBonus = lv.batarangCap;
+      this.shared.arsenal.damageScale = 1 + lv.damagePct / 100;
     }
     this.ui.setLevel?.(D2.levelUp.tag(this.level));
     const armour = rw.has('armour');
@@ -549,9 +582,10 @@ class Part2 {
   enterRide(which = 'ride') {
     const { hero, horse, state, STATES, ui } = this;
     this.leaveRide();
+    if (which !== 'ride') this.useLevel(which); // (a level left a moment ago has its settings back on)
     this.useRide(which);
     const { ride, rc } = this;
-    this.at = which;
+    this.at = which === 'ride' ? 'ride' : 'fire'; // ('fire': any element level's ride)
     this.stats.rides = (this.stats.rides ?? 0) + 1;
     this.useWorld(this.rideWorld, rc.sky);
     this.gearhaven.visible = false;
@@ -565,7 +599,7 @@ class Part2 {
     horse.onCheckpoint = (i) => {
       this.rideParts.flags[i - 1]?.userData.flag.material.color.setHex(CONFIG.checkpoints.reachedColor);
       ui.toast(DIALOGUE.checkpoint);
-      if (which === 'fire') this.fire.checkpoint(i);
+      if (which !== 'ride') this.fire.checkpoint(i);
     };
     horse.onRespawn = () => ride.stop();
     const start = trackPoint(track, 2);
@@ -578,15 +612,17 @@ class Part2 {
     this.behind(start.heading);
     if (!state.is(STATES.PLAY)) state.set(STATES.PLAY);
     this.gearProgress();
-    if (which === 'fire') this.fire.onEnterRide({ fresh: this.freshFire !== false });
+    if (which !== 'ride') this.fire.onEnterRide({ fresh: this.freshFire !== false });
     else ui.toast(D2.ride.start);
   }
 
   /** The Fire Element's level: the furnace city (built the first time), from its start. */
-  async enterFire({ fresh = true, debug = false } = {}) {
+  async enterFire({ fresh = true, debug = false, id = this.lvId } = {}) {
+    this.leaveRide(); // (the level before is left first)
+    this.useLevel(id);
     await this.fire.build();
     this.freshFire = fresh;
-    this.enterRide('fire');
+    this.enterRide(id);
     this.freshFire = true;
     if (debug) this.fire.debugStart();
   }
@@ -640,7 +676,7 @@ class Part2 {
 
   /** A level: today a stub platform ("coming soon") with its crystal and the door back. */
   enterLevel(id) {
-    if (id === 'fire') return this.enterFire();
+    if (this.levels[id]) return this.enterFire({ id });
     this.leaveRide();
     const { state, STATES, ui } = this;
     const s = this.stubs[id];
@@ -853,7 +889,7 @@ class Part2 {
     const fire = this.fire;
     const fight = !!fire?.stage && (this.at === 'fire' || this.at === 'fireBoss');
     // After the Fire Element, Fire Blast is his everywhere (the Arsenal outside the level too).
-    const armed = !fight && !!fire?.built && this.elements.includes('fire') && !fire.stage;
+    const armed = !fight && !!fire?.built && this.elements.length > 0 && !fire.stage;
     if (playing) {
       if (alive && !input.enabled) input.setEnabled(true);
       inp = input.read();
@@ -1052,6 +1088,7 @@ class Part2 {
   addElement(id) {
     const fresh = !this.elements.includes(id);
     if (fresh) this.elements.push(id);
+    this.syncUnlocks();
     this.ui.setElements?.(this.elements, true, id);
     if (fresh) this.#levelUp();
   }
@@ -1097,7 +1134,7 @@ class Part2 {
 
   giveShield() {
     this.shieldUnlocked = !this.shieldUnlocked;
-    if (this.fire?.built) this.fire.setShieldUnlocked(this.shieldUnlocked);
+    if (this.shared.arsenal) this.shared.arsenal.shieldUnlocked = this.shieldUnlocked;
     this.ui.toast(this.shieldUnlocked ? D2.fire.got.shield : D2.fire.shieldCooldown);
   }
 
@@ -1105,20 +1142,24 @@ class Part2 {
     const all = P2.levels.order.every((id) => this.elements.includes(id));
     this.elements = all ? [] : [...P2.levels.order];
     this.ui.setElements?.(this.elements, true);
-    if (this.fire?.built) this.fire.setFireUnlocked(this.elements.includes('fire'));
+    this.syncUnlocks();
   }
 
   giveFireOnly() {
     this.elements = this.elements.length === 1 && this.elements[0] === 'fire' ? [] : ['fire'];
     this.ui.setElements?.(this.elements, true);
-    if (this.fire?.built) this.fire.setFireUnlocked(this.elements.includes('fire'));
+    this.syncUnlocks();
   }
 
-  /** The Fire level is done: on to the next Element's door (its stub for now). */
-  afterFire() {
-    const next = P2.levels.order[P2.levels.order.indexOf('fire') + 1];
+  /** An element level is done: on to the next Element's door (Lightning, Steam, then the stubs). */
+  afterElement(id) {
+    const next = P2.levels.order[P2.levels.order.indexOf(id) + 1];
     this.objective = next;
     this.travel(() => this.enterLevel(next));
+  }
+
+  afterFire() {
+    return this.afterElement('fire');
   }
 
   /** The gear sky, cogs, the clock's hands, steam, the open door's shimmer, the lamps. */

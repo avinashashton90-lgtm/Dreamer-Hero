@@ -9,6 +9,8 @@ import { Arsenal, FireFx } from './fireCombat.js';
 import { Guardian, buildArena } from './guardian.js';
 import { BoneShatter } from '../shatter.js';
 import { applyLook } from './looks.js';
+import { LevelOverlay } from './elementLevels.js';
+import { Zaps } from './zaps.js';
 
 // The Fire Element's level (STORY.md; CONFIG.part2.fire): the furnace city. The first stretch is the
 // Gearhaven ride's own machinery on a new layout (conveyors, steam vents, rails, the belt deck, a
@@ -39,10 +41,16 @@ export function fireRideConfig() {
 
 export class FireLevel {
   /** @param {object} part  the Part 2 chapter */
-  constructor(part) {
+  constructor(part, id = 'fire') {
     this.p = part;
+    this.id = id; // 'fire' | 'lightning' | 'steam': the later two are this class with their settings laid over `fire` (elementLevels.js)
+    this.def = P2.elementLevels[id] ?? {};
+    this.noBoss = !!this.def.noBoss; // (Steam: no Guardian — the Element is waiting after the gliding finale)
+    this.ov = id === 'fire' ? null : new LevelOverlay(id);
     this.built = false;
-    this.cfg = fireRideConfig();
+    this.activate();
+    this.cfg = structuredClone(fireRideConfig()); // (a copy: the overlay's in-place merges must not reach it)
+    this.deactivate();
     this.stage = null; // 'ride' | 'boss' | 'element' | null
     this.save = null; // the checkpoint's saved items { keys, taken, opened } and the ammo then
     this.stats = { respawns: 0, chests: 0, keysFound: 0, drops: 0, revives: 0, gemsFound: 0 };
@@ -54,7 +62,17 @@ export class FireLevel {
   }
 
   /** Everything the level is made of (once; the first time it is entered). */
+  /** This level's settings laid over the shared `fire` config / dialogue (idempotent). */
+  activate() {
+    this.ov?.on();
+  }
+
+  deactivate() {
+    this.ov?.off();
+  }
+
   async build() {
+    this.activate();
     if (this.built) return;
     if (this.building) return this.building;
     this.building = this.#build();
@@ -77,7 +95,8 @@ export class FireLevel {
     setRideModelConfig(keep);
     const track = this.world.track;
     const root = this.parts.root;
-    this.fx = new FireFx(p.scene);
+    p.shared ??= {};
+    this.fx = p.shared.fx ??= new FireFx(p.scene);
     this.scrap = new BoneShatter(p.scene, this.world);
     await this.scrap.ready;
     this.scrap.model.userData.bones.material.color.setHex(0xc89040); // (brass parts)
@@ -151,10 +170,11 @@ export class FireLevel {
     this.guardian.onShake = (k) => p.cam.shake?.(k, 0.3);
     this.guardian.onDefeat = () => this.#defeated();
     this.#element();
-    // The hero's arsenal: the Batarang (gems) and, with the Fire Element, Fire Blast.
-    this.arsenal = new Arsenal({
+    // The hero's arsenal (one for all the element levels): the Batarang (gems), the Elements' abilities, the Shield, the cog weapons.
+    const first = !p.shared.arsenal;
+    this.arsenal = p.shared.arsenal ??= new Arsenal({
       scene: p.scene, hero: p.hero, horse: p.horse, fx: this.fx, sound: p.sound, cam: p.cam, ui: p.ui,
-      targets: () => this.targets(),
+      targets: () => p.fire.targets(),
       onEvent: (name, d) => {
         if (name === 'blocked' && d.why === 'gems') p.ui.toast(FD.ammoOut);
         if (name === 'blocked' && d.why === 'keys') p.ui.toast(FD.weapons.needKey);
@@ -163,12 +183,11 @@ export class FireLevel {
     });
     await this.arsenal.ready;
     this.guardian.getWheelThreat = () => this.arsenal?.wheel ?? null;
-    this.arsenal.fireUnlocked = p.elements.includes('fire');
-    this.arsenal.keys = () => this.items.keys;
-    this.arsenal.spendKey = (k) => {
-      this.items.keys = Math.max(0, this.items.keys - k);
-      this.#hud(true);
-    };
+    if (first) p.syncUnlocks?.();
+    this.bindArsenal();
+    // Tesla coils (Lightning) and Amy's sky bolts (Steam): timed zaps along the road, half a heart.
+    this.zaps = new Zaps({ scene: root, track, onHit: (h) => this.#hitHero(h.damage, h.at, { source: 'zap', knockback: false }), sound: p.sound, cam: p.cam });
+    this.zaps.build();
     // A rail, the belt deck or a conveyor left behind: cog keys he missed there (within `cogKeyRecallRadius`) fly to him.
     this.ride.onLeaveSurface = () => {
       if (this.stage === 'ride' && this.items.recallKeys(this.#riderPoint(), F.cogKeyRecallRadius, F.cogKeyRecallSpeed)) this.p.sound?.play('cog_key_sparkle', { position: this.#riderPoint(), volume: 0.5 });
@@ -178,7 +197,46 @@ export class FireLevel {
       this.arsenal.gearStock++; // (each brass gear also feeds the Gear Wheel)
       p.gearProgress(true);
     };
-    this.ride.onFinish = () => p.travel(() => this.enterBoss());
+    this.ride.onFinish = () => (this.noBoss && p.horse.mounted ? this.#startGlide() : p.travel(() => this.enterBoss()));
+  }
+
+  /** The shared Arsenal works for this level: its cog keys, and its foes as the targets. */
+  bindArsenal() {
+    const a = this.arsenal;
+    a.keys = () => this.items.keys;
+    a.spendKey = (k) => {
+      this.items.keys = Math.max(0, this.items.keys - k);
+      this.#hud(true);
+    };
+  }
+
+  /** The Steam level's finale: through the wind current the horse glides along the road (scripted), then on to the Element. */
+  #startGlide() {
+    const p = this.p;
+    this.glide = { t: 0, s0: this.ride.s, y0: p.horse.position.y };
+    p.horse.scripted = true;
+    p.horse.mode = 'riding';
+    p.ui.toast(FD.glideHint);
+    p.sound?.play('steam_launch', { position: p.horse.position });
+  }
+
+  #updateGlide(dt) {
+    const g = this.glide;
+    const G = F.glide;
+    const p = this.p;
+    g.t += dt;
+    const k = Math.min(1, g.t / G.time);
+    const pt = trackPoint(this.world.track, g.s0 + G.dist * k, 0, g.y0 + G.height * Math.sin(Math.PI * Math.min(1, k * 1.15)));
+    p.horse.position.copy(pt.pos);
+    p.horse.heading = pt.heading;
+    p.horse.speed = G.dist / G.time;
+    p.horse.velocity.set(0, 0, 0);
+    if (Math.random() < dt * 30) this.fx.emit(pt.pos.clone().setY(pt.pos.y - 0.5), new THREE.Vector3(0, 1, 0), { life: 0.9, size: 0.6, color: 0xeaf8f5, g: 0 });
+    if (k >= 1) {
+      this.glide = null;
+      p.horse.scripted = false;
+      p.travel(() => this.enterBoss());
+    }
   }
 
   /** Live foes and the Guardian: what a throw can aim at. */
@@ -296,6 +354,9 @@ export class FireLevel {
     p.applyRewards(); // (the level-up bonuses on the new Arsenal)
     this.arsenal.arenaMode = false;
     this.arsenal.levelOn = true; // (Cog Shot and Gear Wheel are his for the level; Fire Blast and the Shield are not until he earns them)
+    this.bindArsenal();
+    this.zaps?.reset();
+    this.glide = null;
     if (fresh) {
       this.arsenal.shieldUnlocked = false; // (the chests are shut again)
       this.items.restore(null);
@@ -356,13 +417,17 @@ export class FireLevel {
     this.arenaItems.clear();
     this.#tint(false);
     this.p.ui.setCogKeys?.(0, false);
+    this.p.ui.setWand?.(0, null);
+    this.glide = null;
+    this.zaps?.reset();
+    this.deactivate();
   }
 
   /** A new game: nothing carried over. */
   newGame() {
     if (!this.built) return;
     this.arsenal.ammo = F.startAmmo;
-    this.arsenal.fireUnlocked = false;
+    this.arsenal.fireUnlocked = this.arsenal.sparkUnlocked = this.arsenal.steamUnlocked = false;
     this.arsenal.shieldUnlocked = false;
     this.items.restore(null);
     this.items.keys = 0;
@@ -406,6 +471,11 @@ export class FireLevel {
     } else if (type === 'gem') {
       this.arsenal.ammo += n * (entry?.ammo ?? T.ammo); // (capped at `maxBatarangs`; the plaza's three gems give +3 each)
       this.stats.gemsFound += n;
+    } else if (type === 'wandPiece') {
+      p.wandPieces = (p.wandPieces ?? 0) + n;
+      p.ui.setWand?.(p.wandPieces, FD.wandIcon);
+      msg = FD.wand(p.wandPieces);
+      p.sound?.play('gear_reward', { position: p.hero.position, volume: 0.6, pitch: 1.2 });
     } else if (type === 'shield') {
       this.arsenal.shieldUnlocked = true;
       this.stats.shieldFound = true;
@@ -459,7 +529,7 @@ export class FireLevel {
   #chestPopup(e) {
     const T = FD.chest;
     const c = (e.contents instanceof Array ? e.contents : [e.contents])[0];
-    const text = e.popup === 'elixirs' ? T.elixirs : e.popup === 'gems' ? T.gems(c.n) : e.popup === 'heart' ? T.heart : e.popup === 'shield' ? T.shield : T.gears(CONFIG.part2.items.types.gearBundle.gears);
+    const text = e.popup === 'elixirs' ? T.elixirs : e.popup === 'gems' ? T.gems(c.n) : e.popup === 'heart' ? T.heart : e.popup === 'shield' ? T.shield : e.popup === 'wand' ? T.wand : T.gears(CONFIG.part2.items.types.gearBundle.gears);
     this.p.ui.banner?.(text, 2600, { small: true });
     this.stats.chestPopups = [...(this.stats.chestPopups ?? []), text];
   }
@@ -709,7 +779,7 @@ export class FireLevel {
 
   /** The level's start (the chapter's enterRide('fire') has put the horse there). */
   enterRide(opts) {
-    this.p.enterRide('fire');
+    this.p.enterRide(this.id);
     void opts;
   }
 
@@ -766,6 +836,14 @@ export class FireLevel {
     p.ui.setGears?.(0, 0, false);
     p.ui.toast(FD.questBoss);
     this.save = { ...(this.save ?? { items: this.items.snapshot(), s: 0 }), boss: true };
+    if (this.noBoss) {
+      // (Steam: no Guardian — the plaza is open and the Element is already rising)
+      this.guardian.group.visible = false;
+      this.guardian.hide();
+      this.guardian.alive = false;
+      this.#defeated(true);
+      p.ui.toast(FD.questElement);
+    }
   }
 
   /** The Guardian notices AJ: the steam barrier closes the entrance behind him. */
@@ -775,11 +853,11 @@ export class FireLevel {
     this.p.sound?.play('steam_barrier_close');
   }
 
-  #defeated() {
+  #defeated(quiet = false) {
     this.bossDown = true;
     this.barrier = { state: 'opening', k: 0 };
-    this.p.ui.toast(FD.gateOpen);
-    this.p.sound?.play('steam_barrier_open');
+    if (!quiet) this.p.ui.toast(FD.gateOpen);
+    if (!quiet) this.p.sound?.play('steam_barrier_open');
     this.pedestal = { t: 0 };
     this.orb.group.visible = true;
     this.orb.group.position.set(this.centre.x, -A.radius * 0.0 - 1.4, this.centre.z);
@@ -900,6 +978,8 @@ export class FireLevel {
       this.items.update(live && playing ? dt : 0, playing ? { pos: this.#riderPoint(), heading: p.horse.heading, ride: p.horse.mounted ? this.cfg : null } : null);
       this.foes.update(live ? dt : 0, { playing });
       this.#updateGate(live ? dt : 0);
+      this.zaps?.update(live ? dt : 0, { playing: playing && p.hero.life === 'alive', pos: this.#targetPos() });
+      if (this.glide && live) this.#updateGlide(dt);
       if (playing && live) {
         this.#gateReach(dt);
         // (on foot at the furnace gate: it opens just the same)
@@ -939,7 +1019,7 @@ export class FireLevel {
       }
     }
     this.foes.update(0, { playing: false });
-    g.update(dt > 0 ? dt : 0, playing);
+    if (!this.noBoss) g.update(dt > 0 ? dt : 0, playing);
     // the steam barrier
     const b = this.barrier;
     const bar = this.arena.userData.barrier;
@@ -1003,28 +1083,53 @@ export class FireLevel {
     this.sceneT = 0;
     const L = FD.scene;
     const cameo = this.#cameo();
-    const steps = [
+    const intro = [
       { camera: { pos: v(C.x - 3.4, 1.7, C.z + 5.6), look: orbAt(), duration: SH.orb.duration, fov: 55 } },
       { call: () => p.tween((t) => { hold.pos.lerpVectors(hold.from ?? (hold.from = hold.pos.clone()), spot, Math.min(1, t / 1.2)); hold.yaw = Math.PI; return t >= 1.2; }) },
-      // the camera circles while the flame flows into his hand
+    ];
+    // the camera circles while the flame flows into his hand
+    const circle = [
       { call: () => { a0 = Math.atan2(-3.4, 5.6); this.sceneT = 0; this.sound('element_collect'); } },
       { camera: { follow: true, pos: () => { const a = a0 + (this.sceneT / SH.circle.duration) * Math.PI * 2 * SH.circle.turns; return v(C.x + Math.sin(a) * SH.circle.dist, SH.circle.up, C.z + Math.cos(a) * SH.circle.dist); }, look: () => orbAt().setY(SH.circle.look), duration: 0.1, wait: false } },
       { call: () => this.#absorb(SH.circle.duration) },
       { wait: SH.circle.duration },
-      { say: 'tick', text: L.one },
-      { say: 'aj', text: L.others },
-      { say: 'tick', text: L.taken },
-      // the hooded figure on the distant tower
-      { call: () => { cameo.show(); this.sound('eerie'); } },
-      { camera: { pos: v(C.x - 5, SH.tower.up + 0.6, C.z + 7), look: () => cameo.head(), duration: SH.tower.duration, fov: 34 } },
-      { say: 'tick', text: L.watching },
-      { say: 'aj', text: L.amy },
-      { say: 'tick', text: L.cannot },
-      { call: () => cameo.vanish() },
-      { wait: 1.1 },
+    ];
+    const outro = [
       { camera: { pos: v(C.x + 2, 2.2, C.z + 6.5), look: v(C.x, 1.5, C.z), duration: 1.0, fov: null } },
       { call: () => this.#finishElement(), essential: true },
     ];
+    let steps;
+    if (this.def.amy) {
+      // Lightning: Amy (hooded in violet, no glow) appears, blasts the orb, snatches most of it, knocks Tick down and vanishes; a shard is his.
+      steps = [...intro,
+        { call: () => { cameo.show(); this.sound('eerie'); } },
+        { camera: { pos: v(C.x + 3.5, 1.9, C.z + 5.8), look: v(C.x - 1.5, 1.5, C.z - 1), duration: 1.2, fov: 46 } },
+        { wait: 0.7 },
+        { call: () => this.#amyBlast(cameo) },
+        { wait: 1.6 },
+        { call: () => cameo.vanish() },
+        { wait: 0.9 },
+        ...circle,
+        { say: 'tick', text: L.hurt },
+        { say: 'aj', text: L.why },
+        ...outro];
+    } else if (this.noBoss) {
+      steps = [...intro, ...circle, { say: 'tick', text: L.one }, { say: 'aj', text: L.others }, { say: 'tick', text: L.taken }, ...outro];
+    } else {
+      steps = [...intro, ...circle,
+        { say: 'tick', text: L.one },
+        { say: 'aj', text: L.others },
+        { say: 'tick', text: L.taken },
+        // the hooded figure on the distant tower
+        { call: () => { cameo.show(); this.sound('eerie'); } },
+        { camera: { pos: v(C.x - 5, SH.tower.up + 0.6, C.z + 7), look: () => cameo.head(), duration: SH.tower.duration, fov: 34 } },
+        { say: 'tick', text: L.watching },
+        { say: 'aj', text: L.amy },
+        { say: 'tick', text: L.cannot },
+        { call: () => cameo.vanish() },
+        { wait: 1.1 },
+        ...outro];
+    }
     await cinematic.play(steps);
     this.#finishElement();
   }
@@ -1041,6 +1146,7 @@ export class FireLevel {
     const from = o.holder.position.clone();
     const base = o.group.position.clone();
     const flash = E.scene;
+    const s0 = o.holder.scale.x;
     this.eyes ??= this.#makeEyes();
     p.tween((t, dt) => {
       this.sceneT = t;
@@ -1049,7 +1155,7 @@ export class FireLevel {
       const world = base.clone().add(from);
       const at = world.lerp(hand, k * k * (3 - 2 * k));
       o.group.position.copy(at.clone().sub(from)); // (the whole orb moves to his hand)
-      o.holder.scale.setScalar(1 - k * 0.85);
+      o.holder.scale.setScalar(s0 * (1 - k * 0.85));
       o.ped.visible = true;
       if (Math.random() < 0.7) this.fx.flame(at, 0.4);
       // eyes
@@ -1071,7 +1177,7 @@ export class FireLevel {
 
   #makeEyes() {
     const g = new THREE.Group();
-    const mat = new THREE.MeshBasicMaterial({ color: 0xff8a2a, transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false });
+    const mat = new THREE.MeshBasicMaterial({ color: E.eyeColor ?? 0xff8a2a, transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false });
     for (let i = 0; i < 2; i++) g.add(new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 6), mat));
     g.visible = false;
     this.p.scene.add(g);
@@ -1093,33 +1199,39 @@ export class FireLevel {
   /** The hooded figure on the far tower: small, in violet; vanishes in a puff of violet light. */
   #cameo() {
     const C = this.centre;
+    const near = !!this.def.amy; // (Lightning: Amy herself, near the orb — no tower)
     const T = E.scene.tower;
+    const at = near ? E.scene.amyAt : T.at;
+    const y0 = near ? 0 : T.at[1] + 0.65;
     const g = new THREE.Group();
     g.name = 'cameo';
-    const tower = new THREE.Mesh(new THREE.CylinderGeometry(1.4, 2, T.at[1], 8), new THREE.MeshLambertMaterial({ color: 0x3a2a2c }));
-    tower.position.y = T.at[1] / 2;
-    const top = new THREE.Mesh(new THREE.CylinderGeometry(2.2, 1.5, 0.7, 8), new THREE.MeshLambertMaterial({ color: 0x6a4a30 }));
-    top.position.y = T.at[1] + 0.3;
+    if (!near) {
+      const tower = new THREE.Mesh(new THREE.CylinderGeometry(1.4, 2, T.at[1], 8), new THREE.MeshLambertMaterial({ color: 0x3a2a2c }));
+      tower.position.y = T.at[1] / 2;
+      const top = new THREE.Mesh(new THREE.CylinderGeometry(2.2, 1.5, 0.7, 8), new THREE.MeshLambertMaterial({ color: 0x6a4a30 }));
+      top.position.y = T.at[1] + 0.3;
+      g.add(tower, top);
+    }
     const violet = new THREE.MeshLambertMaterial({ color: 0x6a3fc8, emissive: 0x2a1060 });
     const robe = new THREE.Mesh(new THREE.ConeGeometry(0.5, 1.5, 8), violet);
-    robe.position.y = T.at[1] + 0.65 + 0.75;
+    robe.position.y = y0 + 0.75;
     const hood = new THREE.Mesh(new THREE.SphereGeometry(0.26, 8, 6), violet);
-    hood.position.y = T.at[1] + 0.65 + 1.6;
+    hood.position.y = y0 + 1.6;
     const aura = new THREE.Mesh(new THREE.SphereGeometry(1.1, 10, 8), new THREE.MeshBasicMaterial({ color: 0x9a6bff, transparent: true, opacity: 0.18, blending: THREE.AdditiveBlending, depthWrite: false }));
-    aura.position.y = T.at[1] + 1.8;
-    g.add(tower, top, robe, hood, aura);
-    g.scale.setScalar(T.scale / 2.4);
-    g.position.set(C.x + T.at[0], 0, C.z + T.at[2]);
+    aura.position.y = y0 + 1.15;
+    g.add(robe, hood, aura);
+    g.scale.setScalar(near ? E.scene.amyScale : T.scale / 2.4);
+    g.position.set(C.x + at[0], 0, C.z + at[2]);
     g.visible = false;
     this.p.scene.add(g);
-    const head = () => new THREE.Vector3(g.position.x, (T.at[1] + 1.2) * g.scale.x, g.position.z);
+    const head = () => new THREE.Vector3(g.position.x, (near ? y0 + 1.6 : T.at[1] + 1.2) * g.scale.x, g.position.z);
     const api = {
       show: () => (g.visible = true),
       head,
       vanish: () => {
-        const at = head();
+        const at2 = head();
         for (let i = 0; i < 40; i++) {
-          this.fx.emit(at.clone(), new THREE.Vector3((Math.random() - 0.5) * 6, Math.random() * 4, (Math.random() - 0.5) * 6), { life: 1.0, size: 0.5, color: i % 2 ? 0x9a6bff : 0xd8c4ff, g: 0 });
+          this.fx.emit(at2.clone(), new THREE.Vector3((Math.random() - 0.5) * 6, Math.random() * 4, (Math.random() - 0.5) * 6), { life: 1.0, size: 0.5, color: i % 2 ? 0x9a6bff : 0xd8c4ff, g: 0 });
         }
         g.visible = false;
         this.cameoGone = true;
@@ -1128,6 +1240,23 @@ export class FireLevel {
     };
     this.cameo = api;
     return api;
+  }
+
+  /** Lightning's story beat: Amy blasts the orb and snatches most of it (a shard is left), and knocks Tick down. */
+  #amyBlast(cameo) {
+    const p = this.p;
+    const o = this.orb;
+    const from = o.group.position.clone().add(o.holder.position);
+    const to = cameo.head();
+    p.ui.screenFlash?.(0.6);
+    this.sound('amy_magic_cast');
+    this.sound('amy_hit_reflect');
+    o.holder.scale.setScalar(E.scene.shardScale);
+    for (let i = 0; i < 46; i++) {
+      this.fx.emit(from.clone(), to.clone().sub(from).multiplyScalar(0.9 + Math.random() * 0.4).add(new THREE.Vector3((Math.random() - 0.5) * 3, Math.random() * 3, (Math.random() - 0.5) * 3)), { life: 1.1, size: 0.34, color: i % 2 ? 0x9a6bff : F.accent2, g: 0 });
+    }
+    p.tick.hit?.();
+    p.cam?.shake?.(0.5, 0.5);
   }
 
   /** The scene is over (also on Skip): the Fire Element is his, Fire Blast unlocked, the banner, then the next place. */
@@ -1140,14 +1269,15 @@ export class FireLevel {
     this.orb.taken = true;
     this.orb.group.visible = false;
     p.hero.glow = 0;
-    p.addElement('fire');
-    this.arsenal.unlockFire();
+    const id = this.def.element ?? 'fire';
+    p.addElement(id); // (also unlocks its ability: Fire Blast, Spark Chain, Steam Gust)
+    if (id === 'steam') p.tick.setDim?.(false);
     p.ajSpot = null;
     p.ui.banner?.(FD.banner, E.bannerMs, { small: true });
     p.ui.toast(FD.blastUnlocked);
     setTimeout?.(() => p.ui.toast(FD.blastHint), 2400);
     p.sound?.play('gear_reward');
-    p.input.pulseAbility?.('fireBlast');
-    p.afterFire();
+    p.input.pulseAbility?.({ fire: 'fireBlast', lightning: 'sparkChain', steam: 'steamGust' }[id]);
+    p.afterElement(id);
   }
 }

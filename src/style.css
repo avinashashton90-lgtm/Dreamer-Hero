@@ -214,6 +214,8 @@ html, body {
   -webkit-mask: radial-gradient(circle, transparent 58%, #000 60%); mask: radial-gradient(circle, transparent 58%, #000 60%);
 }
 .ability-btn.fire.cooling { filter: saturate(0.5); }
+.ability-btn.sparkChain { background: rgba(24, 24, 96, 0.78); }
+.ability-btn.steamGust { background: rgba(20, 70, 70, 0.78); }
 .ability-btn.shake { animation: ability-shake 0.35s ease-in-out 1; }
 @keyframes ability-shake { 20% { transform: translateX(-6px); } 40% { transform: translateX(6px); } 60% { transform: translateX(-4px); } 80% { transform: translateX(3px); } }
 .ability-btn.reloading .energy i { background: #c58aff; }
@@ -341,6 +343,7 @@ html, body {
   font-weight: bold; font-size: clamp(11px, 3vh, 15px);
 }
 .key-pill b { font-size: 1.2em; line-height: 1; }
+.wand-pill { top: calc(max(10px, env(safe-area-inset-top)) + clamp(40px, 11vh, 52px) + 26px); color: #e4d0ff; background: rgba(40, 20, 70, 0.6); }
 .key-pill.pulse { animation: gem-pulse 0.7s ease-out 1; }
 .elements-row {
   position: absolute;

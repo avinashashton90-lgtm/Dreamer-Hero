@@ -1158,9 +1158,10 @@ const rel = (v) => new THREE.Vector3(C.x + v[0], 0, C.z + v[1]);
   check(circled.size >= 3 && orbToHand && ui.flashes > 0, `the camera circles the orb (${circled.size} directions), the flame flows into his hand, a flash`);
   check(eyesSeen && cameoSeen && cameoGone, 'his eyes flash orange; a hooded figure in violet is seen on a distant tower and vanishes in a puff of violet light');
   await run(0.5);
-  check(p2.elements.includes('fire') && ui.elements.includes('fire') && fire.arsenal.fireUnlocked && input.pulsed === 'fireBlast' && ui.banners.length > bannersBefore && ui.banners.at(-1) === FD.banner, `"${FD.banner}": the Elements row lights Fire, Fire Blast is unlocked`);
-  await run(1);
-  check(p2.at === 'lightning' && ui.quest === D2.comingSoon(D2.levelNames.lightning) && p2.objective === 'lightning' && !fire.stage, `then the next place: "${ui.quest}" (a stub)`);
+  check(p2.elements.includes('fire') && ui.elements.includes('fire') && fire.arsenal.fireUnlocked && input.pulsed === 'fireBlast' && ui.banners.length > bannersBefore && ui.banners.at(-1) === 'Fire Element recovered', `"Fire Element recovered": the Elements row lights Fire, Fire Blast is unlocked`);
+  for (let i = 0; i < 400 && !(p2.lvId === 'lightning' && p2.fire.stage === 'ride'); i++) { await frame(); await new Promise((r) => setTimeout(r, 25)); } // (the next level builds itself: real file reads)
+  await frame();
+  check(p2.at === 'fire' && p2.lvId === 'lightning' && p2.objective === 'lightning' && !fire.stage, `then the next place: the Lightning level begins ("${ui.quest}")`);
   check(input.combat.ab === fire.arsenal && input.combat.ab.visible('fireBlast') && !input.combat.hidden && ui.elements.length === 1 && ui.elementsShown, 'Fire Blast stays on the buttons in the rest of Part 2; the Elements row stays');
   // the blast works on foot anywhere: a cooldown ring, no count
   const ar = fire.arsenal;

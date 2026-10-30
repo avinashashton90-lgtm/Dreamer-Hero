@@ -570,6 +570,8 @@ async function boot() {
       ...Object.fromEntries(CONFIG.part2.levels.order.map((id) => [id, () => goToPart2(id, { white: false })])),
       fireBoss: () => goToPart2('fireBoss', { white: false }),     // (the Furnace Guardian's sealed plaza)
       firePlaza: () => goToPart2('firePlaza', { white: false }),   // (the chest plaza, with 2 cog keys)
+      lightningBoss: () => goToPart2('lightningBoss', { white: false }), // (the Tesla Guardian's plaza)
+      steamBoss: () => goToPart2('steamBoss', { white: false }),         // (the Steam Element's plaza: no Guardian)
       final: () => goToPart2('final', { white: false }),
       part2Ending: () => goToPart2('ending', { white: false }),
       robots: () => goToPart2('robots', { white: false }), // (Tick and the four mech robots in a row, each playing its clips)

@@ -190,6 +190,7 @@ export class Tick {
     this.yaw = 0;
     this.time = 0;
     this.nervousT = 0;
+    this.hitT = 0; // (knocked down: tumbling)
     this.target = null; // a point to float to (else beside `follow`)
     this.lookAt = null; // a point to face
   }
@@ -204,6 +205,22 @@ export class Tick {
     this.nervousT = seconds;
   }
 
+  /** Knocked down by Amy's blast: he tumbles for `seconds` and stays dim until `setDim(false)`. */
+  hit(seconds = 1.6) {
+    this.hitT = seconds;
+    this.setDim(true);
+  }
+
+  /** Dimmed (hurt) or back to his colours. */
+  setDim(on) {
+    this.model.traverse((m) => {
+      const c = m.material?.color;
+      if (!c) return;
+      m.material.userData.base ??= c.clone();
+      c.copy(m.material.userData.base).multiplyScalar(on ? 0.45 : 1);
+    });
+  }
+
   /** The soft golden glow round him (the all-gears reward). */
   setGlow(on) {
     if (this.model.userData.glow) this.model.userData.glow.visible = !!on;
@@ -216,6 +233,7 @@ export class Tick {
   update(dt, follow = null) {
     this.time += dt;
     this.nervousT = Math.max(0, this.nervousT - dt);
+    this.hitT = Math.max(0, this.hitT - dt);
     let want = this.target;
     if (!want && follow) {
       const f = new THREE.Vector3(Math.sin(follow.facing), 0, Math.cos(follow.facing));
@@ -240,6 +258,12 @@ export class Tick {
     // (nervous: a look back over his shoulder, then back, a little shiver)
     const glance = n * Math.sin(Math.min(1, (N.time - this.nervousT) / N.time) * Math.PI) * N.yaw;
     this.model.rotation.set(0, this.yaw + glance + Math.sin(this.time * N.rate) * 0.08 * n, Math.sin(this.time * 1.3) * 0.06);
+    if (this.hitT > 0) {
+      const h = Math.min(1, this.hitT);
+      this.model.rotation.x += h * Math.sin(this.time * 14) * 1.2;
+      this.model.rotation.z += h * Math.cos(this.time * 11) * 1.4;
+      this.model.position.y -= h * 0.5;
+    }
     u.animator?.update(dt); // (the robot's idle)
     if (u.prop) u.prop.rotation.y += T.prop * dt;
     u.arms?.forEach((a, i) => (a.rotation.x = Math.sin(this.time * 2 + i) * 0.25 - n * 0.6));

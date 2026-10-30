@@ -24,6 +24,7 @@
     "test:part2": "node scripts/part2-test.mjs",
     "audio:readme": "node scripts/audio-readme.mjs",
     "test:fire": "node scripts/fire-test.mjs",
+    "test:elements": "node scripts/elements-test.mjs",
     "test:ride": "node scripts/ride-test.mjs"
   },
   "dependencies": {

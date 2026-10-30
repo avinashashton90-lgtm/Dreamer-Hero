@@ -3,7 +3,7 @@
 > **Claude: read only this file at session start.** Open a file in `docs/` only when the task needs it, and read just the relevant section (use Grep on the system name). Do not read STORY.md unless building Part 2/3 story content.
 
 ## What it is
-Three.js + Vite browser game for **phones in landscape** (keyboard/mouse fallback), hosted on **GitHub Pages** (Vite `base: './'`, output `dist/`, deploy = push to `main`). AJ, a bored schoolboy, dreams he is a superhero. Part 1 (rooftops → forest ride → sealed boss arena → desert → portal) is finished. Part 2 (Gearhaven): arrival, ride and the Fire Element level with the Furnace Guardian are built; Lightning, Steam, Magnet, Time and Amy's final fight are stubs. See `PROJECT_SUMMARY.md`.
+Three.js + Vite browser game for **phones in landscape** (keyboard/mouse fallback), hosted on **GitHub Pages** (Vite `base: './'`, output `dist/`, deploy = push to `main`). AJ, a bored schoolboy, dreams he is a superhero. Part 1 (rooftops → forest ride → sealed boss arena → desert → portal) is finished. Part 2 (Gearhaven): arrival, ride and the Fire, Lightning and Steam element levels are built (one `FireLevel` class, the later two with their settings laid over Fire's — see `docs/part2.md`); Magnet, Time and Amy's final fight are stubs. See `PROJECT_SUMMARY.md`.
 
 ## Docs index (read on demand)
 | File | Read it when |
@@ -26,4 +26,4 @@ Three.js + Vite browser game for **phones in landscape** (keyboard/mouse fallbac
 - After a change, add a short note to the matching `docs/` file (and `docs/progress.md` if a milestone moves). Keep this core file short.
 
 ## Commands
-`npm install` · `npm run dev` (`--host` for a phone) · `npm run build` · `npm run preview` · tests: `test:route|combat|boss|minions|corner|saddle|input|ending|chase|hurdles|arena|audio|part2|fire|ride|energy`, `sim:boss`. `HERO_PLACEHOLDER=1` reruns on placeholder models.
+`npm install` · `npm run dev` (`--host` for a phone) · `npm run build` · `npm run preview` · tests: `test:route|combat|boss|minions|corner|saddle|input|ending|chase|hurdles|arena|audio|part2|fire|elements|ride|energy`, `sim:boss`. `HERO_PLACEHOLDER=1` reruns on placeholder models.

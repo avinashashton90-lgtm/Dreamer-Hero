@@ -21,6 +21,8 @@ const SH = F.shield;
 const A = F.arena;
 const CS = F.weapons.cogShot;
 const GW = F.weapons.gearWheel;
+const SC = F.sparkChain;
+const SG = F.steamGust;
 const TH = CONFIG.abilities.throw;
 const MAX_FX = 220;
 
@@ -139,6 +141,8 @@ export class Arsenal {
     this.ammo = F.startAmmo;
     this.fireUnlocked = false; // (the Fire Element recovered: Fire Blast for the rest of Part 2 — not before)
     this.shieldUnlocked = false; // (the Shield chest opened)
+    this.sparkUnlocked = false; // (the Lightning Element: Spark Chain)
+    this.steamUnlocked = false; // (the Steam Element: Steam Gust)
     this.shieldRemaining = 0; // s of the raised shield left
     this.shieldAge = 0; // s since it was raised (the perfect-block window)
     this.capBonus = 0; // (level-up: Batarangs carried above `maxBatarangs`)
@@ -148,7 +152,7 @@ export class Arsenal {
     this.keys = () => 0; // (the cog keys on hand: set by the level)
     this.spendKey = () => {};
     this.gearStock = 0; // (brass gears on hand for Gear Wheel shots; the level's gear counter, for the rewards, is separate)
-    this.cooldowns = { batarang: 0, fireBlast: 0, shield: 0, cogShot: 0, gearWheel: 0 };
+    this.cooldowns = { batarang: 0, fireBlast: 0, shield: 0, cogShot: 0, gearWheel: 0, sparkChain: 0, steamGust: 0 };
     this.cog = null; // the Cog Shot in flight
     this.wheel = null; // the Gear Wheel rolling
     this.pending = null; // { name, t, target } — the throw pose running; it leaves the hand at TH.release
@@ -193,6 +197,8 @@ export class Arsenal {
     if (name === 'batarang') return true;
     if (name === 'fireBlast') return this.fireUnlocked;
     if (name === 'shield') return this.shieldUnlocked;
+    if (name === 'sparkChain') return this.sparkUnlocked;
+    if (name === 'steamGust') return this.steamUnlocked;
     return (name === 'cogShot' || name === 'gearWheel') && this.levelOn;
   }
 
@@ -213,6 +219,8 @@ export class Arsenal {
     if (name === 'batarang') return this.proj ? 1 : this.cooldowns.batarang / BT.cooldown;
     if (name === 'fireBlast') return this.cooldowns.fireBlast / FB.cooldown;
     if (name === 'shield') return this.shieldRemaining > 0 ? 0 : this.cooldowns.shield / SH.cooldown;
+    if (name === 'sparkChain') return this.cooldowns.sparkChain / SC.cooldown;
+    if (name === 'steamGust') return this.cooldowns.steamGust / SG.cooldown;
     if (name === 'cogShot') return this.cog?.phase === 'fly' ? 1 : this.cooldowns.cogShot / CS.cooldown;
     if (name === 'gearWheel') return this.wheel ? 1 : this.cooldowns.gearWheel / this.#wheelCooldown();
     return 0;
@@ -275,6 +283,11 @@ export class Arsenal {
       this.onEvent?.('use', { name });
       return true;
     }
+    if (name === 'sparkChain' || name === 'steamGust') {
+      this.cooldowns[name] = name === 'sparkChain' ? SC.cooldown : SG.cooldown;
+      this.onEvent?.('use', { name });
+      return name === 'sparkChain' ? this.#spark() : this.#gust();
+    }
     if (name === 'batarang') this.ammo--;
     else if (name === 'cogShot') this.spendKey(CS.keys);
     else if (name === 'gearWheel') this.gearStock -= GW.gears;
@@ -284,6 +297,61 @@ export class Arsenal {
     this.hero.throwAnim = { kind: 'throw', t: 0 };
     this.#face(this.pending.target);
     this.onEvent?.('use', { name });
+    return true;
+  }
+
+  /** Spark Chain (the Lightning Element): lightning from his hand to the nearest foe, then on to the next within `hop`, up to `targets` of them. */
+  #spark() {
+    let from = this.hero.handPosition();
+    const done = new Set();
+    let t = this.pick(SC.range);
+    for (let i = 0; i < SC.targets && t; i++) {
+      done.add(t);
+      const at = new THREE.Vector3(t.position.x, (t.position.y ?? 0) + (t.height ?? 1.5) * 0.5, t.position.z);
+      for (let k = 0; k <= 8; k++) {
+        const q = from.clone().lerp(at, k / 8);
+        this.fx.emit(q.add(new THREE.Vector3((Math.random() - 0.5) * 0.5, (Math.random() - 0.5) * 0.5, (Math.random() - 0.5) * 0.5)), new THREE.Vector3(), { life: SC.time, size: 0.18, color: k % 2 ? SC.color : SC.core, g: 0 });
+      }
+      this.#impact(t, at, SC.damage * this.damageScale, 'spark', at.clone().sub(from).normalize());
+      const next = this.#live().filter((q) => this.#valid(q) && !done.has(q) && Math.hypot(q.position.x - t.position.x, q.position.z - t.position.z) - q.radius < SC.hop)
+        .sort((a, b) => a.position.distanceTo(t.position) - b.position.distanceTo(t.position))[0];
+      from = at;
+      t = next;
+    }
+    this.sound?.play('fire_blast_cast', { position: this.hero.position, pitch: 1.5 });
+    this.stats.sparks = (this.stats.sparks ?? 0) + done.size;
+    return true;
+  }
+
+  /** Steam Gust (the Steam Element): a cone of steam pushes foes back and, from the saddle, lifts the horse into a short glide. */
+  #gust() {
+    const { at, fwd } = this.#origin();
+    const cos = Math.cos((SG.coneDeg * Math.PI) / 360);
+    let pushed = 0;
+    for (const t of this.#live()) {
+      if (!this.#valid(t) || (t.radius ?? 0) > 2) continue;
+      const dx = t.position.x - at.x;
+      const dz = t.position.z - at.z;
+      const flat = Math.hypot(dx, dz) || 1;
+      if (flat - (t.radius ?? 0) > SG.range || (dx * fwd.x + dz * fwd.z) / flat < cos) continue;
+      t.position.x += (dx / flat) * SG.push;
+      t.position.z += (dz / flat) * SG.push;
+      pushed++;
+    }
+    for (let i = 0; i < 18; i++) {
+      const a = (Math.random() - 0.5) * 1.2;
+      const v = new THREE.Vector3(fwd.x * Math.cos(a) - fwd.z * Math.sin(a), 0.3, fwd.z * Math.cos(a) + fwd.x * Math.sin(a)).multiplyScalar(7 + Math.random() * 4);
+      this.fx.emit(at.clone().setY(at.y + 1.1), v, { life: 0.7, size: 0.5, color: SG.color, g: -0.2 });
+    }
+    if (this.horse.mounted) {
+      this.horse.glideT = SG.glide;
+      this.horse.glideGravity = SG.glideGravity;
+      this.horse.velocity.y = Math.max(this.horse.velocity.y, SG.lift);
+      this.horse.grounded = false;
+    }
+    this.sound?.play('steam_launch', { position: at });
+    this.stats.gusts = (this.stats.gusts ?? 0) + 1;
+    this.stats.pushed = (this.stats.pushed ?? 0) + pushed;
     return true;
   }
 

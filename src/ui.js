@@ -56,6 +56,9 @@ export class UI {
     this.keysEl.title = DIALOGUE.part2.fire.keysLabel;
     this.keysEl.innerHTML = `<b>${DIALOGUE.part2.fire.keyIcon}</b><span></span>`;
     this.hud.appendChild(this.keysEl);
+    this.wandEl = this.#el('div', 'key-pill wand-pill'); // (Steam level: the wand pieces found, 1/3)
+    this.wandEl.style.display = 'none';
+    this.hud.appendChild(this.wandEl);
     this.elementsEl = this.#el('div', 'elements-row');
     this.elementsEl.style.display = 'none';
     this.elementsEl.title = DIALOGUE.part2.elements.label;
@@ -286,6 +289,13 @@ export class UI {
   }
 
   /** The cog-key counter (Part 2's chests); `show` false hides it. */
+  /** The wand pieces found (0 hides it): `text` is the label, e.g. "Wand piece 1/3". */
+  setWand(count, icon) {
+    const el = this.wandEl;
+    el.style.display = count ? '' : 'none';
+    if (count) el.textContent = `${icon ?? ''} ${DIALOGUE.part2.elementLevels.steam.wand(count)}`;
+  }
+
   setCogKeys(count, show = true, pulse = false) {
     const el = this.keysEl;
     const display = show ? '' : 'none';
