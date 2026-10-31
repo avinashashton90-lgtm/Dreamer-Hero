@@ -95,6 +95,11 @@ class Foe {
     return true;
   }
 
+  /** Stopped in its tracks for `seconds` (Spark Chain). */
+  stun(seconds) {
+    this.stunT = seconds;
+  }
+
   ignite(time, dps) {
     if (!this.alive) return;
     this.burn = { t: time, dps };
@@ -148,6 +153,11 @@ class Foe {
       this.ctx.fx.flame(this.position.clone().setY(this.position.y + this.height * 0.5), this.radius);
       this.takeHit(this.burn.dps * dt, 'burn');
       if (this.burn && this.burn.t <= 0) this.burn = null;
+    }
+    if (this.stunT > 0) { // (Spark Chain: stopped for a moment, it only flinches)
+      this.stunT -= dt;
+      this.flash = Math.max(this.flash, 0.05);
+      return;
     }
     this.t += dt;
     this.grace = Math.max(0, this.grace - dt);

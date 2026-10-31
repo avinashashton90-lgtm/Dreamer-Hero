@@ -178,6 +178,7 @@ export class FireLevel {
       onEvent: (name, d) => {
         if (name === 'blocked' && d.why === 'gems') p.ui.toast(FD.ammoOut);
         if (name === 'blocked' && d.why === 'keys') p.ui.toast(FD.weapons.needKey);
+        if (name === 'blocked' && d.why === 'target') p.ui.toast(FD.noTarget);
         if (name === 'blocked' && d.why === 'gears') p.ui.toast(FD.weapons.needGears(CONFIG.part2.fire.weapons.gearWheel.gears));
       },
     });
@@ -358,7 +359,8 @@ export class FireLevel {
     this.zaps?.reset();
     this.glide = null;
     if (fresh) {
-      this.arsenal.shieldUnlocked = false; // (the chests are shut again)
+      if (this.id === 'fire') p.shieldUnlocked = false; // (Fire's chests are shut again; once found, the Shield stays for the later levels)
+      this.arsenal.shieldUnlocked = !!p.shieldUnlocked;
       this.items.restore(null);
       this.items.keys = 0;
       this.arsenal.ammo = Math.max(this.arsenal.ammo, F.startAmmo);
@@ -477,6 +479,7 @@ export class FireLevel {
       msg = FD.wand(p.wandPieces);
       p.sound?.play('gear_reward', { position: p.hero.position, volume: 0.6, pitch: 1.2 });
     } else if (type === 'shield') {
+      p.shieldUnlocked = true;
       this.arsenal.shieldUnlocked = true;
       this.stats.shieldFound = true;
       p.input.pulseAbility?.('shield');
@@ -733,7 +736,7 @@ export class FireLevel {
   debugBoss() {
     this.enterBoss({ debug: true });
     this.#debugKit();
-    this.arsenal.shieldUnlocked = true; // (the boss is fought with the Shield: the debug jump skips its chest)
+    this.arsenal.shieldUnlocked = this.p.shieldUnlocked = true; // (the boss is fought with the Shield: the debug jump skips its chest)
   }
 
   /** The ?debug kits: gems for the Batarang and brass gears for the Gear Wheel (counted on the level's counter too). */

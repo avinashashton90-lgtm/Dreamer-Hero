@@ -1217,7 +1217,7 @@ export const CONFIG = {
       },
       // The later Elements' abilities (each only once that Element is his): Spark Chain jumps through up to `targets` foes within `range`
       // (`hop` from one to the next); Steam Gust pushes foes in a cone back and lifts the horse into a `glide` s glide (gravity ×`glideGravity`).
-      sparkChain: { damage: 3, cooldown: 6, range: 18, hop: 9, targets: 3, time: 0.3, color: 0xa8b4ff, core: 0xfff4a0 },
+      sparkChain: { damage: 2, cooldown: 6, range: 12, hop: 9, targets: 3, time: 0.4, stun: 0.6, color: 0x7fa8ff, core: 0xeaf4ff }, // (`range` = sparkChainRange, `damage` = sparkChainDamage: the first foe within 12 of AJ, then on to the next within `hop`, up to `targets`; a short `stun`; no foe in range: nothing is used)
       steamGust: { cooldown: 8, range: 12, coneDeg: 80, push: 9, glide: 3, glideGravity: 0.25, lift: 6, color: 0xeaf8f5 },
       // Tesla coils (the Lightning level): a pair of posts at `s` zaps the lane `lat` ± `halfWidth` across the road every `period` s — warning
       // glow for `warn`, then the bolt for `hold` — half a heart if the horse is in it and not above `jumpClear`. `coils`: [{ s, lat, phase }].
@@ -2466,7 +2466,7 @@ export const DIALOGUE = {
       needs: (n) => `Needs ${n} cog key${n > 1 ? 's' : ''}`,
       shieldCooldown: 'Shield locked',
       got: { shield: 'Shield unlocked!', cogKey: 'Cog key!', elixirHeal: (n) => `Green potion: +${n} heart${n > 1 ? 's' : ''}`, elixirEnergy: 'Blue potion: the horse is rested', gem: (n) => `+${n} gem${n > 1 ? 's' : ''}`, heartContainer: 'Heart container: +1 max heart!', gearBundle: (n) => `+${n} gears`, runeStone: 'Rune stone', wandPiece: 'Wand piece' },
-      keysLabel: 'Cog keys', keyIcon: '🗝',
+      keysLabel: 'Cog keys', keyIcon: '🗝', noTarget: 'No target',
       blastUnlocked: 'Fire Blast unlocked!', blastHint: 'Tap Fire to throw a fireball — it burns!', // (only after the Fire Element is his)
       potionAppears: 'A green potion appeared by a pillar!',
       shieldHint: 'Tap Shield just before a hit lands — a perfect block staggers the Guardian!', shieldChestHint: 'Something is locked in the chests… keep an eye out for a shield.',
@@ -2492,6 +2492,7 @@ export const DIALOGUE = {
         quest: 'Ride to the tesla gate', start: 'Tesla city! Mind the coils — jump the bolt or steer round it.', questBoss: 'Defeat the Tesla Guardian', questElement: 'Take the Lightning Element',
         bossName: 'Tesla Guardian', gateSealed: 'The tesla gate is sealed!', banner: 'Lightning Element recovered',
         tick: { stomp: 'Stomp coming!', steam: 'Lightning lane! Get clear!', charge: 'Overcharge! Get behind a pillar!', fireball: 'Spark!' },
+        noTarget: 'No target',
         blastUnlocked: 'Spark Chain unlocked!', blastHint: 'Tap Spark to chain lightning through three foes!',
         scene: { hurt: 'She... took it.', why: 'Why would she do this?', amyGone: 'Amy!', shard: 'One shard is yours.' },
       },

@@ -284,9 +284,14 @@ export class Arsenal {
       return true;
     }
     if (name === 'sparkChain' || name === 'steamGust') {
+      // (Spark Chain with nobody in range does nothing: no cooldown, a "No target" hint)
+      if (!(name === 'sparkChain' ? this.#spark() : this.#gust())) {
+        this.onEvent?.('blocked', { name, why: 'target' });
+        return false;
+      }
       this.cooldowns[name] = name === 'sparkChain' ? SC.cooldown : SG.cooldown;
       this.onEvent?.('use', { name });
-      return name === 'sparkChain' ? this.#spark() : this.#gust();
+      return true;
     }
     if (name === 'batarang') this.ammo--;
     else if (name === 'cogShot') this.spendKey(CS.keys);
@@ -304,23 +309,40 @@ export class Arsenal {
   #spark() {
     let from = this.hero.handPosition();
     const done = new Set();
-    let t = this.pick(SC.range);
+    let t = this.#nearestFoe(SC.range);
+    if (!t) return false;
     for (let i = 0; i < SC.targets && t; i++) {
       done.add(t);
       const at = new THREE.Vector3(t.position.x, (t.position.y ?? 0) + (t.height ?? 1.5) * 0.5, t.position.z);
-      for (let k = 0; k <= 8; k++) {
-        const q = from.clone().lerp(at, k / 8);
-        this.fx.emit(q.add(new THREE.Vector3((Math.random() - 0.5) * 0.5, (Math.random() - 0.5) * 0.5, (Math.random() - 0.5) * 0.5)), new THREE.Vector3(), { life: SC.time, size: 0.18, color: k % 2 ? SC.color : SC.core, g: 0 });
+      // (a jagged blue-white arc: bright motes along a wobbly line, doubled so it reads)
+      for (let k = 0; k <= 14; k++) {
+        const q = from.clone().lerp(at, k / 14);
+        const w = k === 0 || k === 14 ? 0 : 0.35;
+        this.fx.emit(q.add(new THREE.Vector3((Math.random() - 0.5) * w, (Math.random() - 0.5) * w, (Math.random() - 0.5) * w)), new THREE.Vector3(), { life: SC.time, size: 0.26, color: k % 2 ? SC.color : SC.core, g: 0 });
       }
+      t.stun?.(SC.stun);
       this.#impact(t, at, SC.damage * this.damageScale, 'spark', at.clone().sub(from).normalize());
       const next = this.#live().filter((q) => this.#valid(q) && !done.has(q) && Math.hypot(q.position.x - t.position.x, q.position.z - t.position.z) - q.radius < SC.hop)
         .sort((a, b) => a.position.distanceTo(t.position) - b.position.distanceTo(t.position))[0];
       from = at;
       t = next;
     }
-    this.sound?.play('fire_blast_cast', { position: this.hero.position, pitch: 1.5 });
+    this.sound?.play('spark_zap', { position: this.hero.position });
     this.stats.sparks = (this.stats.sparks ?? 0) + done.size;
     return true;
+  }
+
+  /** The nearest living foe within `range` of its edge, in any direction (null: none). */
+  #nearestFoe(range) {
+    const at = this.hero.position;
+    let best = null;
+    let bd = Infinity;
+    for (const t of this.#live()) {
+      if (!this.#valid(t)) continue;
+      const d = Math.max(0, Math.hypot(t.position.x - at.x, t.position.z - at.z) - (t.radius ?? 0));
+      if (d <= range && d < bd) (bd = d), (best = t);
+    }
+    return best;
   }
 
   /** Steam Gust (the Steam Element): a cone of steam pushes foes back and, from the saddle, lifts the horse into a short glide. */
@@ -486,7 +508,7 @@ export class Arsenal {
 
   #impact(t, at, damage, source, direction) {
     if (t.takeHit(damage, source, { direction, point: at }) === false) return false;
-    this.fx.impact(at, source === 'cog' ? CS.color : GW.color);
+    this.fx.impact(at, source === 'cog' ? CS.color : source === 'spark' ? SC.color : GW.color);
     this.sound?.play('robot_hit', { position: at, pitch: source === 'cog' ? 0.9 : 0.7 });
     this.cam?.shake?.(F.weaponImpact.shake, F.weaponImpact.shakeTime);
     const camera = this.cam?.camera;

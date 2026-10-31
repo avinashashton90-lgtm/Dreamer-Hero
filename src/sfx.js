@@ -642,6 +642,11 @@ export const RECIPES = {
     k.tone(o, t + 0.6, { type: 'sine', f: 660 * p, f2: 990 * p, a: 0.1, d: 0.5, v: 0.04 });
     return 1.2;
   },
+  spark_zap: (k, o, t, p) => {
+    k.noise(o, t, { filter: 'highpass', f: 1800 * p, d: 0.2, v: 0.16 });
+    for (let i = 0; i < 5; i++) k.tone(o, t + i * 0.045, { type: 'sawtooth', f: (900 + i * 260) * p, f2: (500 + i * 120) * p, a: 0.005, d: 0.06, v: 0.05 });
+    return 0.4;
+  },
   fire_blast_cast: (k, o, t, p) => {
     k.noise(o, t, { filter: 'bandpass', f: 300 * p, f2: 1800 * p, q: 1, a: 0.06, d: 0.4, v: 0.22 });
     k.noise(o, t + 0.05, { filter: 'lowpass', f: 1200 * p, d: 0.35, v: 0.1 });

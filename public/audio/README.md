@@ -153,6 +153,7 @@ Layer files only play over a music file of their track (they start together, so 
 | chest_locked | chest_locked.ogg | Fire level: a locked chest — a dull clunk |
 | cog_key_collect | cog_key_collect.ogg | Fire level: a cog key picked up — a clockwork click and a bell |
 | elixir_drink | elixir_drink.ogg | Fire level: drinking an elixir — soft gulps and a warm shimmer |
+| spark_zap | spark_zap.ogg | Lightning level: Spark Chain — a bright electric zap through the foes |
 | fire_blast_cast | fire_blast_cast.ogg | Fire level: AJ casts the fire blast — a whooshing flare |
 | fire_blast_hit | fire_blast_hit.ogg | Fire level: the fire blast hits — a crackling burst |
 | burn_loop ↻ | burn_loop.ogg | Fire level: something burning — a soft crackle (loop) |

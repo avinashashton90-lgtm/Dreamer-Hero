@@ -116,10 +116,19 @@ class Part2 {
     this.fire.activate();
   }
 
+  /** Fire Blast and the Shield for the rest of Part 2 (the Fire Element's reward; also the ?debug starts of the later levels and "Give Fire"). */
+  grantFire() {
+    if (!this.elements.includes('fire')) this.elements.push('fire');
+    this.shieldUnlocked = true;
+    this.ui.setElements?.(this.elements, true);
+    this.syncUnlocks();
+  }
+
   /** Which Elements' abilities the shared Arsenal has (the Elements row, the buttons). */
   syncUnlocks() {
     const a = this.shared?.arsenal;
     if (!a) return;
+    a.shieldUnlocked = !!this.shieldUnlocked;
     a.fireUnlocked = this.elements.includes('fire');
     a.sparkUnlocked = this.elements.includes('lightning');
     a.steamUnlocked = this.elements.includes('steam');
@@ -201,6 +210,7 @@ class Part2 {
     if (start === 'robots') return this.showRobots();
     if (start === 'props') return this.showProps();
     if (start === 'ride') return this.enterRide();
+    if (/^(lightning|steam|magnet|time|final)/.test(start)) this.grantFire(); // (?debug: a later level comes with Fire Blast and the Shield)
     if (start === 'fire') return this.enterFire({ debug: true, id: 'fire' }); // (?debug "Fire level (start)": with 3 cog keys, 20 gems and 30 gears)
     const boss = /^(fire|lightning|steam)(Boss|Plaza)$/.exec(start); // (?debug: straight into a level's plaza / chests)
     if (boss) {
@@ -1141,12 +1151,15 @@ class Part2 {
   giveAllElements() {
     const all = P2.levels.order.every((id) => this.elements.includes(id));
     this.elements = all ? [] : [...P2.levels.order];
+    this.shieldUnlocked = !all;
     this.ui.setElements?.(this.elements, true);
     this.syncUnlocks();
   }
 
   giveFireOnly() {
-    this.elements = this.elements.length === 1 && this.elements[0] === 'fire' ? [] : ['fire'];
+    const off = this.elements.length === 1 && this.elements[0] === 'fire';
+    this.elements = off ? [] : ['fire'];
+    this.shieldUnlocked = !off; // (Fire Blast comes with the Shield)
     this.ui.setElements?.(this.elements, true);
     this.syncUnlocks();
   }

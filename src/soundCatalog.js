@@ -137,6 +137,7 @@ export const SOUNDS = {
   chest_locked: { group: 'effects', desc: 'Fire level: a locked chest — a dull clunk' },
   cog_key_collect: { group: 'effects', desc: 'Fire level: a cog key picked up — a clockwork click and a bell' },
   elixir_drink: { group: 'effects', desc: 'Fire level: drinking an elixir — soft gulps and a warm shimmer' },
+  spark_zap: { group: 'effects', desc: 'Lightning level: Spark Chain — a bright electric zap through the foes' },
   fire_blast_cast: { group: 'effects', desc: 'Fire level: AJ casts the fire blast — a whooshing flare' },
   fire_blast_hit: { group: 'effects', desc: 'Fire level: the fire blast hits — a crackling burst' },
   burn_loop: { group: 'effects', loop: true, desc: 'Fire level: something burning — a soft crackle (loop)' },

@@ -93,6 +93,8 @@ fire = p2.fire; track = fire.world.track;
 const FL = CONFIG.part2.fire;
 check(p2.at === 'fire' && p2.lvId === 'lightning' && fire.stage === 'ride' && horse.mode === 'riding' && FL.fireBossHealth === 52 && FL.accent === 0x6f6bff && ui.quest === FD.quest && FD.quest === 'Ride to the tesla gate',
   `Lightning starts: the settings are laid over Fire's (boss ${FL.fireBossHealth} HP, accent blue-violet), "${ui.quest}"`);
+check(p2.elements.includes('fire') && ui.elements.includes('fire') && fire.arsenal.has('fireBlast') && fire.arsenal.has('shield') && input.combat?.ab?.visible('fireBlast') && input.combat.ab.visible('shield'),
+  "a ?debug start of a later level comes with Fire Blast, the Shield and the lit Fire slot");
 check(fire.zaps.coils.length === 8 && fire.cfg.saws.length === 0 && fire.items.entries.filter((e) => e.chest).length === 1 && fire.items.entries.filter((e) => e.type === 'cogKey').length === 3,
   `${fire.zaps.coils.length} tesla coils instead of saws and hammers, 1 small chest, ${fire.items.entries.filter((e) => e.type === 'cogKey').length} cog keys`);
 {
@@ -117,13 +119,17 @@ check(fire.zaps.coils.length === 8 && fire.cfg.saws.length === 0 && fire.items.e
   const foes = [dummy(0, 0), dummy(0, 0), dummy(0, 0), dummy(0, 0)];
   const hp = horse.position;
   place(200, 0);
-  const f = [3, 8, 13].map((d, i) => { const x = horse.position.x + Math.sin(horse.heading) * d; const z = horse.position.z + Math.cos(horse.heading) * d; foes[i].position.set(x, 0, z); return foes[i]; });
+  const f = [3, 6, 9].map((d, i) => { const x = horse.position.x + Math.sin(horse.heading) * d; const z = horse.position.z + Math.cos(horse.heading) * d; foes[i].position.set(x, 0, z); return foes[i]; });
   foes[3].position.set(hp.x + 60, 0, hp.z + 60);
+  fire.targets = () => [foes[3]];
+  ar.cooldowns.sparkChain = 0; ui.toasts.length = 0;
+  const none = ar.use('sparkChain');
+  check(!none && ar.cooldowns.sparkChain === 0 && ui.toasts.includes('No target'), 'Spark Chain with nobody in range does nothing: no cooldown, a "No target" hint');
   const keep = fire.targets; fire.targets = () => foes;
   hero.position.copy(horse.position); hero.facing = horse.heading;
   ar.cooldowns.sparkChain = 0;
   const ok = ar.use('sparkChain');
-  check(ok && f.every((q) => q.hp < 4) && foes[3].hp === 4 && ar.cooldowns.sparkChain === FL.sparkChain.cooldown && !ar.use('sparkChain') && ar.blockReason('sparkChain') === 'cooldown', `Spark Chain hits 3 foes in range (${f.map((q) => q.hp).join(', ')}), not the far one, then a ${FL.sparkChain.cooldown} s cooldown`);
+  check(ok && f.every((q) => Math.abs(q.hp - (4 - FL.sparkChain.damage * ar.damageScale)) < 1e-6) && f.every((q) => q.stunT === undefined || q.stunT >= 0) && count('spark_zap') >= 1 && foes[3].hp === 4 && ar.cooldowns.sparkChain === FL.sparkChain.cooldown && !ar.use('sparkChain') && ar.blockReason('sparkChain') === 'cooldown', `Spark Chain hits 3 foes in range (${f.map((q) => q.hp).join(', ')}), not the far one, then a ${FL.sparkChain.cooldown} s cooldown`);
   // Steam Gust
   p2.elements.push('steam'); p2.syncUnlocks();
   const near = dummy(horse.position.x + Math.sin(horse.heading) * 4, horse.position.z + Math.cos(horse.heading) * 4);
@@ -134,7 +140,14 @@ check(fire.zaps.coils.length === 8 && fire.cfg.saws.length === 0 && fire.items.e
   await frame();
   check(gust && near.position.distanceTo(horse.position) > d0 + 4 && horse.glideT > 2 && !horse.grounded && ar.cooldowns.steamGust > 7, `Steam Gust pushes a foe back (${d0.toFixed(1)} → ${near.position.distanceTo(horse.position).toFixed(1)}) and lifts the horse into a glide (${horse.glideT.toFixed(1)} s)`);
   fire.targets = keep;
-  p2.elements.length = 0; p2.syncUnlocks(); horse.glideT = 0;
+  // (the Tesla Guardian: one hit, 2 damage)
+  const keepG = fire.guardian;
+  p2.elements = p2.elements.filter((e) => e === 'fire'); p2.syncUnlocks(); horse.glideT = 0;
+  p2.elements.push('lightning'); p2.syncUnlocks();
+  const boss = dummy(horse.position.x + Math.sin(horse.heading) * 6, horse.position.z + Math.cos(horse.heading) * 6); boss.radius = 2.6; boss.hp = 52;
+  fire.targets = () => [boss]; ar.cooldowns.sparkChain = 0; ar.use('sparkChain');
+  check(Math.abs(boss.hp - (52 - FL.sparkChain.damage * ar.damageScale)) < 1e-6, `Spark Chain also hits a boss-sized target once (${boss.hp})`);
+  fire.targets = keep; p2.elements = p2.elements.filter((e) => e === 'fire'); p2.syncUnlocks(); void keepG;
 }
 // the Tesla Guardian's plaza
 p2 = await levels.load('part2', { start: 'lightningBoss' });
